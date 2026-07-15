@@ -3,6 +3,10 @@
   <h1>Fusion-Doc V0.1</h1>
   <p><strong>Apple Silicon 原生离线智能文档知识库</strong></p>
   <p>整合 7 大开源优势 + Fusion-MLX AI，macOS 原生优化</p>
+  <p>
+    <a href="./README.md">🇨🇳 中文</a> •
+    <a href="./README_EN.md">🇬🇧 English</a>
+  </p>
 </div>
 
 ---
@@ -74,20 +78,10 @@ fusion-doc/
 ├── patches/                ← 开源补丁
 ├── data/                   ← 数据存储
 ├── .env                    ← 环境配置
-└── README.md
+├── README.md               ← 中文文档
+├── README_EN.md            ← English Doc
+└── .gitignore
 ```
-
-## 技术栈
-
-| 层 | 技术 | 说明 |
-|----|------|------|
-| **运行时** | Node.js | 单进程 HTTP 服务器 |
-| **存储** | SQLite / JSON 文件 | 零外部依赖，即开即用 |
-| **前端** | React SPA (DocMost 构建) | TipTap 编辑器 |
-| **协作** | Yjs + Hocuspocus | 实时协同编辑 |
-| **搜索** | SQLite FTS5 | 全文搜索引擎 |
-| **AI** | Fusion-MLX | 本地 Apple Silicon 推理 |
-| **导出** | 内置 + LibreOffice | PDF/Markdown/HTML/Office |
 
 ## API 概览
 
