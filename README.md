@@ -1,115 +1,116 @@
 <div align="center">
   <img src="./branding/logo.svg" width="120" alt="Fusion-Doc Logo" />
   <h1>Fusion-Doc V0.1</h1>
-  <p><strong>Apple Silicon 原生离线智能文档知识库</strong></p>
-  <p>整合 7 大开源优势 + Fusion-MLX AI，macOS 原生优化</p>
+  <p><strong>Apple Silicon Native Offline Intelligent Document Knowledge Base</strong></p>
+  <p>Integrates 7 open-source advantages + Fusion-MLX AI, macOS-native optimized</p>
   <p>
-    <a href="./README.md">🇨🇳 中文</a> •
-    <a href="./README_EN.md">🇬🇧 English</a>
+    <a href="./README_ZH.md">🇨🇳 中文</a> •
+    <a href="./README.md">🇬🇧 English</a>
   </p>
 </div>
 
 ---
 
-## 架构
+## Architecture
 
 ```
-Fusion-Doc Server (:11435) — 单进程，自包含
-  ├── 前端静态文件（TipTap 编辑器 + Yjs 协作）
-  ├── REST API（模块化路由）
-  ├── SQLite 存储（零外部依赖）
-  └── Fusion-MLX AI 调用（常驻内存）
+Fusion-Doc Server (:11435) — Single process, self-contained
+  ├── Static frontend (TipTap editor + Yjs collaboration)
+  ├── REST API (modular routing)
+  ├── SQLite storage (zero external dependencies)
+  └── Fusion-MLX AI calls (resident in memory)
 ```
 
-**零外部依赖：** 无需 PostgreSQL、Redis、NestJS、反向代理
+**Zero external dependencies:** No PostgreSQL, Redis, NestJS, or reverse proxy required.
 
-## 快速开始
+## Quick Start
 
 ```bash
-# 1. 启动（需要 Fusion-MLX 已运行）
+# 1. Start (requires Fusion-MLX already running)
 bash scripts/start.sh
 
-# 2. 访问
-#    http://localhost:11435    → 文档编辑器
-#    http://localhost:11435/api/health → 健康检查
+# 2. Access
+#    http://localhost:11435    → Document editor
+#    http://localhost:11435/api/health → Health check
 ```
 
-## 整合特性
+## Integrated Features
 
-| 来源 | 特性 | API 端点 |
-|------|------|---------|
-| **DocMost** | TipTap 编辑器 + Yjs 实时协作 | 前端内置 |
-| **DocMost** | 空间 → 目录 → 页面 结构 | `/api/workspaces` |
-| **DocMost** | 页面历史版本 + 评论 | `/api/pages/:id/versions` |
-| **DocMost** | 收藏系统 | `/api/favorites` |
-| **Wiki.js** | 模块化路由架构 | `server/routes/` |
-| **Wiki.js** | SQLite FTS5 全文搜索 | `/api/search?q=` |
-| **BookStack** | 书架→章节→页面 三层结构 | `/api/books`, `/api/chapters` |
-| **BookStack** | PDF/HTML/Markdown 导出 | `/api/export/:format/:id` |
-| **Teedy** | 标签系统 | `/api/tags` |
-| **Teedy** | 文档分类 + 工作流 | 标签 + 结构化 |
-| **Zettlr** | 双向链接 + 知识图谱 | `/api/pages/:id/links`, `/api/graph` |
-| **MacDown** | macOS 原生体验优化 | 主题 + 暗黑模式 |
-| **LibreOffice** | Office 格式转换 | 导出接口 |
-| **Fusion-MLX** | 本地 AI 聊天 | `/api/ai/chat` |
-| **Fusion-MLX** | 本地 Embedding | `/api/ai/embeddings` |
+| Source | Feature | API Endpoint |
+|--------|---------|-------------|
+| **DocMost** | TipTap editor + Yjs real-time collaboration | Built-in frontend |
+| **DocMost** | Workspace → Directory → Page structure | `/api/workspaces` |
+| **DocMost** | Page version history + comments | `/api/pages/:id/versions` |
+| **DocMost** | Favorites system | `/api/favorites` |
+| **Wiki.js** | Modular routing architecture | `server/routes/` |
+| **Wiki.js** | SQLite FTS5 full-text search | `/api/search?q=` |
+| **BookStack** | Shelf → Chapter → Page 3-tier structure | `/api/books`, `/api/chapters` |
+| **BookStack** | PDF/HTML/Markdown export | `/api/export/:format/:id` |
+| **Teedy** | Tag system | `/api/tags` |
+| **Teedy** | Document classification + workflow | Tags + structure |
+| **Zettlr** | Bidirectional links + knowledge graph | `/api/pages/:id/links`, `/api/graph` |
+| **MacDown** | macOS native experience optimization | Theme + dark mode |
+| **LibreOffice** | Office format conversion | Export interface |
+| **Fusion-MLX** | Local AI chat | `/api/ai/chat` |
+| **Fusion-MLX** | Local Embedding | `/api/ai/embeddings` |
 
-## 目录结构
+## Directory Structure
 
 ```
 fusion-doc/
-├── server/                 ← 核心服务器（自包含）
-│   ├── index.js            ← 入口
-│   ├── db.js               ← 数据库（SQLite + JSON）
-│   ├── routes/index.js     ← 路由（API 端点）
-│   ├── middleware/common.js ← 中间件
-│   └── utils/              ← 工具函数
-├── gateway/                ← 网关 + 前端
-│   ├── server.js           ← 备用入口
-│   └── public/             ← 构建的前端文件
-├── branding/               ← 品牌资源
+├── server/                 ← Core server (self-contained)
+│   ├── index.js            ← Entry point
+│   ├── db.js               ← Database (SQLite + JSON)
+│   ├── routes/index.js     ← Routes (API endpoints)
+│   ├── middleware/common.js ← Middleware
+│   └── utils/              ← Utilities
+├── gateway/                ← Gateway + frontend
+│   ├── server.js           ← Fallback entry
+│   └── public/             ← Built frontend files
+├── branding/               ← Brand assets
 │   ├── logo.svg
 │   └── favicon.svg
 ├── scripts/
-│   ├── start.sh            ← 一键启动
-│   └── setup.sh            ← 安装
-├── docs/                   ← 文档
-│   └── ANALYSIS_REPORT.md  ← 开源分析报告
-├── patches/                ← 开源补丁
-├── data/                   ← 数据存储
-├── .env                    ← 环境配置
-├── README.md               ← 中文文档
-├── README_EN.md            ← English Doc
+│   ├── start.sh            ← One-click start
+│   └── setup.sh            ← Installation
+├── docs/                   ← Documentation
+│   └── ANALYSIS_REPORT.md  ← Open-source analysis report
+├── patches/                ← Open-source patches
+├── data/                   ← Data storage
+├── .env                    ← Environment config
+├── README.md               ← Chinese documentation
+├── README.md               ← English documentation
+├── README_ZH.md            ← 中文文档
 └── .gitignore
 ```
 
-## API 概览
+## API Overview
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/health` | 健康检查 |
-| GET | `/api/system/setup` | 首次安装检测 |
-| POST | `/api/auth/setup` | 注册管理员 |
-| POST | `/api/auth/login` | 登录 |
-| GET | `/api/workspaces` | 工作空间列表 |
-| GET | `/api/books` | 书架列表 |
-| GET/POST | `/api/chapters` | 章节操作 |
-| GET/POST/PUT/DELETE | `/api/pages` | 页面 CRUD |
-| GET/POST | `/api/pages/:id/versions` | 版本历史 |
-| GET/POST | `/api/pages/:id/links` | 双向链接 |
-| GET/POST | `/api/tags` | 标签管理 |
-| GET | `/api/search?q=` | 全文搜索 |
-| GET | `/api/graph` | 知识图谱 |
-| POST | `/api/ai/chat` | AI 聊天 |
-| POST | `/api/ai/embeddings` | 向量嵌入 |
-| GET | `/api/export/:format/:id` | 文档导出 |
-| GET/POST | `/api/favorites` | 收藏管理 |
-| GET | `/api/branding` | 品牌信息 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/system/setup` | First-time setup detection |
+| POST | `/api/auth/setup` | Register admin |
+| POST | `/api/auth/login` | Login |
+| GET | `/api/workspaces` | List workspaces |
+| GET | `/api/books` | List books |
+| GET/POST | `/api/chapters` | Chapter operations |
+| GET/POST/PUT/DELETE | `/api/pages` | Page CRUD |
+| GET/POST | `/api/pages/:id/versions` | Version history |
+| GET/POST | `/api/pages/:id/links` | Bidirectional links |
+| GET/POST | `/api/tags` | Tag management |
+| GET | `/api/search?q=` | Full-text search |
+| GET | `/api/graph` | Knowledge graph |
+| POST | `/api/ai/chat` | AI chat |
+| POST | `/api/ai/embeddings` | Vector embeddings |
+| GET | `/api/export/:format/:id` | Document export |
+| GET/POST | `/api/favorites` | Favorites management |
+| GET | `/api/branding` | Branding info |
 
-## 开发
+## Development
 
 ```bash
-# 验证代码
+# Validate code
 node -c server/index.js
 node -c server/db.js
 node -c server/routes/index.js
@@ -117,12 +118,12 @@ node -c server/middleware/common.js
 node -c server/utils/helpers.js
 node -c server/utils/static.js
 
-# 启动开发模式
+# Start development mode
 bash scripts/start.sh
 ```
 
-## 许可证
+## License
 
-- **Fusion-Doc 自有代码** — MIT
-- **DocMost 前端** — AGPL-3.0
+- **Fusion-Doc own code** — MIT
+- **DocMost frontend** — AGPL-3.0
 - **Fusion-MLX** — Apache-2.0
