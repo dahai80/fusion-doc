@@ -1,31 +1,99 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0 user-scalable=no" />
-    <title>Fusion-Doc</title>
-    <meta name="theme-color" content="#1f1f1f" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-touch-fullscreen" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Fusion-Doc" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <!--meta-tags-->
-    <script type="module" crossorigin src="/assets/index-BgC9hh6t.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-aKtaBQYM.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-mantine-Cxq-_z9h.js">
-    <link rel="modulepreload" crossorigin href="/assets/shim-CF1XpAW2.js">
-    <link rel="stylesheet" crossorigin href="/assets/vendor-mantine-CCV7iihW.css">
-    <link rel="stylesheet" crossorigin href="/assets/index-Tl-UWoIA.css">
-  </head>
-  <body>
-    <div id="root"></div>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fusion-Doc</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f1f5f9; min-height: 100vh; }
+.container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+header { text-align: center; padding: 60px 0 40px; }
+header img { width: 80px; height: 80px; margin-bottom: 16px; }
+header h1 { font-size: 2.5em; font-weight: 700; background: linear-gradient(135deg, #6366f1, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+header p { color: #94a3b8; margin-top: 8px; font-size: 1.1em; }
+.features { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin: 40px 0; }
+.feature { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; transition: all 0.2s; }
+.feature:hover { border-color: #6366f1; transform: translateY(-2px); }
+.feature h3 { font-size: 1em; color: #6366f1; margin-bottom: 8px; }
+.feature p { font-size: 0.85em; color: #94a3b8; line-height: 1.5; }
+.status { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin: 40px 0; }
+.status h2 { font-size: 1.1em; margin-bottom: 16px; }
+.status-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e293b; font-size: 0.9em; }
+.status-item:last-child { border: 0; }
+.status-label { color: #94a3b8; }
+.status-value { color: #22c55e; font-weight: 500; }
+.actions { display: flex; gap: 12px; justify-content: center; margin: 40px 0; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; font-size: 0.95em; transition: all 0.2s; }
+.btn-primary { background: #6366f1; color: #fff; }
+.btn-primary:hover { background: #4f46e5; }
+.btn-secondary { background: #1e293b; border: 1px solid #334155; color: #f1f5f9; }
+.btn-secondary:hover { border-color: #6366f1; }
+.links { text-align: center; margin: 40px 0; }
+.links a { color: #6366f1; text-decoration: none; margin: 0 12px; font-size: 0.9em; }
+.links a:hover { text-decoration: underline; }
+footer { text-align: center; padding: 40px 0; color: #475569; font-size: 0.85em; }
+.badge { display: inline-block; background: #6366f1; color: #fff; padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <img src="/logo.svg" alt="Fusion-Doc">
+    <div class="badge">macOS Native · AI-Powered · 100% Offline</div>
+    <h1>Fusion-Doc</h1>
+    <p>Apple Silicon Native Offline Intelligent Document Knowledge Base</p>
+  </header>
 
-    <!--window-config-->
+  <div class="actions">
+    <a href="/home" class="btn btn-primary">Open Editor</a>
+    <a href="/api/health" class="btn btn-secondary">API Status</a>
+    <a href="https://github.com/dahai80/fusion-doc" class="btn btn-secondary" target="_blank">GitHub</a>
+  </div>
 
-  </body>
+  <div class="status" id="status">
+    <h2>System Status</h2>
+    <div class="status-item"><span class="status-label">Server</span><span class="status-value" id="srv">Checking...</span></div>
+    <div class="status-item"><span class="status-label">Fusion-MLX AI</span><span class="status-value" id="mlx">Checking...</span></div>
+    <div class="status-item"><span class="status-label">Version</span><span class="status-value" id="ver">-</span></div>
+  </div>
+
+  <div class="features">
+    <div class="feature"><h3>TipTap Editor</h3><p>Rich text editor with Markdown support, tables, images, and code blocks. Based on DocMost.</p></div>
+    <div class="feature"><h3>Real-time Collaboration</h3><p>Yjs CRDT-based multi-user editing with Hocuspocus WebSocket sync. Based on DocMost.</p></div>
+    <div class="feature"><h3>Book→Chapter→Page</h3><p>Three-tier document structure for organized knowledge management. Based on BookStack.</p></div>
+    <div class="feature"><h3>Full-text Search</h3><p>SQLite FTS5 powered search with tag filtering. Based on Wiki.js.</p></div>
+    <div class="feature"><h3>Knowledge Graph</h3><p>Bidirectional links between pages with interactive graph visualization. Based on Zettlr.</p></div>
+    <div class="feature"><h3>Tag System</h3><p>Color-coded tags with document classification workflows. Based on Teedy.</p></div>
+    <div class="feature"><h3>Version History</h3><p>Track changes with page versioning and diff viewer. Based on DocMost.</p></div>
+    <div class="feature"><h3>AI Chat</h3><p>Local LLM inference via Fusion-MLX on Apple Silicon. Zero data leaves your device.</p></div>
+    <div class="feature"><h3>Office Import</h3><p>Upload DOCX/XLSX/PPTX with automatic text extraction. Based on LibreOffice.</p></div>
+    <div class="feature"><h3>macOS Native</h3><p>Optimized for Apple Silicon with dark mode, trackpad, and file system integration. Based on MacDown.</p></div>
+    <div class="feature"><h3>Webhook Automation</h3><p>Trigger external services on document events. Based on Teedy.</p></div>
+    <div class="feature"><h3>RAG Pipeline</h3><p>Document indexing and AI Q&A with vector embeddings via Fusion-MLX.</p></div>
+  </div>
+
+  <div class="links">
+    <a href="./README.md">Documentation</a>
+    <a href="./README_ZH.md">中文文档</a>
+    <a href="/api/branding">Branding API</a>
+  </div>
+
+  <footer>
+    Fusion-Doc V0.1 · MIT License · Built with ♥ for Apple Silicon
+  </footer>
+</div>
+
+<script>
+fetch('/api/health').then(r=>r.json()).then(d=>{
+  document.getElementById('srv').textContent = 'Running';
+  document.getElementById('mlx').textContent = d.mlx ? 'Connected' : 'Disconnected';
+  document.getElementById('ver').textContent = d.version || '0.1.0';
+}).catch(()=>{
+  document.getElementById('srv').textContent = 'Offline';
+  document.getElementById('mlx').textContent = 'Unknown';
+});
+</script>
+</body>
 </html>

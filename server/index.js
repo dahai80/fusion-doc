@@ -30,6 +30,8 @@ initDB();
 
 // ── 创建 HTTP 服务器 ──────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
+  // Request logging
+  console.log(`[${new Date().toISOString().slice(11,19)}] ${req.method} ${req.url}`);
   // CORS
   cors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
