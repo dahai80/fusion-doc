@@ -6,94 +6,342 @@
 <title>Fusion-Doc</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f1f5f9; min-height: 100vh; }
-.container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
-header { text-align: center; padding: 60px 0 40px; }
-header img { width: 80px; height: 80px; margin-bottom: 16px; }
-header h1 { font-size: 2.5em; font-weight: 700; background: linear-gradient(135deg, #6366f1, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-header p { color: #94a3b8; margin-top: 8px; font-size: 1.1em; }
-.features { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin: 40px 0; }
-.feature { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; transition: all 0.2s; }
-.feature:hover { border-color: #6366f1; transform: translateY(-2px); }
-.feature h3 { font-size: 1em; color: #6366f1; margin-bottom: 8px; }
-.feature p { font-size: 0.85em; color: #94a3b8; line-height: 1.5; }
-.status { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin: 40px 0; }
-.status h2 { font-size: 1.1em; margin-bottom: 16px; }
-.status-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e293b; font-size: 0.9em; }
-.status-item:last-child { border: 0; }
-.status-label { color: #94a3b8; }
-.status-value { color: #22c55e; font-weight: 500; }
-.actions { display: flex; gap: 12px; justify-content: center; margin: 40px 0; flex-wrap: wrap; }
-.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; font-size: 0.95em; transition: all 0.2s; }
-.btn-primary { background: #6366f1; color: #fff; }
-.btn-primary:hover { background: #4f46e5; }
-.btn-secondary { background: #1e293b; border: 1px solid #334155; color: #f1f5f9; }
-.btn-secondary:hover { border-color: #6366f1; }
-.links { text-align: center; margin: 40px 0; }
-.links a { color: #6366f1; text-decoration: none; margin: 0 12px; font-size: 0.9em; }
-.links a:hover { text-decoration: underline; }
-footer { text-align: center; padding: 40px 0; color: #475569; font-size: 0.85em; }
-.badge { display: inline-block; background: #6366f1; color: #fff; padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: 600; margin-bottom: 12px; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#f1f5f9;min-height:100vh}
+.hidden{display:none!important}
+/* Nav */
+nav{display:flex;align-items:center;gap:16px;padding:12px 24px;background:#1e293b;border-bottom:1px solid #334155}
+nav .logo{display:flex;align-items:center;gap:8px;font-weight:600;color:#6366f1;text-decoration:none}
+nav .logo img{width:28px;height:28px}
+nav .nav-links{display:flex;gap:8px;margin-left:auto}
+nav .nav-links a{padding:6px 14px;border-radius:6px;color:#94a3b8;text-decoration:none;font-size:0.85em;transition:all .2s}
+nav .nav-links a:hover{color:#f1f5f9;background:#334155}
+nav .nav-links a.active{color:#6366f1;background:rgba(99,102,241,.15)}
+/* Layout */
+.container{max-width:1200px;margin:0 auto;padding:24px}
+/* Landing */
+.landing{text-align:center;padding:60px 20px 40px}
+.landing img{width:80px;margin-bottom:16px}
+.landing .badge{display:inline-block;background:#6366f1;color:#fff;padding:4px 16px;border-radius:20px;font-size:.75em;font-weight:600;margin-bottom:12px}
+.landing h1{font-size:2.5em;font-weight:700;background:linear-gradient(135deg,#6366f1,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.landing p{color:#94a3b8;margin-top:8px;font-size:1.1em}
+.actions{display:flex;gap:12px;justify-content:center;margin:32px 0;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:8px;text-decoration:none;font-weight:500;font-size:.9em;border:none;cursor:pointer;transition:all .2s}
+.btn-primary{background:#6366f1;color:#fff}
+.btn-primary:hover{background:#4f46e5}
+.btn-secondary{background:#1e293b;border:1px solid #334155;color:#f1f5f9}
+.btn-secondary:hover{border-color:#6366f1}
+.btn-sm{padding:6px 14px;font-size:.8em}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-danger:hover{background:#dc2626}
+/* Status */
+.status{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin:32px 0}
+.status h2{font-size:1em;margin-bottom:12px;color:#94a3b8}
+.status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.status-item{display:flex;justify-content:space-between;padding:8px 12px;background:#0f172a;border-radius:6px;font-size:.85em}
+.status-label{color:#94a3b8}
+.status-value{color:#22c55e;font-weight:500}
+/* Features */
+.features{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin:32px 0}
+.feature{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;transition:all .2s}
+.feature:hover{border-color:#6366f1}
+.feature h3{font-size:.9em;color:#6366f1;margin-bottom:4px}
+.feature p{font-size:.8em;color:#94a3b8;line-height:1.5}
+/* Editor */
+.editor-layout{display:grid;grid-template-columns:280px 1fr;gap:16px;height:calc(100vh - 60px)}
+.sidebar{background:#1e293b;border-radius:8px;padding:16px;overflow-y:auto}
+.sidebar h3{font-size:.85em;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}
+.sidebar .doc-item{padding:8px 12px;border-radius:6px;cursor:pointer;font-size:.85em;color:#cbd5e1;transition:all .2s;margin-bottom:4px}
+.sidebar .doc-item:hover{background:#334155}
+.sidebar .doc-item.active{background:rgba(99,102,241,.15);color:#6366f1}
+.editor-main{display:flex;flex-direction:column;gap:16px}
+.editor-toolbar{display:flex;gap:8px;padding:12px 16px;background:#1e293b;border-radius:8px;flex-wrap:wrap}
+.editor-toolbar button{padding:6px 12px;border-radius:4px;border:1px solid #334155;background:transparent;color:#cbd5e1;cursor:pointer;font-size:.8em}
+.editor-toolbar button:hover{background:#334155}
+.editor-content{flex:1;display:flex;flex-direction:column;gap:12px}
+.editor-content input{width:100%;padding:12px 16px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:1.2em;font-weight:600}
+.editor-content textarea{flex:1;width:100%;padding:16px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:.9em;font-family:monospace;resize:none;line-height:1.6}
+/* AI Chat */
+.chat-container{display:grid;grid-template-columns:1fr 1fr;gap:16px;height:calc(100vh - 60px)}
+.chat-history{background:#1e293b;border-radius:8px;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.chat-msg{padding:10px 14px;border-radius:8px;font-size:.85em;line-height:1.5}
+.chat-msg.user{background:rgba(99,102,241,.15);margin-left:24px}
+.chat-msg.assistant{background:#1e293b;border:1px solid #334155;margin-right:24px}
+.chat-msg .role{font-size:.75em;color:#6366f1;font-weight:600;margin-bottom:4px}
+.chat-input-area{display:flex;flex-direction:column;gap:12px}
+.chat-input-area textarea{flex:1;padding:12px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:.9em;resize:none}
+.chat-actions{display:flex;gap:8px}
+/* KB */
+.kb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.kb-card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;transition:all .2s}
+.kb-card:hover{border-color:#6366f1}
+.kb-card h3{font-size:.9em;color:#f1f5f9;margin-bottom:4px}
+.kb-card p{font-size:.8em;color:#94a3b8}
+footer{text-align:center;padding:40px;color:#475569;font-size:.8em}
 </style>
 </head>
 <body>
-<div class="container">
-  <header>
-    <img src="/logo.svg" alt="Fusion-Doc">
-    <div class="badge">macOS Native · AI-Powered · 100% Offline</div>
-    <h1>Fusion-Doc</h1>
-    <p>Apple Silicon Native Offline Intelligent Document Knowledge Base</p>
-  </header>
+<nav>
+  <a href="/" class="logo" onclick="return showPage('home')"><img src="/logo.svg" alt="">Fusion-Doc</a>
+  <div class="nav-links">
+    <a href="/" class="active" data-page="home" onclick="return showPage('home')">Home</a>
+    <a href="/editor" data-page="editor" onclick="return showPage('editor')">Editor</a>
+    <a href="/chat" data-page="chat" onclick="return showPage('chat')">AI Chat</a>
+    <a href="/kb" data-page="kb" onclick="return showPage('kb')">Knowledge</a>
+  </div>
+</nav>
 
+<div class="container">
+<!-- HOME -->
+<div id="page-home" class="landing">
+  <img src="/logo.svg" alt="">
+  <div class="badge">macOS Native · AI-Powered · 100% Offline</div>
+  <h1>Fusion-Doc</h1>
+  <p>Apple Silicon Native Offline Intelligent Document Knowledge Base</p>
   <div class="actions">
-    <a href="/home" class="btn btn-primary">Open Editor</a>
-    <a href="/api/health" class="btn btn-secondary">API Status</a>
+    <button class="btn btn-primary" onclick="showPage('editor')">Open Editor</button>
+    <a href="/api/health" class="btn btn-secondary" target="_blank">API Status</a>
     <a href="https://github.com/dahai80/fusion-doc" class="btn btn-secondary" target="_blank">GitHub</a>
   </div>
+  <div class="status"><h2>System Status</h2><div class="status-grid" id="status-grid"></div></div>
+  <div class="features" id="features-grid"></div>
+  <footer>Fusion-Doc V0.1 · MIT License · Built for Apple Silicon</footer>
+</div>
 
-  <div class="status" id="status">
-    <h2>System Status</h2>
-    <div class="status-item"><span class="status-label">Server</span><span class="status-value" id="srv">Checking...</span></div>
-    <div class="status-item"><span class="status-label">Fusion-MLX AI</span><span class="status-value" id="mlx">Checking...</span></div>
-    <div class="status-item"><span class="status-label">Version</span><span class="status-value" id="ver">-</span></div>
+<!-- EDITOR -->
+<div id="page-editor" class="hidden editor-layout">
+  <div class="sidebar">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3>Documents</h3>
+      <button class="btn btn-sm btn-primary" onclick="newDoc()">+ New</button>
+    </div>
+    <div id="doc-list"></div>
   </div>
-
-  <div class="features">
-    <div class="feature"><h3>TipTap Editor</h3><p>Rich text editor with Markdown support, tables, images, and code blocks. Based on DocMost.</p></div>
-    <div class="feature"><h3>Real-time Collaboration</h3><p>Yjs CRDT-based multi-user editing with Hocuspocus WebSocket sync. Based on DocMost.</p></div>
-    <div class="feature"><h3>Book→Chapter→Page</h3><p>Three-tier document structure for organized knowledge management. Based on BookStack.</p></div>
-    <div class="feature"><h3>Full-text Search</h3><p>SQLite FTS5 powered search with tag filtering. Based on Wiki.js.</p></div>
-    <div class="feature"><h3>Knowledge Graph</h3><p>Bidirectional links between pages with interactive graph visualization. Based on Zettlr.</p></div>
-    <div class="feature"><h3>Tag System</h3><p>Color-coded tags with document classification workflows. Based on Teedy.</p></div>
-    <div class="feature"><h3>Version History</h3><p>Track changes with page versioning and diff viewer. Based on DocMost.</p></div>
-    <div class="feature"><h3>AI Chat</h3><p>Local LLM inference via Fusion-MLX on Apple Silicon. Zero data leaves your device.</p></div>
-    <div class="feature"><h3>Office Import</h3><p>Upload DOCX/XLSX/PPTX with automatic text extraction. Based on LibreOffice.</p></div>
-    <div class="feature"><h3>macOS Native</h3><p>Optimized for Apple Silicon with dark mode, trackpad, and file system integration. Based on MacDown.</p></div>
-    <div class="feature"><h3>Webhook Automation</h3><p>Trigger external services on document events. Based on Teedy.</p></div>
-    <div class="feature"><h3>RAG Pipeline</h3><p>Document indexing and AI Q&A with vector embeddings via Fusion-MLX.</p></div>
+  <div class="editor-main">
+    <div class="editor-toolbar">
+      <button onclick="execCmd('bold')"><b>B</b></button>
+      <button onclick="execCmd('italic')"><i>I</i></button>
+      <button onclick="execCmd('underline')"><u>U</u></button>
+      <button onclick="execCmd('strikeThrough')"><s>S</s></button>
+      <span style="color:#334155">|</span>
+      <button onclick="execCmd('formatBlock','h1')">H1</button>
+      <button onclick="execCmd('formatBlock','h2')">H2</button>
+      <button onclick="execCmd('formatBlock','h3')">H3</button>
+      <span style="color:#334155">|</span>
+      <button onclick="execCmd('insertUnorderedList')">UL</button>
+      <button onclick="execCmd('insertOrderedList')">OL</button>
+      <span style="color:#334155">|</span>
+      <button onclick="saveDoc()">💾 Save</button>
+      <button onclick="exportDoc()">📥 Export</button>
+      <button onclick="deleteDoc()" style="color:#ef4444">🗑 Delete</button>
+    </div>
+    <div class="editor-content">
+      <input id="doc-title" placeholder="Document title..." oninput="autoSave()">
+      <div id="doc-editor" contenteditable="true" style="flex:1;padding:16px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:.9em;line-height:1.6;overflow-y:auto;outline:none" placeholder="Start writing..."></div>
+    </div>
   </div>
+</div>
 
-  <div class="links">
-    <a href="./README.md">Documentation</a>
-    <a href="./README_ZH.md">中文文档</a>
-    <a href="/api/branding">Branding API</a>
+<!-- AI CHAT -->
+<div id="page-chat" class="hidden chat-container">
+  <div class="chat-history" id="chat-history">
+    <div style="color:#475569;text-align:center;padding:40px;font-size:.9em">Ask anything about your documents</div>
   </div>
+  <div class="chat-input-area">
+    <textarea id="chat-input" placeholder="Type your question..." rows="4"></textarea>
+    <div class="chat-actions">
+      <button class="btn btn-primary" onclick="sendChat()">Send</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('chat-input').value=''">Clear</button>
+    </div>
+  </div>
+</div>
 
-  <footer>
-    Fusion-Doc V0.1 · MIT License · Built with ♥ for Apple Silicon
-  </footer>
+<!-- KNOWLEDGE BASE -->
+<div id="page-kb" class="hidden">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h2>Knowledge Base</h2>
+    <button class="btn btn-sm btn-primary" onclick="indexAll()">Index All</button>
+  </div>
+  <div class="kb-grid" id="kb-grid"></div>
+</div>
 </div>
 
 <script>
-fetch('/api/health').then(r=>r.json()).then(d=>{
-  document.getElementById('srv').textContent = 'Running';
-  document.getElementById('mlx').textContent = d.mlx ? 'Connected' : 'Disconnected';
-  document.getElementById('ver').textContent = d.version || '0.1.0';
-}).catch(()=>{
-  document.getElementById('srv').textContent = 'Offline';
-  document.getElementById('mlx').textContent = 'Unknown';
-});
+let currentDoc = null;
+let docs = [];
+
+// ── Page Router ──────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('[id^="page-"]').forEach(p => p.classList.add('hidden'));
+  document.getElementById('page-' + name).classList.remove('hidden');
+  document.querySelectorAll('[data-page]').forEach(a => a.classList.remove('active'));
+  document.querySelector('[data-page="' + name + '"]')?.classList.add('active');
+  if (name === 'editor') loadDocs();
+  if (name === 'chat') loadChat();
+  if (name === 'kb') loadKB();
+  if (name === 'home') loadHome();
+  return false;
+}
+
+// ── API Helper ───────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch('/api' + path, opts);
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+// ── Home ─────────────────────────────────────────────────────────────────
+async function loadHome() {
+  const grid = document.getElementById('status-grid');
+  try {
+    const h = await api('GET', '/health');
+    grid.innerHTML = `
+      <div class="status-item"><span class="status-label">Server</span><span class="status-value">Running</span></div>
+      <div class="status-item"><span class="status-label">Fusion-MLX</span><span class="status-value">${h.mlx ? 'Connected' : 'Offline'}</span></div>
+      <div class="status-item"><span class="status-label">Version</span><span class="status-value">${h.version}</span></div>
+      <div class="status-item"><span class="status-label">Features</span><span class="status-value">${Object.keys(h.features).length}</span></div>`;
+  } catch(e) { grid.innerHTML = '<div class="status-item"><span class="status-label">Server</span><span class="status-value" style="color:#ef4444">Offline</span></div>'; }
+  const fg = document.getElementById('features-grid');
+  const features = [
+    ['TipTap Editor', 'Rich text with Markdown, tables, code blocks (DocMost)'],
+    ['Real-time Collab', 'Yjs CRDT multi-user editing (DocMost)'],
+    ['Book→Chapter→Page', '3-tier document structure (BookStack)'],
+    ['Full-text Search', 'SQLite FTS5 + tag filtering (Wiki.js)'],
+    ['Knowledge Graph', 'Bidirectional links + graph viz (Zettlr)'],
+    ['Tag System', 'Color-coded tags + workflows (Teedy)'],
+    ['Version History', 'Page versioning with diff (DocMost)'],
+    ['AI Chat', 'Local LLM via Fusion-MLX on Apple Silicon'],
+    ['Office Import', 'DOCX/XLSX/PPTX text extraction (LibreOffice)'],
+    ['macOS Native', 'Dark mode, trackpad, FS integration (MacDown)'],
+    ['Webhooks', 'Event-driven automation (Teedy)'],
+    ['RAG Pipeline', 'Vector embeddings + AI Q&A (Fusion-MLX)'],
+  ];
+  fg.innerHTML = features.map(f => `<div class="feature"><h3>${f[0]}</h3><p>${f[1]}</p></div>`).join('');
+}
+
+// ── Editor ───────────────────────────────────────────────────────────────
+async function loadDocs() {
+  try {
+    const r = await api('GET', '/pages');
+    docs = r.data || [];
+    const list = document.getElementById('doc-list');
+    list.innerHTML = docs.map(d => `<div class="doc-item${currentDoc && currentDoc.id === d.id ? ' active' : ''}" onclick="openDoc('${d.id}')">${d.title}</div>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function newDoc() {
+  const r = await api('POST', '/pages', { title: 'New Document', content: '', markdown: '' });
+  currentDoc = r;
+  document.getElementById('doc-title').value = r.title;
+  document.getElementById('doc-editor').innerHTML = r.content || '';
+  loadDocs();
+}
+
+async function openDoc(id) {
+  const r = await api('GET', '/pages/' + id);
+  currentDoc = r;
+  document.getElementById('doc-title').value = r.title;
+  document.getElementById('doc-editor').innerHTML = r.content || '';
+  loadDocs();
+}
+
+async function saveDoc() {
+  if (!currentDoc) return;
+  const title = document.getElementById('doc-title').value;
+  const content = document.getElementById('doc-editor').innerHTML;
+  await api('PUT', '/pages/' + currentDoc.id, { title, content });
+  // Save version
+  await api('POST', '/pages/' + currentDoc.id + '/versions', { title, content });
+  currentDoc.title = title;
+  loadDocs();
+}
+
+let autoSaveTimer = null;
+function autoSave() { clearTimeout(autoSaveTimer); autoSaveTimer = setTimeout(saveDoc, 3000); }
+
+async function deleteDoc() {
+  if (!currentDoc || !confirm('Delete this document?')) return;
+  await api('DELETE', '/pages/' + currentDoc.id);
+  currentDoc = null;
+  document.getElementById('doc-title').value = '';
+  document.getElementById('doc-editor').innerHTML = '';
+  loadDocs();
+}
+
+async function exportDoc() {
+  if (!currentDoc) return;
+  const r = await api('GET', '/export/markdown/' + currentDoc.id);
+  const blob = new Blob([r], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (currentDoc.title || 'doc') + '.md';
+  a.click();
+}
+
+function execCmd(cmd, val) {
+  document.execCommand(cmd, false, val);
+  document.getElementById('doc-editor').focus();
+}
+
+// ── AI Chat ──────────────────────────────────────────────────────────────
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const q = input.value.trim();
+  if (!q) return;
+  const history = document.getElementById('chat-history');
+  history.innerHTML += '<div class="chat-msg user"><div class="role">You</div>' + escapeHtml(q) + '</div>';
+  input.value = '';
+  history.innerHTML += '<div class="chat-msg assistant"><div class="role">Fusion-Doc AI</div><em>Thinking...</em></div>';
+  history.scrollTop = history.scrollHeight;
+  try {
+    const r = await api('POST', '/ai/chat', { messages: [{ role: 'user', content: q }], stream: false });
+    const answer = r.choices?.[0]?.message?.content || 'No response';
+    history.querySelector('.chat-msg:last-child').innerHTML = '<div class="role">Fusion-Doc AI</div>' + escapeHtml(answer);
+  } catch(e) {
+    history.querySelector('.chat-msg:last-child').innerHTML = '<div class="role">Fusion-Doc AI</div><span style="color:#ef4444">Error: ' + e.message + '</span>';
+  }
+  history.scrollTop = history.scrollHeight;
+}
+
+function loadChat() {
+  document.getElementById('chat-history').innerHTML = '<div style="color:#475569;text-align:center;padding:40px;font-size:.9em">Ask anything about your documents</div>';
+}
+
+// ── Knowledge Base ───────────────────────────────────────────────────────
+async function loadKB() {
+  const grid = document.getElementById('kb-grid');
+  grid.innerHTML = '<div style="color:#475569;text-align:center;padding:40px">Index your documents for AI-powered search and Q&A</div>';
+}
+
+async function indexAll() {
+  const btn = document.querySelector('#page-kb .btn');
+  btn.textContent = 'Indexing...';
+  btn.disabled = true;
+  try {
+    const r = await api('GET', '/pages');
+    const pages = r.data || [];
+    let count = 0;
+    for (const page of pages) {
+      try {
+        await api('POST', '/rag/index', { page_id: page.id });
+        count++;
+      } catch(e) {}
+    }
+    document.getElementById('kb-grid').innerHTML = '<div style="color:#22c55e;text-align:center;padding:40px">Indexed ' + count + ' documents successfully</div>';
+  } catch(e) {
+    document.getElementById('kb-grid').innerHTML = '<div style="color:#ef4444;text-align:center;padding:40px">Indexing failed: ' + e.message + '</div>';
+  }
+  btn.textContent = 'Index All';
+  btn.disabled = false;
+}
+
+// ── Utils ────────────────────────────────────────────────────────────────
+function escapeHtml(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Init ─────────────────────────────────────────────────────────────────
+loadHome();
 </script>
 </body>
 </html>
