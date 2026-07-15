@@ -42,6 +42,13 @@ const server = http.createServer(async (req, res) => {
     const handled = await router(req, res);
     if (handled) return;
 
+    // 如果是 /api/ 但未匹配，返回 404
+    if (req.url.startsWith('/api/')) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'API endpoint not found' }));
+      return;
+    }
+
     // 静态资源文件
     const assetPaths = ['/assets/', '/icons/', '/manifest.json', '/vite.svg', '/locales/', '/branding/'];
     if (assetPaths.some(p => req.url.startsWith(p))) {
