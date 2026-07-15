@@ -338,6 +338,194 @@ async function router(req, res) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // 文件上传 / 下载（Teedy 文档管理）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/files' && method === 'GET') {
+    const pageId = url.searchParams.get('pageId');
+    let data;
+    if (db) {
+      data = pageId ? db.prepare('SELECT id, name, mime, size, page_id, created_at FROM files WHERE page_id = ?').all(pageId) : db.prepare('SELECT id, name, mime, size, page_id, created_at FROM files ORDER BY created_at DESC').all();
+    } else { data = listJSON('files').filter(f => !pageId || f.page_id === pageId); }
+    return json({ data });
+  }
+
+  if (pathname === '/api/files/upload' && method === 'POST') {
+    // 简单 base64 上传（实际应用应使用 multipart/form-data）
+    const body = await parseBody(req);
+    const fileId = uid();
+    const ext = path.extname(body.name || 'file.bin');
+    const fileName = fileId + ext;
+    const storageDir = path.join(__dirname, '..', '..', 'data', 'storage');
+    fs.mkdirSync(storageDir, { recursive: true });
+    const buf = Buffer.from(body.content || '', 'base64');
+    fs.writeFileSync(path.join(storageDir, fileName), buf);
+
+    const file = {
+      id: fileId, name: body.name || 'untitled', path: fileName,
+      mime: body.mime || 'application/octet-stream', size: buf.length,
+      page_id: body.page_id || null, encrypted: 0,
+      created_at: now(),
+    };
+    if (db) {
+      db.prepare('INSERT INTO files (id, name, path, mime, size, page_id, encrypted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(file.id, file.name, file.path, file.mime, file.size, file.page_id, file.encrypted, file.created_at);
+    } else { writeJSON('files', file.id, file); }
+
+    // 尝试提取 Office 文档文本内容（LibreOffice）
+    if (['.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp'].includes(ext)) {
+      try {
+        const execSync = require('child_process').execSync;
+        const txtPath = path.join(storageDir, fileId + '.txt');
+        execSync(`pandoc "${path.join(storageDir, fileName)}" -t plain -o "${txtPath}" 2>/dev/null || libreoffice --headless --convert-to txt --outdir "${storageDir}" "${path.join(storageDir, fileName)}" 2>/dev/null || true`);
+        if (fs.existsSync(txtPath)) {
+          file.extracted_text = fs.readFileSync(txtPath, 'utf-8').slice(0, 50000);
+          fs.unlinkSync(txtPath);
+        }
+      } catch (e) { /* Office 转换不可用，忽略 */ }
+    }
+
+    return json(file, 201);
+  }
+
+  if (pathname.startsWith('/api/files/') && method === 'GET') {
+    const fileId = pathname.replace('/api/files/', '');
+    let file = db ? db.prepare('SELECT * FROM files WHERE id = ?').get(fileId) : readJSON('files', fileId);
+    if (!file) return json({ error: 'File not found' }, 404);
+    const storageDir = path.join(__dirname, '..', '..', 'data', 'storage');
+    const filePath = path.join(storageDir, file.path);
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath);
+      res.writeHead(200, {
+        'Content-Type': file.mime,
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`,
+        'Content-Length': data.length,
+      });
+      res.end(data);
+      return true;
+    }
+    return json({ error: 'File not found on disk' }, 404);
+  }
+
+  if (pathname.startsWith('/api/files/') && method === 'DELETE') {
+    const fileId = pathname.replace('/api/files/', '');
+    let file = db ? db.prepare('SELECT * FROM files WHERE id = ?').get(fileId) : readJSON('files', fileId);
+    if (file) {
+      const storageDir = path.join(__dirname, '..', '..', 'data', 'storage');
+      const fp = path.join(storageDir, file.path);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      db ? db.prepare('DELETE FROM files WHERE id = ?').run(fileId) : deleteJSON('files', fileId);
+    }
+    return json({ deleted: true });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 评论 CRUD（DocMost 评论系统）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/comments' && method === 'GET') {
+    const pageId = url.searchParams.get('pageId');
+    let data = db ? db.prepare('SELECT * FROM comments WHERE page_id = ? ORDER BY created_at').all(pageId) : [];
+    return json({ data });
+  }
+
+  if (pathname === '/api/comments' && method === 'POST') {
+    const body = await parseBody(req);
+    const comment = { id: uid(), page_id: body.page_id, user_id: 'local', content: body.content, parent_id: body.parent_id || null, created_at: now() };
+    if (db) { db.prepare('INSERT INTO comments (id, page_id, user_id, content, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(comment.id, comment.page_id, comment.user_id, comment.content, comment.parent_id, comment.created_at); }
+    return json(comment, 201);
+  }
+
+  if (pathname.startsWith('/api/comments/') && method === 'DELETE') {
+    const commentId = pathname.replace('/api/comments/', '');
+    if (db) { db.prepare('DELETE FROM comments WHERE id = ?').run(commentId); }
+    return json({ deleted: true });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 活动日志（Wiki.js 审计追踪）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/activity' && method === 'GET') {
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    let data = db ? db.prepare('SELECT * FROM activity ORDER BY created_at DESC LIMIT ?').all(limit) : [];
+    return json({ data });
+  }
+
+  if (pathname === '/api/activity' && method === 'POST') {
+    const body = await parseBody(req);
+    if (db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, user_id TEXT, action TEXT, target_type TEXT, target_id TEXT, metadata TEXT, created_at TEXT)`);
+      db.prepare('INSERT INTO activity (id, user_id, action, target_type, target_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), body.user_id || 'local', body.action, body.target_type || '', body.target_id || '', JSON.stringify(body.metadata || {}), now());
+    }
+    return json({ logged: true }, 201);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 用户管理
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/users' && method === 'GET') {
+    let data = db ? db.prepare('SELECT id, email, name, role, avatar, created_at FROM users ORDER BY name').all() : listJSON('users').map(u => ({ id: u.id, email: u.email, name: u.name, role: u.role }));
+    return json({ data });
+  }
+
+  if (pathname === '/api/users/update' && method === 'POST') {
+    const body = await parseBody(req);
+    if (db) { db.prepare('UPDATE users SET name = ?, email = ? WHERE id = ?').run(body.name, body.email, body.id || 'local'); }
+    return json({ updated: true });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // RAG 文档索引（Fusion-MLX 知识库问答）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/rag/index' && method === 'POST') {
+    const body = await parseBody(req);
+    const pageId = body.page_id;
+    let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) : readJSON('pages', pageId);
+    if (!page) return json({ error: 'Page not found' }, 404);
+
+    const text = (page.title + '\n\n' + (page.markdown || page.content || '')).slice(0, 50000);
+    // 调用 Fusion-MLX 生成 embedding
+    try {
+      const resp = await fetch(`${req.ctx.FUSION_MLX_URL}/v1/embeddings`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'bge-small-en-v1.5', input: [text] }),
+      });
+      const data = await resp.json();
+      // 存储向量索引到数据库
+      const vector = JSON.stringify(data.data[0].embedding);
+      if (db) {
+        db.exec(`CREATE TABLE IF NOT EXISTS rag_index (id TEXT PRIMARY KEY, page_id TEXT UNIQUE, chunk TEXT, vector TEXT, created_at TEXT)`);
+        db.prepare('INSERT OR REPLACE INTO rag_index (id, page_id, chunk, vector, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), pageId, text.slice(0, 2000), vector, now());
+      }
+      return json({ indexed: true, dimensions: data.data[0].embedding.length });
+    } catch (e) {
+      return json({ error: `Embedding failed: ${e.message}` }, 500);
+    }
+  }
+
+  if (pathname === '/api/rag/query' && method === 'POST') {
+    const body = await parseBody(req);
+    const question = body.question || '';
+    if (!question) return json({ error: 'Question required' }, 400);
+
+    // 直接调用 Fusion-MLX 问答
+    try {
+      const resp = await fetch(`${req.ctx.FUSION_MLX_URL}/v1/chat/completions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: body.model || 'Qwen3.5-9B-4bit',
+          messages: [
+            { role: 'system', content: 'You are a helpful document assistant. Answer based on the indexed knowledge base.' },
+            { role: 'user', content: question },
+          ],
+          stream: false,
+        }),
+      });
+      const data = await resp.json();
+      return json({ answer: data.choices?.[0]?.message?.content || '', sources: [] });
+    } catch (e) {
+      return json({ error: `AI query failed: ${e.message}` }, 500);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // 品牌信息
   // ═══════════════════════════════════════════════════════════════════════
   if (pathname === '/api/branding' && method === 'GET') {
