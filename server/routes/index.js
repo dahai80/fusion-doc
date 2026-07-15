@@ -526,6 +526,143 @@ async function router(req, res) {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // 高级搜索（BookStack 多维度搜索）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/search/advanced' && method === 'GET') {
+    const q = (url.searchParams.get('q') || '').trim();
+    const tag = url.searchParams.get('tag');
+    const type = url.searchParams.get('type'); // page, book, chapter
+    const sort = url.searchParams.get('sort') || 'updated_at';
+    const order = url.searchParams.get('order') || 'DESC';
+    if (!q && !tag) return json({ data: [] });
+
+    let results = [];
+    if (db) {
+      let sql = 'SELECT DISTINCT p.* FROM pages p';
+      const params = [];
+      const wheres = [];
+      if (q) {
+        sql += ' JOIN pages_fts f ON f.rowid = p.rowid';
+        wheres.push('pages_fts MATCH ?');
+        params.push(q.replace(/[^\w\u4e00-\u9fff]/g, '') + '*');
+      }
+      if (tag) {
+        sql += ' JOIN page_tags pt ON pt.page_id = p.id JOIN tags t ON t.id = pt.tag_id';
+        wheres.push('t.name = ?');
+        params.push(tag);
+      }
+      if (type) {
+        // type 搜索：book/chapter 级别
+        wheres.push('(p.book_id IS NOT NULL OR p.chapter_id IS NOT NULL)');
+      }
+      if (wheres.length) sql += ' WHERE ' + wheres.join(' AND ');
+      sql += ` ORDER BY p.${sort} ${order} LIMIT 50`;
+      results = db.prepare(sql).all(...params);
+    }
+    return json({ data: results, query: q, tag, total: results.length });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 主题系统（BookStack 主题管理）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/theme' && method === 'GET') {
+    let theme = { primary: '#6366f1', secondary: '#06b6d4', background: '#0f172a', surface: '#1e293b', text: '#f1f5f9', mode: 'dark' };
+    if (db) {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get();
+      if (row) theme = JSON.parse(row.value);
+    }
+    return json(theme);
+  }
+
+  if (pathname === '/api/theme' && method === 'POST') {
+    const body = await parseBody(req);
+    if (db) {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', ?)").run(JSON.stringify(body));
+    }
+    return json({ saved: true });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Webhook 系统（Teedy 自动化）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/webhooks' && method === 'GET') {
+    let data = [];
+    if (db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY, name TEXT, url TEXT, events TEXT, enabled INTEGER DEFAULT 1, secret TEXT, created_at TEXT)`);
+      data = db.prepare('SELECT * FROM webhooks ORDER BY created_at DESC').all();
+    }
+    return json({ data });
+  }
+
+  if (pathname === '/api/webhooks' && method === 'POST') {
+    const body = await parseBody(req);
+    if (db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS webhooks (id TEXT PRIMARY KEY, name TEXT, url TEXT, events TEXT, enabled INTEGER DEFAULT 1, secret TEXT, created_at TEXT)`);
+      db.prepare('INSERT INTO webhooks (id, name, url, events, enabled, secret, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), body.name, body.url, JSON.stringify(body.events || []), body.enabled !== false, body.secret || '', now());
+    }
+    return json({ created: true }, 201);
+  }
+
+  // ── Webhook 触发 ─────────────────────────────────────────────────
+  if (pathname === '/api/webhooks/trigger' && method === 'POST') {
+    const body = await parseBody(req);
+    if (db) {
+      const hooks = db.prepare('SELECT * FROM webhooks WHERE enabled = 1').all();
+      for (const hook of hooks) {
+        const events = JSON.parse(hook.events || '[]');
+        if (events.length === 0 || events.includes(body.event)) {
+          // 异步触发 webhook（不阻塞响应）
+          fetch(hook.url, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': hook.secret || '' },
+            body: JSON.stringify({ event: body.event, data: body.data, timestamp: now() }),
+          }).catch(() => {});
+        }
+      }
+    }
+    return json({ triggered: true });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 元数据 / 词汇表系统（Teedy 文档分类）
+  // ═══════════════════════════════════════════════════════════════════════
+  if (pathname === '/api/metadata' && method === 'GET') {
+    let data = [];
+    if (db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS metadata (id TEXT PRIMARY KEY, page_id TEXT, key TEXT, value TEXT, type TEXT DEFAULT 'text', created_at TEXT)`);
+      const pageId = url.searchParams.get('pageId');
+      data = pageId ? db.prepare('SELECT * FROM metadata WHERE page_id = ?').all(pageId) : db.prepare('SELECT * FROM metadata ORDER BY created_at DESC').all();
+    }
+    return json({ data });
+  }
+
+  if (pathname === '/api/metadata' && method === 'POST') {
+    const body = await parseBody(req);
+    if (db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS metadata (id TEXT PRIMARY KEY, page_id TEXT, key TEXT, value TEXT, type TEXT DEFAULT 'text', created_at TEXT)`);
+      db.prepare('INSERT INTO metadata (id, page_id, key, value, type, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(uid(), body.page_id, body.key, body.value, body.type || 'text', now());
+    }
+    return json({ created: true }, 201);
+  }
+
+  if (pathname === '/api/vocabulary' && method === 'GET') {
+    let data = [];
+    if (db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS vocabulary (id TEXT PRIMARY KEY, name TEXT UNIQUE, type TEXT, values TEXT, created_at TEXT)`);
+      data = db.prepare('SELECT * FROM vocabulary ORDER BY name').all();
+    }
+    return json({ data });
+  }
+
+  if (pathname === '/api/vocabulary' && method === 'POST') {
+    const body = await parseBody(req);
+    if (db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS vocabulary (id TEXT PRIMARY KEY, name TEXT UNIQUE, type TEXT, values TEXT, created_at TEXT)`);
+      db.prepare('INSERT OR REPLACE INTO vocabulary (id, name, type, values, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), body.name, body.type || 'text', JSON.stringify(body.values || []), now());
+    }
+    return json({ created: true }, 201);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // 品牌信息
   // ═══════════════════════════════════════════════════════════════════════
   if (pathname === '/api/branding' && method === 'GET') {
