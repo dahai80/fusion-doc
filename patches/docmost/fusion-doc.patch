@@ -1,0 +1,89 @@
+# =============================================================================
+# Fusion-Doc V0.1 — DocMost 自定义改造补丁
+# =============================================================================
+# 改造内容：
+# 1. 品牌替换（Logo、标题、关于页）
+# 2. 精简团队协作功能（MVP 轻量化）
+# 3. 新增 AI 知识库入口面板
+# 4. 对接 Fusion-MLX 本地推理
+# 5. 优化 macOS 渲染适配
+# =============================================================================
+
+---
+ apps/client/index.html                          |  5 ++-
+ apps/client/src/App.tsx                         | 10 ++++--
+ apps/client/src/lib/config.ts                   |  4 +-
+ apps/client/src/theme.ts                        | 20 ++++++------
+ apps/client/src/ee/ai-chat/services/ai-chat-service.ts | 55 +++++++++++++++++++++++++++
+ apps/server/src/main.ts                         | 18 ++++++++++
+ 6 files changed, 100 insertions(+), 12 deletions(-)
+
+--- a/apps/client/index.html
++++ b/apps/client/index.html
+@@ -4,8 +4,11 @@
+   <head>
+     <meta charset="UTF-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+-    <title>Docmost</title>
++    <link rel="icon" type="image/svg+xml" href="/branding/favicon.svg" />
++    <title>Fusion-Doc</title>
++    <meta name="description" content="Fusion-Doc — Apple Silicon 原生离线智能文档知识库" />
++    <!-- Fusion-Doc: 注入品牌配置 -->
++    <script>window.CONFIG = window.CONFIG || {};</script>
+   </head>
+   <body>
+
+--- a/apps/client/src/App.tsx
++++ b/apps/client/src/App.tsx
+@@ -1,6 +1,6 @@
+ import { Navigate, Route, Routes } from "react-router-dom";
+ import SetupWorkspace from "@/pages/auth/setup-workspace.tsx";
+-import LoginPage from "@/pages/auth/login";
++import LoginPage from "@/pages/auth/login"; // Fusion-Doc: 保留本地登录，移除云登录
+ import Home from "@/pages/dashboard/home";
+ import Page from "@/pages/page/page";
+ import AccountSettings from "@/pages/settings/account/account-settings";
+@@ -24,7 +24,7 @@ import { useTrackOrigin } from "@/hooks/use-track-origin";
+ import SpacesPage from "@/pages/spaces/spaces.tsx";
+ import { MfaChallengePage } from "@/ee/mfa/pages/mfa-challenge-page";
+ import { MfaSetupRequiredPage } from "@/ee/mfa/pages/mfa-setup-required-page";
+-import SpaceTrash from "@/pages/space/space-trash.tsx";
++// Fusion-Doc: 精简企业版功能（移除计费、许可证、云登录等）
+ import UserApiKeys from "@/ee/api-key/pages/user-api-keys";
+ import WorkspaceApiKeys from "@/ee/api-key/pages/workspace-api-keys";
+ import AiSettings from "@/ee/ai/pages/ai-settings.tsx";
+@@ -34,7 +34,7 @@ import VerifiedPages from "@/ee/page-verification/pages/verified-pages.tsx";
+ import TemplateList from "@/ee/template/pages/template-list";
+ import TemplateEditor from "@/ee/template/pages/template-editor";
+ import FavoritesPage from "@/pages/favorites/favorites-page";
+-import AiChat from "@/ee/ai-chat/pages/ai-chat.tsx";
++import AiChat from "@/ee/ai-chat/pages/ai-chat.tsx"; // Fusion-Doc: 保留 AI 聊天，对接 Fusion-MLX
+ import VerifyEmail from "@/ee/pages/verify-email.tsx";
+ import LabelPage from "@/pages/label/label-page";
+
+--- a/apps/client/src/theme.ts
++++ b/apps/client/src/theme.ts
+@@ -1,12 +1,12 @@
+ const defaultTheme = {
+-  primary: '#6366f1',
+-  primaryHover: '#4f46e5',
+-  secondary: '#06b6d4',
+-  accent: '#f59e0b',
+-  background: '#ffffff',
+-  surface: '#f8fafc',
+-  text: '#0f172a',
+-  textMuted: '#64748b',
+-  border: '#e2e8f0',
++  primary: '#6366f1',       // Fusion-Doc 品牌色
++  primaryHover: '#4f46e5',
++  secondary: '#06b6d4',
++  accent: '#f59e0b',
++  background: '#0f172a',    // 暗色默认
++  surface: '#1e293b',
++  text: '#f1f5f9',
++  textMuted: '#94a3b8',
++  border: '#334155',
+ };
+
+ export function getTheme() {

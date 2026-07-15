@@ -1,0 +1,8 @@
+{
+  "name": "fusion-doc-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  }
+}
