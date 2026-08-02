@@ -42,7 +42,7 @@ function cors(req, res, pipeline) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Max-Age', '86400');
   res.setHeader('Vary', 'Origin');
-  res.setHeader('X-Fusion-Doc', '0.2.0');
+  res.setHeader('X-Fusion-Doc', '1.0.0');
 
   // 预检请求直接返回
   if (req.method === 'OPTIONS') {
