@@ -1,87 +1,47 @@
 // =============================================================================
-// Fusion-Doc — 核心入口
+// Fusion-Doc V0.2 — 核心入口
 // =============================================================================
-// 整合 ~/mac-doc 所有开源优势：
-//   DocMost 协作 + Wiki.js 模块化 + BookStack 三层结构
-//   + Teedy OCR/标签 + Zettlr 图谱 + LibreOffice 格式转换
-//   + MacDown 原生体验 + Fusion-MLX AI
+// 架构: 模块化 MVC（Model-View-Controller）
+// 理念: 整合 7 大开源优势 + Fusion 生态，打造 Apple Silicon 原生离线智能文档知识库
+// =============================================================================
+//
+// 架构概览:
+//   server/
+//   ├── index.js              ← 轻量入口
+//   ├── app.js                ← 应用核心（生命周期、中间件、插件）
+//   ├── config.js             ← 配置管理
+//   ├── db.js                 ← 数据库层（SQLite + JSON 降级）
+//   ├── middleware/           ← 中间件栈（CORS/日志/认证/错误处理）
+//   ├── controllers/          ← 控制器层（路由分发）
+//   ├── services/             ← 服务层（业务逻辑）
+//   ├── models/              ← 模型层（数据封装）
+//   ├── integrations/        ← 集成层（Fusion-MLX / Fusion-Coder / LibreOffice）
+//   ├── plugins/             ← 插件系统
+//   └── utils/               ← 工具函数
+//
+// 生态集成:
+//   - Fusion-MLX  → 本地 LLM 推理（聊天/嵌入/重排序/RAG）
+//   - Fusion-Coder → AI 编码辅助
+//   - Fusion-KB   → 知识库管理
+//   - LibreOffice  → Office 文档格式转换
 // =============================================================================
 
-const http = require('http');
-const path = require('path');
-const { initDB, db } = require('./db');
-const { router } = require('./routes');
-const { serveStatic } = require('./utils/static');
-const { cors, parseBody } = require('./middleware/common');
+const FusionDocApp = require('./app');
 
-const PORT = parseInt(process.env.FUSION_DOC_PORT || '11435', 10);
-const FUSION_MLX_URL = process.env.FUSION_MLX_URL || 'http://localhost:11434';
-const PUBLIC_DIR = path.join(__dirname, '..', 'gateway', 'public');
+// ── 启动应用 ──────────────────────────────────────────────────────────────
+const app = new FusionDocApp();
 
-console.log(`
-  ╔══════════════════════════════════════════╗
-  ║         Fusion-Doc V0.1                  ║
-  ║  整合 7 大开源优势，macOS 原生优化       ║
-  ╚══════════════════════════════════════════╝
-`);
-
-// ── 初始化数据库 ──────────────────────────────────────────────────────────
-initDB();
-
-// ── 创建 HTTP 服务器 ──────────────────────────────────────────────────────
-const server = http.createServer(async (req, res) => {
-  // Request logging
-  console.log(`[${new Date().toISOString().slice(11,19)}] ${req.method} ${req.url}`);
-  // CORS
-  cors(req, res);
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
-  try {
-    // 注入依赖
-    req.ctx = { db, PUBLIC_DIR, FUSION_MLX_URL };
-
-    // 路由分发
-    const handled = await router(req, res);
-    if (handled) return;
-
-    // 如果是 /api/ 但未匹配，返回 404
-    if (req.url.startsWith('/api/')) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'API endpoint not found' }));
-      return;
-    }
-
-    // 静态资源文件
-    const assetPaths = ['/assets/', '/icons/', '/manifest.json', '/vite.svg', '/locales/', '/branding/'];
-    if (assetPaths.some(p => req.url.startsWith(p))) {
-      return serveStatic(res, path.join(PUBLIC_DIR, req.url));
-    }
-
-    // SPA: 所有非 API 路径 → index.html
-    serveStatic(res, path.join(PUBLIC_DIR, 'index.html'));
-
-  } catch (err) {
-    console.error(`[Fusion-Doc] ${err.message}`);
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: err.message }));
-  }
+app.start().catch((err) => {
+  console.error(`[Fusion-Doc] 启动失败: ${err.message}`);
+  process.exit(1);
 });
 
-server.listen(PORT, () => {
-  console.log(`  🚀  Fusion-Doc 已启动`);
-  console.log(`  ─────────────────────────────────────────`);
-  console.log(`  📍  http://localhost:${PORT}`);
-  console.log(`  🧠  AI: ${FUSION_MLX_URL}`);
-  console.log(`  💾  存储: SQLite + JSON`);
-  console.log(`  ─────────────────────────────────────────`);
-  console.log(`  整合特性:`);
-  console.log(`  ✅ DocMost    → TipTap 编辑器 + Yjs 协作`);
-  console.log(`  ✅ Wiki.js    → 模块化架构 + 多认证`);
-  console.log(`  ✅ BookStack  → 三层结构 + 导出`);
-  console.log(`  ✅ Teedy      → OCR + 标签 + 工作流`);
-  console.log(`  ✅ Zettlr     → 双向链接 + 知识图谱`);
-  console.log(`  ✅ MacDown    → macOS 原生体验`);
-  console.log(`  ✅ LibreOffice→ Office 格式转换`);
-  console.log(`  ✅ Fusion-MLX → 本地 AI 推理`);
-  console.log(`  ─────────────────────────────────────────`);
+// ── 优雅关闭 ──────────────────────────────────────────────────────────────
+process.on('SIGINT', async () => { await app.shutdown(); process.exit(0); });
+process.on('SIGTERM', async () => { await app.shutdown(); process.exit(0); });
+process.on('uncaughtException', (err) => {
+  console.error(`[Fusion-Doc] 未捕获异常: ${err.message}`);
+});
+process.on('unhandledRejection', (err) => {
+  console.error(`[Fusion-Doc] 未处理的 Promise 拒绝: ${err.message}`);
 });
