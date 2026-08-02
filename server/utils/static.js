@@ -33,4 +33,17 @@ function serveStatic(res, filePath) {
   });
 }
 
-module.exports = { serveStatic, MIME };
+function serveSPA(res, publicDir) {
+    const indexPath = path.join(publicDir, 'index.html');
+    fs.readFile(indexPath, (_, data) => {
+        if (_) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'SPA index.html not found' }));
+            return;
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(data);
+    });
+}
+
+module.exports = { serveStatic, serveSPA, MIME };

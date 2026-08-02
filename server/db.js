@@ -56,12 +56,22 @@ function runMigrations() {
     { name: '002_rag_index', sql: getRagIndexSchema() },
     { name: '003_activity_webhook', sql: getActivityWebhookSchema() },
     { name: '004_metadata_vocabulary', sql: getMetadataVocabularySchema() },
+    { name: '005_page_editor', fn: runPageEditorMigration },
+    { name: '006_templates', sql: getTemplatesSchema() },
+    { name: '007_office_files', sql: getOfficeFilesSchema() },
+    { name: '008_rag_chunks', sql: getRagChunksSchema() },
+    { name: '009_workflow', sql: getWorkflowSchema() },
+    { name: '010_collaboration', sql: getCollaborationSchema() },
   ];
 
   for (const migration of migrations) {
     if (applied.has(migration.name)) continue;
     try {
-      db.exec(migration.sql);
+      if (migration.fn) {
+        migration.fn(db);
+      } else {
+        db.exec(migration.sql);
+      }
       db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(migration.name);
       console.log(`  [迁移] ${migration.name} ✓`);
     } catch (e) {
@@ -256,7 +266,7 @@ function getMetadataVocabularySchema() {
 
     CREATE TABLE IF NOT EXISTS vocabulary (
       id TEXT PRIMARY KEY, name TEXT UNIQUE,
-      type TEXT, values TEXT,
+      type TEXT, value_list TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
   `;
@@ -287,6 +297,114 @@ function deleteJSON(dir, id) {
   if (fs.existsSync(p)) fs.unlinkSync(p);
 }
 
+function runPageEditorMigration(database) {
+  const cols = database.prepare("PRAGMA table_info('pages')").all().map(c => c.name);
+  if (!cols.includes('editor_schema')) {
+    database.exec("ALTER TABLE pages ADD COLUMN editor_schema TEXT DEFAULT '{}'");
+  }
+  if (!cols.includes('yjs_state')) {
+    database.exec("ALTER TABLE pages ADD COLUMN yjs_state BLOB");
+  }
+}
+
 function getDB() { return db; }
 
+function getTemplatesSchema() {
+  return `
+    CREATE TABLE IF NOT EXISTS templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT DEFAULT 'general',
+      description TEXT DEFAULT '',
+      content TEXT DEFAULT '',
+      schema TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_templates_category ON templates(category);
+  `;
+}
+
 module.exports = { initDB, getDB, db, readJSON, writeJSON, listJSON, deleteJSON };
+
+function getOfficeFilesSchema() {
+  return `
+    CREATE TABLE IF NOT EXISTS office_files (
+      id TEXT PRIMARY KEY,
+      page_id TEXT,
+      file_path TEXT NOT NULL,
+      file_type TEXT NOT NULL,
+      preview_path TEXT,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (page_id) REFERENCES pages(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_office_files_page ON office_files(page_id);
+    CREATE INDEX IF NOT EXISTS idx_office_files_type ON office_files(file_type);
+  `;
+}
+
+function getRagChunksSchema() {
+  return `
+    CREATE TABLE IF NOT EXISTS rag_chunks (
+      id TEXT PRIMARY KEY,
+      page_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      chunk_text TEXT NOT NULL,
+      chunk_type TEXT DEFAULT 'paragraph',
+      heading TEXT,
+      vector TEXT,
+      bm25_tokens TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (page_id) REFERENCES pages(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rag_chunks_page ON rag_chunks(page_id);
+  `;
+}
+
+function getWorkflowSchema() {
+  return `
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      yaml_def TEXT NOT NULL,
+      status TEXT DEFAULT 'idle',
+      last_run_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      status TEXT DEFAULT 'running',
+      input TEXT,
+      output TEXT,
+      steps TEXT,
+      error TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      FOREIGN KEY (workflow_id) REFERENCES workflows(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_wf ON workflow_runs(workflow_id);
+  `;
+}
+
+function getCollaborationSchema() {
+  return `
+    CREATE TABLE IF NOT EXISTS yjs_docs (
+      id TEXT PRIMARY KEY,
+      page_id TEXT UNIQUE NOT NULL,
+      state BLOB,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (page_id) REFERENCES pages(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_yjs_docs_page ON yjs_docs(page_id);
+  `;
+}

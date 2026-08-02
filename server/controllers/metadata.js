@@ -37,7 +37,7 @@ function register(app) {
   app.registerRoute('POST', '/api/vocabulary', async (req, res) => {
     const body = await parseBody(req);
     if (db) {
-      db.prepare('INSERT OR REPLACE INTO vocabulary (id, name, type, values, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), body.name, body.type || 'text', JSON.stringify(body.values || []), now());
+      db.prepare('INSERT OR REPLACE INTO vocabulary (id, name, type, value_list, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), body.name, body.type || 'text', JSON.stringify(body.values || []), now());
     }
     json(res, { created: true }, 201);
   });

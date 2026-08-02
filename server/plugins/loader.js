@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const SKIP_FILES = new Set(['loader.js', 'registry.js']);
 
 // ── 加载插件 ──────────────────────────────────────────────────────────────
 async function loadPlugins(app) {
@@ -18,7 +19,7 @@ async function loadPlugins(app) {
   } catch (e) { /* ignore */ }
 
   // 扫描插件目录
-  let entries = [];
+  let entries;
   try {
     entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
   } catch (e) {
@@ -29,7 +30,8 @@ async function loadPlugins(app) {
   for (const entry of entries) {
     const pluginPath = path.join(pluginsDir, entry.name);
 
-    // 只加载目录或 .js 文件
+    // 只加载目录或 .js 文件（跳过基础设施文件）
+    if (SKIP_FILES.has(entry.name)) continue;
     if (!entry.isDirectory() && !entry.name.endsWith('.js')) continue;
 
     try {

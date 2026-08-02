@@ -1,5 +1,25 @@
 {
+  "name": "fusion-doc",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd client && npx vite",
+    "dev:server": "node server/index.js",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
+    "build": "cd client && npx vite build",
+    "start": "node server/index.js",
+    "setup": "bash scripts/setup.sh",
+    "test": "bash scripts/test.sh",
+    "lint": "eslint server/ --no-warn",
+    "lint:fix": "eslint server/ --fix"
+  },
   "dependencies": {
-    "better-sqlite3": "^12.11.1"
+    "better-sqlite3": "^12.11.1",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.39.5"
   }
 }

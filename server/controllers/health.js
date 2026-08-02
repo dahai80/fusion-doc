@@ -6,7 +6,7 @@ function register(app) {
   app.registerRoute('GET', '/api/health', (req, res) => {
     const { json } = require('../utils/response');
     json(res, {
-      app: 'Fusion-Doc', version: '0.2.0', status: 'ok',
+      app: 'Fusion-Doc', version: '1.0.0', status: 'ok',
       uptime: Math.floor((Date.now() - (app._startTime || Date.now())) / 1000),
       features: {
         editor: 'TipTap + Yjs 实时协作',

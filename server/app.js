@@ -11,14 +11,20 @@ const { registerRoutes } = require('./controllers');
 const { loadPlugins } = require('./plugins/loader');
 const { serveStatic, serveSPA } = require('./utils/static');
 const { createMiddlewarePipeline } = require('./middleware/pipeline');
+const { seedTemplates } = require('./services/seed-templates');
+let WebSocketServer;
+try { WebSocketServer = require('ws').WebSocketServer; } catch { WebSocketServer = null; }
 
 class FusionDocApp {
   constructor() {
     this.config = config;
     this.server = null;
+    this.wsServer = null;
     this.middleware = createMiddlewarePipeline();
     this.plugins = [];
     this.routes = [];
+    this._wsRoutes = [];
+    this.collabRooms = {};
     this._startTime = null;
   }
 
@@ -26,7 +32,7 @@ class FusionDocApp {
   async init() {
     console.log(`
   ╔══════════════════════════════════════════╗
-  ║         Fusion-Doc V0.2                  ║
+  ║         Fusion-Doc V1.0.0                ║
   ║   Apple Silicon 原生离线智能文档知识库    ║
   ╚══════════════════════════════════════════╝
     `);
@@ -34,6 +40,7 @@ class FusionDocApp {
     // 1. 初始化数据库
     console.log('  [1/4] 初始化数据库...');
     this.db = initDB();
+    if (this.db) seedTemplates(this.db);
     console.log(`  [✓] 数据库: ${this.db ? 'SQLite' : 'JSON 文件存储'}`);
 
     // 2. 注册内置中间件
@@ -71,6 +78,11 @@ class FusionDocApp {
   // ── 注册路由 ────────────────────────────────────────────────────────────
   registerRoute(method, pathname, handler, options = {}) {
     this.routes.push({ method, pathname, handler, options });
+  }
+
+  // ── 注册 WebSocket 路由 ────────────────────────────────────────────────
+  ws(pathname, handler) {
+    this._wsRoutes.push({ pathname, handler });
   }
 
   // ── 请求处理 ────────────────────────────────────────────────────────────
@@ -122,7 +134,8 @@ class FusionDocApp {
       if (route.method !== method && route.method !== 'ALL') continue;
       if (route.pathname === pathname) {
         req.params = {};
-        return await route.handler(req, res);
+        await route.handler(req, res);
+        return true;
       }
     }
 
@@ -148,7 +161,8 @@ class FusionDocApp {
       }
       if (matched) {
         req.params = params;
-        return await route.handler(req, res);
+        await route.handler(req, res);
+        return true;
       }
     }
     return false;
@@ -159,6 +173,57 @@ class FusionDocApp {
     await this.init();
 
     this.server = http.createServer((req, res) => this._handleRequest(req, res));
+
+    // WebSocket 支持
+    if (WebSocketServer && this._wsRoutes.length > 0) {
+      this.wsServer = new WebSocketServer({ noServer: true });
+      this.wsServer.on('connection', (ws, req) => {
+        const route = req._wsRoute;
+        if (route) route.handler(ws, req);
+      });
+
+      this.server.on('upgrade', (req, socket, head) => {
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const pathname = url.pathname;
+        let matched = false;
+
+        for (const route of this._wsRoutes) {
+          const routeParts = route.pathname.split('/');
+          const pathParts = pathname.split('/');
+          if (routeParts.length !== pathParts.length) continue;
+
+          const params = {};
+          let ok = true;
+          for (let i = 0; i < routeParts.length; i++) {
+            if (routeParts[i].startsWith(':')) {
+              params[routeParts[i].slice(1)] = pathParts[i];
+            } else if (routeParts[i] !== pathParts[i]) {
+              ok = false;
+              break;
+            }
+          }
+
+          if (ok) {
+            req.params = params;
+            req.query = Object.fromEntries(url.searchParams);
+            req._wsRoute = route;
+            matched = true;
+            this.wsServer.handleUpgrade(req, socket, head, (ws) => {
+              this.wsServer.emit('connection', ws, req);
+            });
+            break;
+          }
+        }
+
+        if (!matched) {
+          socket.destroy();
+        }
+      });
+
+      console.log(`  [✓] WebSocket: ${this._wsRoutes.length} 条路由`);
+    } else {
+      console.log('  [i] WebSocket: 未安装 ws 或无路由');
+    }
 
     return new Promise((resolve) => {
       this.server.listen(config.port, () => {
@@ -192,6 +257,12 @@ class FusionDocApp {
     // 插件关闭
     for (const plugin of this.plugins) {
       if (plugin.shutdown) await plugin.shutdown();
+    }
+
+    // WebSocket 关闭
+    if (this.wsServer) {
+      this.wsServer.close();
+      console.log('  [✓] WebSocket 已关闭');
     }
 
     // 数据库关闭

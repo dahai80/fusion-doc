@@ -55,7 +55,7 @@ class ExportService {
       execSync(`pandoc "${mdPath}" -o "${pdfPath}" --pdf-engine=weasyprint 2>/dev/null || pandoc "${mdPath}" -o "${pdfPath}" 2>/dev/null || true`, { timeout: 30000 });
       if (fs.existsSync(pdfPath)) {
         const data = fs.readFileSync(pdfPath);
-        try { fs.unlinkSync(mdPath); fs.unlinkSync(pdfPath); } catch {}
+        try { fs.unlinkSync(mdPath); fs.unlinkSync(pdfPath); } catch (_) { /* cleanup optional */ }
         return { content: data, filename: `${page.slug || 'page'}.pdf`, mime: 'application/pdf', binary: true };
       }
     } catch { /* fallback */ }
@@ -75,7 +75,7 @@ class ExportService {
       execSync(`pandoc "${mdPath}" -o "${docxPath}" 2>/dev/null || libreoffice --headless --convert-to docx --outdir "${this.exportDir}" "${mdPath}" 2>/dev/null || true`, { timeout: 30000 });
       if (fs.existsSync(docxPath)) {
         const data = fs.readFileSync(docxPath);
-        try { fs.unlinkSync(mdPath); fs.unlinkSync(docxPath); } catch {}
+        try { fs.unlinkSync(mdPath); fs.unlinkSync(docxPath); } catch (_) { /* cleanup optional */ }
         return { content: data, filename: `${page.slug || 'page'}.docx`, mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', binary: true };
       }
     } catch { /* fallback */ }

@@ -6,6 +6,7 @@
 const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLX, callFusionMLXStream } = require('../integrations/fusion-mlx');
 const { json, error, notFound } = require('../utils/response');
+const { uid } = require('../utils/helpers');
 
 function register(app) {
   const { db } = app;
@@ -91,7 +92,7 @@ function register(app) {
           if (i === 0) {
             db.exec(`CREATE TABLE IF NOT EXISTS rag_index (id TEXT PRIMARY KEY, page_id TEXT, chunk_index INTEGER, chunk TEXT, vector TEXT, created_at TEXT)`);
           }
-          db.prepare('INSERT INTO rag_index (id, page_id, chunk_index, chunk, vector, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(require('../utils/helpers').uid(), pageId, i, chunks[i], vector, new Date().toISOString());
+          db.prepare('INSERT INTO rag_index (id, page_id, chunk_index, chunk, vector, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(uid(), pageId, i, chunks[i], vector, new Date().toISOString());
         }
         indexed.push({ index: i, dimensions: data.data[0].embedding.length });
       }

@@ -5,6 +5,7 @@
 const { parseBody } = require('../middleware/body-parser');
 const { uid, now } = require('../utils/helpers');
 const { json, list } = require('../utils/response');
+const httpFetch = globalThis.fetch;
 
 function register(app) {
   const { db } = app;
@@ -29,7 +30,7 @@ function register(app) {
       for (const hook of hooks) {
         const events = JSON.parse(hook.events || '[]');
         if (events.length === 0 || events.includes(body.event)) {
-          fetch(hook.url, {
+          httpFetch(hook.url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': hook.secret || '' },
             body: JSON.stringify({ event: body.event, data: body.data, timestamp: now() }),
