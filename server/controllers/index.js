@@ -28,6 +28,12 @@ function registerRoutes(app) {
     require('./webhook'),
     require('./metadata'),
     require('./branding'),
+    require('./ai-copilot'),
+    require('./office'),
+    require('./template'),
+    require('./workflow'),
+    require('./collaboration'),
+    require('./rag-enhanced'),
   ];
 
   for (const controller of controllers) {

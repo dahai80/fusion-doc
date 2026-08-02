@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Fusion-Doc V0.2 — 一键启动
+# Fusion-Doc V1.0.0 — 一键启动
 # 架构: 模块化 MVC（Model-View-Controller）
 # 生态: Fusion-MLX + Fusion-Coder + Fusion-KB
 # =============================================================================
@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 set -a; [ -f .env ] && source .env; set +a
 
 echo "=========================================="
-echo "  Fusion-Doc V0.2"
+echo "  Fusion-Doc V1.0.0"
 echo "  Apple Silicon 原生离线智能文档知识库"
 echo "  模块化 MVC · 插件体系 · 融合生态"
 echo "=========================================="
