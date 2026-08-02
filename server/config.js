@@ -43,6 +43,26 @@ const config = {
     rerankModel: process.env.AI_RERANK_MODEL || 'bge-reranker-v2-m3',
   },
 
+  // Fusion-KB 知识库
+  fusionKb: {
+    url: process.env.FUSION_KB_URL || 'http://localhost:11436',
+  },
+
+  // Fusion-Cowork 协作引擎
+  fusionCowork: {
+    url: process.env.FUSION_COWORK_URL || 'http://localhost:11437',
+  },
+
+  // Fusion-Model-Hub 模型管理
+  fusionModelHub: {
+    url: process.env.FUSION_MODEL_HUB_URL || 'http://localhost:11444',
+  },
+
+  // Fusion-Studio JSON-RPC
+  fusionStudio: {
+    socketPath: process.env.FUSION_STUDIO_SOCKET || path.join(require('os').homedir(), '.fusion', 'studio.sock'),
+  },
+
   // 存储
   storage: {
     dir: process.env.STORAGE_DIR || path.join(__dirname, '..', 'data', 'storage'),

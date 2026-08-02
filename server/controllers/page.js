@@ -89,6 +89,36 @@ function register(app) {
     created(res, v);
   });
 
+  // ── 版本 diff ──────────────────────────────────────────────────────────
+  app.registerRoute('GET', '/api/pages/:id/diff', (req, res) => {
+    const { id } = req.params;
+    const v1 = req.ctx.url.searchParams.get('v1');
+    const v2 = req.ctx.url.searchParams.get('v2');
+    if (!v1 || !v2) return json(res, { error: 'v1 and v2 query params required' }, 400);
+    if (!db) return json(res, { error: 'DB not available' }, 503);
+    const ver1 = db.prepare('SELECT * FROM page_versions WHERE page_id = ? AND version = ?').get(id, Number(v1));
+    const ver2 = db.prepare('SELECT * FROM page_versions WHERE page_id = ? AND version = ?').get(id, Number(v2));
+    if (!ver1 || !ver2) return notFound(res, '版本不存在');
+    const lines1 = (ver1.content || '').split('\n');
+    const lines2 = (ver2.content || '').split('\n');
+    const diff = computeDiff(lines1, lines2);
+    json(res, { page_id: id, v1: Number(v1), v2: Number(v2), diff });
+  });
+
+  // ── 版本恢复 ──────────────────────────────────────────────────────────
+  app.registerRoute('POST', '/api/pages/:id/versions/:vid/restore', async (req, res) => {
+    const { id, vid } = req.params;
+    if (!db) return json(res, { error: 'DB not available' }, 503);
+    const ver = db.prepare('SELECT * FROM page_versions WHERE page_id = ? AND id = ?').get(id, vid);
+    if (!ver) return notFound(res, '版本不存在');
+    const maxVer = db.prepare('SELECT MAX(version) as m FROM page_versions WHERE page_id = ?').get(id)?.m || 0;
+    const snapshot = { id: uid(), page_id: id, title: ver.title, content: ver.content, version: maxVer + 1, created_at: now() };
+    db.prepare('INSERT INTO page_versions (id, page_id, title, content, version, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(...Object.values(snapshot));
+    db.prepare('UPDATE pages SET title = ?, content = ?, updated_at = ? WHERE id = ?').run(ver.title, ver.content, now(), id);
+    console.log(`[Page] Restored page ${id} to version ${ver.version} (snapshot v${snapshot.version})`);
+    json(res, { restored: true, page_id: id, restored_version: ver.version, new_snapshot_version: snapshot.version });
+  });
+
   // ── 双向链接 ──────────────────────────────────────────────────────────
   app.registerRoute('GET', '/api/pages/:id/links', (req, res) => {
     const { id } = req.params;
@@ -114,6 +144,34 @@ function register(app) {
     if (db) { db.prepare('INSERT OR IGNORE INTO page_tags (page_id, tag_id) VALUES (?, ?)').run(body.page_id, body.tag_id); }
     json(res, { tagged: true }, 201);
   });
+}
+
+function computeDiff(oldLines, newLines) {
+    const m = oldLines.length, n = newLines.length;
+    const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++) dp[i][0] = i;
+    for (let j = 1; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (oldLines[i - 1] === newLines[j - 1]) dp[i][j] = dp[i - 1][j - 1];
+            else dp[i][j] = 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+    const result = [];
+    let i = m, j = n;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+            result.unshift({ type: 'equal', line: oldLines[i - 1] });
+            i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] <= dp[i - 1][j])) {
+            result.unshift({ type: 'added', line: newLines[j - 1] });
+            j--;
+        } else {
+            result.unshift({ type: 'removed', line: oldLines[i - 1] });
+            i--;
+        }
+    }
+    return result;
 }
 
 module.exports = { register };

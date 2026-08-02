@@ -23,6 +23,10 @@ function register(app) {
       integrations: {
         fusionMlx: app.config.fusionMlx.url,
         fusionCoder: 'available',
+        fusionKb: app.config.fusionKb.url,
+        fusionCowork: app.config.fusionCowork.url,
+        fusionModelHub: app.config.fusionModelHub.url,
+        fusionStudio: app.config.fusionStudio.socketPath,
       },
       plugins: app.plugins.map(p => ({ name: p.name, version: p.version })),
     });
