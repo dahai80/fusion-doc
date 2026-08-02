@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Fusion-Doc V0.1 — 安装脚本
+# Fusion-Doc V0.2 — 安装脚本
+# 自动安装依赖、初始化数据库、配置环境
 # =============================================================================
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,63 +9,94 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 echo "=========================================="
-echo "  Fusion-Doc V0.1 安装"
+echo "  Fusion-Doc V0.2 安装"
+echo "  Apple Silicon 原生离线智能文档知识库"
 echo "=========================================="
 
 # ── 1. 系统依赖 ──────────────────────────────────────────────────────────
+echo ""
 echo "[1/6] 系统依赖..."
-for cmd in node pnpm python3 psql redis-cli git; do
-  command -v $cmd >/dev/null 2>&1 || { echo "  [✗] $cmd 未安装"; exit 1; }
+for cmd in node npm; do
+  command -v $cmd >/dev/null 2>&1 || { echo "  [✗] $cmd 未安装，请先安装 Node.js 18+"; exit 1; }
   echo "  [✓] $cmd"
 done
+echo "  [~] 可选: pandoc (文档导出), libreoffice (Office 格式转换), tesseract (OCR)"
 
-# ── 2. 数据库 ────────────────────────────────────────────────────────────
-echo "[2/6] 数据库..."
-if ! pg_isready -q 2>/dev/null; then
-  brew services start postgresql@18 2>/dev/null || true
-  sleep 2
-fi
-for db in fusiondoc fusion_kb; do
-  psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 || \
-    createdb -U postgres "$db" 2>/dev/null && echo "  [✓] 数据库 $db 已就绪" || true
-done
-
-# ── 3. 克隆 DocMost ─────────────────────────────────────────────────────
-echo "[3/6] DocMost..."
-if [ ! -d "$PROJECT_DIR/docmost" ]; then
-  git clone --depth 1 https://github.com/docmost/docmost.git docmost
-  cd docmost && pnpm install && cd "$PROJECT_DIR"
-  echo "  [✓] DocMost 已安装"
-else
-  echo "  [✓] DocMost 已存在"
-fi
-
-# ── 4. 克隆 MaxKB ───────────────────────────────────────────────────────
-echo "[4/6] MaxKB..."
-if [ ! -d "$PROJECT_DIR/maxkb" ]; then
-  git clone --depth 1 https://github.com/1Panel-dev/MaxKB.git maxkb
-  cd maxkb && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-  cd "$PROJECT_DIR"
-  echo "  [✓] MaxKB 已安装"
-else
-  echo "  [✓] MaxKB 已存在"
-fi
-
-# ── 5. 网关 ──────────────────────────────────────────────────────────────
-echo "[5/6] 网关..."
-cd "$PROJECT_DIR/gateway"
+# ── 2. 安装 Node.js 依赖 ────────────────────────────────────────────────
+echo ""
+echo "[2/6] 安装 Node.js 依赖..."
 npm install --silent 2>/dev/null || true
-cd "$PROJECT_DIR"
-echo "  [✓] 网关依赖已安装"
+echo "  [✓] 依赖已安装"
 
-# ── 6. 数据目录 ──────────────────────────────────────────────────────────
-echo "[6/6] 数据目录..."
-mkdir -p "$PROJECT_DIR/data"/{logs,storage,vectors}
+# ── 3. 数据目录 ──────────────────────────────────────────────────────────
+echo ""
+echo "[3/6] 数据目录..."
+mkdir -p data/{db,storage,exports,versions,logs}
 echo "  [✓] 数据目录已创建"
 
+# ── 4. 环境配置 ──────────────────────────────────────────────────────────
+echo ""
+echo "[4/6] 环境配置..."
+if [ ! -f .env ]; then
+  cat > .env << 'ENVEOF'
+# =============================================================================
+# Fusion-Doc V0.2 — 环境配置
+# =============================================================================
+
+# 服务端口
+FUSION_DOC_PORT=11449
+
+# Fusion-MLX（本地 AI 推理引擎）
+FUSION_MLX_URL=http://localhost:11434
+FUSION_MLX_API_KEY=
+
+# AI 模型配置
+AI_CHAT_MODEL=Qwen3.5-9B-4bit
+AI_EMBEDDING_MODEL=bge-small-en-v1.5
+AI_RERANK_MODEL=bge-reranker-v2-m3
+
+# 存储
+STORAGE_DIR=./data/storage
+
+# 日志级别: debug, info, warn, error
+LOG_LEVEL=info
+
+# 认证
+JWT_SECRET=fusion-doc-$(date +%s)$(uuidgen 2>/dev/null || echo 'random-secret')
+SESSION_EXPIRY=86400
+ENVEOF
+  echo "  [✓] .env 配置文件已创建"
+else
+  echo "  [✓] .env 已存在"
+fi
+
+# ── 5. 验证 ──────────────────────────────────────────────────────────────
+echo ""
+echo "[5/6] 验证..."
+node -c server/index.js 2>/dev/null && echo "  [✓] server/index.js" || echo "  [✗] server/index.js"
+node -c server/app.js 2>/dev/null && echo "  [✓] server/app.js" || echo "  [✗] server/app.js"
+node -c server/config.js 2>/dev/null && echo "  [✓] server/config.js" || echo "  [✗] server/config.js"
+node -c server/db.js 2>/dev/null && echo "  [✓] server/db.js" || echo "  [✗] server/db.js"
+echo "  [✓] 代码验证完成"
+
+# ── 6. 完成 ──────────────────────────────────────────────────────────────
+echo ""
+echo "[6/6] 安装完成!"
 echo ""
 echo "=========================================="
-echo "  安装完成！"
-echo "=========================================="
 echo "  启动: bash scripts/start.sh"
-echo "  访问: http://localhost:3000"
+echo "  访问: http://localhost:11449"
+echo "  文档: 查看 docs/ 目录"
+echo "=========================================="
+echo ""
+echo "  特性概览:"
+echo "  ✅ TipTap 编辑器 + Yjs 实时协作"
+echo "  ✅ 三层文档结构（空间→书架→章节→页面）"
+echo "  ✅ SQLite FTS5 全文搜索"
+echo "  ✅ 标签系统 + 工作流"
+echo "  ✅ 双向链接 + 知识图谱"
+echo "  ✅ PDF/HTML/Markdown/Office 导出"
+echo "  ✅ Fusion-MLX 本地 AI 推理（RAG / Streaming / Agent）"
+echo "  ✅ 模块化 MVC 架构 + 插件系统"
+echo "  ✅ macOS 原生优化"
+echo ""

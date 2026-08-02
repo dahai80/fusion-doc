@@ -1,8 +1,8 @@
 <div align="center">
   <img src="./branding/logo.svg" width="120" alt="Fusion-Doc Logo" />
-  <h1>Fusion-Doc V0.1</h1>
+  <h1>Fusion-Doc V0.2</h1>
   <p><strong>Apple Silicon 原生离线智能文档知识库</strong></p>
-  <p>整合 7 大开源优势 + Fusion-MLX AI，macOS 原生优化</p>
+  <p>模块化 MVC · 插件体系 · 融合生态</p>
   <p>
     <a href="./README_ZH.md">🇨🇳 中文</a> •
     <a href="./README.md">🇬🇧 English</a>
@@ -14,11 +14,13 @@
 ## 架构
 
 ```
-Fusion-Doc Server (:11435) — 单进程，自包含
-  ├── 前端静态文件（TipTap 编辑器 + Yjs 协作）
-  ├── REST API（模块化路由）
-  ├── SQLite 存储（零外部依赖）
-  └── Fusion-MLX AI 调用（常驻内存）
+Fusion-Doc Server (:11449) — 模块化 MVC，零外部依赖，可扩展
+├── 中间件管道（CORS/认证/日志/限流/错误处理）
+├── 控制器层（20+ 领域模块：auth/pages/books/search/ai/...）
+├── 服务层（业务逻辑：RAG/导出/存储/搜索/页面）
+├── 模型层（数据抽象：SQLite + JSON 降级）
+├── 集成层（Fusion-MLX / Fusion-Coder / LibreOffice / OCR）
+└── 插件系统（可扩展）
 ```
 
 **零外部依赖：** 无需 PostgreSQL、Redis、NestJS、反向代理
@@ -26,61 +28,117 @@ Fusion-Doc Server (:11435) — 单进程，自包含
 ## 快速开始
 
 ```bash
-# 1. 启动（需要 Fusion-MLX 已运行）
+# 1. 安装
+bash scripts/setup.sh
+
+# 2. 启动（推荐先启动 Fusion-MLX 以使用 AI 功能）
 bash scripts/start.sh
 
-# 2. 访问
-#    http://localhost:11435    → 文档编辑器
-#    http://localhost:11435/api/health → 健康检查
+# 3. 访问
+#    http://localhost:11449    → 文档编辑器
+#    http://localhost:11449/api/health → 健康检查
 ```
 
 ## 整合特性
 
-| 来源 | 特性 | API 端点 |
-|------|------|---------|
-| **DocMost** | TipTap 编辑器 + Yjs 实时协作 | 前端内置 |
-| **DocMost** | 空间 → 目录 → 页面 结构 | `/api/workspaces` |
-| **DocMost** | 页面历史版本 + 评论 | `/api/pages/:id/versions` |
-| **DocMost** | 收藏系统 | `/api/favorites` |
-| **Wiki.js** | 模块化路由架构 | `server/routes/` |
-| **Wiki.js** | SQLite FTS5 全文搜索 | `/api/search?q=` |
-| **BookStack** | 书架→章节→页面 三层结构 | `/api/books`, `/api/chapters` |
-| **BookStack** | PDF/HTML/Markdown 导出 | `/api/export/:format/:id` |
-| **Teedy** | 标签系统 | `/api/tags` |
-| **Teedy** | 文档分类 + 工作流 | 标签 + 结构化 |
-| **Zettlr** | 双向链接 + 知识图谱 | `/api/pages/:id/links`, `/api/graph` |
-| **MacDown** | macOS 原生体验优化 | 主题 + 暗黑模式 |
-| **LibreOffice** | Office 格式转换 | 导出接口 |
-| **Fusion-MLX** | 本地 AI 聊天 | `/api/ai/chat` |
-| **Fusion-MLX** | 本地 Embedding | `/api/ai/embeddings` |
+| 来源 | 特性 | API 端点 | 状态 |
+|------|------|---------|------|
+| **DocMost** | TipTap 编辑器 + Yjs 实时协作 | 前端内置 | ✅ |
+| **DocMost** | 空间 → 目录 → 页面 结构 | `/api/workspaces` | ✅ |
+| **DocMost** | 页面历史版本 + 评论 | `/api/pages/:id/versions` | ✅ |
+| **DocMost** | 收藏系统 | `/api/favorites` | ✅ |
+| **Wiki.js** | 模块化路由架构 | `server/controllers/` | ✅ |
+| **Wiki.js** | SQLite FTS5 全文搜索 | `/api/search?q=` | ✅ |
+| **Wiki.js** | 活动审计追踪 | `/api/activity` | ✅ |
+| **BookStack** | 书架→章节→页面 三层结构 | `/api/books`, `/api/chapters` | ✅ |
+| **BookStack** | PDF/HTML/Markdown 导出 | `/api/export/:format/:id` | ✅ |
+| **BookStack** | 主题管理 | `/api/theme` | ✅ |
+| **Teedy** | 标签系统 | `/api/tags` | ✅ |
+| **Teedy** | 文档分类 + 元数据 | 标签 + `/api/metadata` | ✅ |
+| **Zettlr** | 双向链接 + 知识图谱 | `/api/pages/:id/links`, `/api/graph` | ✅ |
+| **MacDown** | macOS 原生体验优化 | 主题 + 暗黑模式 | ✅ |
+| **LibreOffice** | Office 格式转换 | 导出接口 + Pandoc | ✅ |
+| **Fusion-MLX** | 本地 AI 聊天（流式） | `/api/ai/chat` | ✅ |
+| **Fusion-MLX** | 本地 Embedding | `/api/ai/embeddings` | ✅ |
+| **Fusion-MLX** | RAG（检索增强生成） | `/api/rag/index`, `/api/rag/query` | ✅ |
+| **Fusion-Coder** | AI 代码生成与审查 | 集成桥接 | ✅ |
+| **插件系统** | 模块化插件架构 | `server/plugins/` | ✅ |
+| **Webhook** | 事件驱动自动化 | `/api/webhooks` | ✅ |
 
-## 目录结构
+## 项目结构
 
 ```
 fusion-doc/
-├── server/                 ← 核心服务器（自包含）
-│   ├── index.js            ← 入口
-│   ├── db.js               ← 数据库（SQLite + JSON）
-│   ├── routes/index.js     ← 路由（API 端点）
-│   ├── middleware/common.js ← 中间件
-│   └── utils/              ← 工具函数
-├── gateway/                ← 网关 + 前端
-│   ├── server.js           ← 备用入口
-│   └── public/             ← 构建的前端文件
-├── branding/               ← 品牌资源
-│   ├── logo.svg
-│   └── favicon.svg
+├── server/                     ← 核心服务器（模块化 MVC）
+│   ├── index.js                ← 入口（轻量级）
+│   ├── app.js                  ← 应用核心（生命周期）
+│   ├── config.js               ← 配置管理
+│   ├── db.js                   ← 数据库层（SQLite + JSON）
+│   ├── controllers/            ← 控制器层（20 个模块）
+│   │   ├── index.js            ← 路由注册中心
+│   │   ├── health.js           ← 健康检查
+│   │   ├── auth.js             ← 认证
+│   │   ├── page.js             ← 页面 CRUD
+│   │   ├── book.js             ← 书架
+│   │   ├── chapter.js          ← 章节
+│   │   ├── search.js           ← 全文搜索
+│   │   ├── ai.js               ← AI（聊天/嵌入/RAG）
+│   │   ├── file.js             ← 文件管理
+│   │   ├── tag.js              ← 标签
+│   │   ├── comment.js          ← 评论
+│   │   ├── export.js           ← 文档导出
+│   │   ├── graph.js            ← 知识图谱
+│   │   ├── favorite.js         ← 收藏
+│   │   ├── activity.js         ← 活动日志
+│   │   ├── user.js             ← 用户管理
+│   │   ├── theme.js            ← 主题设置
+│   │   ├── webhook.js          ← Webhook 系统
+│   │   ├── metadata.js         ← 元数据/词汇表
+│   │   ├── workspace.js        ← 工作空间
+│   │   └── branding.js         ← 品牌信息
+│   ├── services/               ← 服务层（业务逻辑）
+│   │   ├── auth.js             ← 认证服务（密码哈希）
+│   │   ├── page.js             ← 页面服务（CRUD + 版本）
+│   │   ├── search.js           ← 搜索服务
+│   │   ├── rag.js              ← RAG 服务（嵌入 + 检索）
+│   │   ├── export.js           ← 导出服务
+│   │   └── storage.js          ← 存储服务
+│   ├── models/                 ← 模型层（数据抽象）
+│   │   ├── index.js            ← 模型注册
+│   │   └── base.js             ← 基类（查询构建器）
+│   ├── middleware/              ← 中间件栈
+│   │   ├── pipeline.js         ← 中间件管道引擎
+│   │   ├── cors.js             ← CORS
+│   │   ├── auth.js             ← 认证（JWT）
+│   │   ├── logger.js           ← 请求日志
+│   │   ├── rate-limit.js       ← 限流
+│   │   ├── error-handler.js    ← 错误处理
+│   │   └── body-parser.js      ← 请求体解析
+│   ├── integrations/           ← 集成层
+│   │   ├── fusion-mlx.js       ← Fusion-MLX AI 引擎
+│   │   ├── fusion-coder.js     ← Fusion-Coder 桥接
+│   │   ├── ocr.js              ← OCR（Tesseract + MLX Vision）
+│   │   └── libreoffice.js      ← LibreOffice 转换
+│   ├── plugins/                ← 插件系统
+│   │   ├── loader.js           ← 插件加载器
+│   │   └── registry.js         ← 插件注册表
+│   └── utils/                  ← 工具函数
+│       ├── helpers.js          ← uid, now, slugify
+│       └── static.js           ← 静态文件服务
+├── gateway/                    ← 网关 + 前端
+│   └── public/                 ← 构建的前端文件（DocMost）
+├── branding/                   ← 品牌资源
 ├── scripts/
-│   ├── start.sh            ← 一键启动
-│   └── setup.sh            ← 安装
-├── docs/                   ← 文档
-│   └── ANALYSIS_REPORT.md  ← 开源分析报告
-├── patches/                ← 开源补丁
-├── data/                   ← 数据存储
-├── .env                    ← 环境配置
-├── README.md               ← English documentation
-├── README_ZH.md            ← 中文文档
-└── .gitignore
+│   ├── start.sh                ← 一键启动
+│   ├── setup.sh                ← 安装
+│   └── test.sh                 ← 验证测试
+├── docs/
+│   └── ANALYSIS_REPORT.md      ← 开源分析报告
+├── patches/                    ← 开源补丁
+├── data/                       ← 数据存储
+├── .env                        ← 环境配置
+├── README.md                   ← English documentation
+└── README_ZH.md                ← 中文文档
 ```
 
 ## API 概览
@@ -92,33 +150,56 @@ fusion-doc/
 | POST | `/api/auth/setup` | 注册管理员 |
 | POST | `/api/auth/login` | 登录 |
 | GET | `/api/workspaces` | 工作空间列表 |
-| GET | `/api/books` | 书架列表 |
-| GET/POST | `/api/chapters` | 章节操作 |
+| GET/POST | `/api/books` | 书架 CRUD |
+| GET/POST/PUT/DELETE | `/api/chapters` | 章节 CRUD |
 | GET/POST/PUT/DELETE | `/api/pages` | 页面 CRUD |
 | GET/POST | `/api/pages/:id/versions` | 版本历史 |
 | GET/POST | `/api/pages/:id/links` | 双向链接 |
 | GET/POST | `/api/tags` | 标签管理 |
 | GET | `/api/search?q=` | 全文搜索 |
+| GET | `/api/search/advanced` | 高级搜索 |
 | GET | `/api/graph` | 知识图谱 |
-| POST | `/api/ai/chat` | AI 聊天 |
+| POST | `/api/ai/chat` | AI 聊天（支持流式） |
 | POST | `/api/ai/embeddings` | 向量嵌入 |
-| GET | `/api/export/:format/:id` | 文档导出 |
-| GET/POST | `/api/favorites` | 收藏管理 |
+| POST | `/api/rag/index` | RAG 文档索引 |
+| POST | `/api/rag/query` | RAG 问答 |
+| GET | `/api/export/:format/:id` | 文档导出（md/html/pdf/docx） |
+| GET/POST/DELETE | `/api/favorites` | 收藏管理 |
+| GET/POST/DELETE | `/api/files` | 文件管理 |
+| GET/POST/DELETE | `/api/comments` | 评论 |
+| GET | `/api/activity` | 活动日志 |
+| GET/POST | `/api/users` | 用户管理 |
+| GET/POST | `/api/theme` | 主题设置 |
+| GET/POST | `/api/webhooks` | Webhook 系统 |
+| GET/POST | `/api/metadata` | 元数据管理 |
+| GET/POST | `/api/vocabulary` | 词汇表管理 |
 | GET | `/api/branding` | 品牌信息 |
+
+## Fusion 生态
+
+Fusion-Doc 是 **Fusion 生态** 的核心组成部分：
+
+| 项目 | 说明 | 集成方式 |
+|------|------|---------|
+| **Fusion-MLX** | 本地 MLX 推理引擎 | AI 聊天、嵌入、RAG |
+| **Fusion-Coder** | AI 编码助手 | 代码生成与审查 |
+| **Fusion-KB** | 知识库管理 | 文档知识图谱 |
+| **Fusion-Doc** | 文档知识库（本仓库） | 中央文档平台 |
 
 ## 开发
 
 ```bash
-# 验证代码
-node -c server/index.js
-node -c server/db.js
-node -c server/routes/index.js
-node -c server/middleware/common.js
-node -c server/utils/helpers.js
-node -c server/utils/static.js
+# 验证所有代码
+bash scripts/test.sh
 
 # 启动开发模式
 bash scripts/start.sh
+
+# 验证单个模块
+node -c server/index.js
+node -c server/app.js
+node -c server/config.js
+node -c server/db.js
 ```
 
 ## 许可证
