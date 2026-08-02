@@ -172,7 +172,7 @@ async function executeWorkflow(app, workflowId, input) {
 
     const stepResults = {};
     const stepStatuses = [];
-    let finalOutput = null;
+    let finalOutput;
 
     try {
         for (const step of def.steps) {
@@ -298,7 +298,7 @@ async function executeAIStep(app, stepType, step, context) {
         return result.content || result;
     } catch (e) {
         console.error(`[WorkflowEngine] AI step failed: ${e.message}`);
-        throw new Error(`AI step "${step.name}" failed: ${e.message}`);
+        throw new Error(`AI step "${step.name}" failed: ${e.message}`, { cause: e });
     }
 }
 

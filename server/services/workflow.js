@@ -3,8 +3,6 @@
 // 文档工作流状态机 + 审批流程
 // =============================================================================
 
-const { uid } = require('../utils/helpers');
-
 const STATES = {
     draft: { label: '草稿', transitions: ['review', 'published'] },
     review: { label: '审核中', transitions: ['draft', 'published'] },

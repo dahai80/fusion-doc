@@ -23,7 +23,7 @@ function verifyToken(token, secret) {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;
-  } catch { return null; }
+  } catch (_) { return null; }
 }
 
 // 公开路径（无需认证）

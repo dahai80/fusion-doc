@@ -53,7 +53,7 @@ function register(app) {
               'Content-Length': data.length,
             });
             res.end(data);
-            try { unlinkSync(mdPath); unlinkSync(pdfPath); } catch {}
+            try { unlinkSync(mdPath); unlinkSync(pdfPath); } catch (_) { /* cleanup optional */ }
           } else {
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end(markdown);
@@ -81,7 +81,7 @@ function register(app) {
               'Content-Length': data.length,
             });
             res.end(data);
-            try { unlinkSync(mdPath); unlinkSync(docxPath); } catch {}
+            try { unlinkSync(mdPath); unlinkSync(docxPath); } catch (_) { /* cleanup optional */ }
           } else {
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end(markdown);

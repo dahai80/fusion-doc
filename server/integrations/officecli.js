@@ -101,7 +101,7 @@ async function importDoc(filePath, opts) {
     if (!result.success) return result;
 
     const html = fs.readFileSync(outputPath, 'utf-8');
-    try { fs.unlinkSync(outputPath); } catch {}
+    try { fs.unlinkSync(outputPath); } catch (_) { /* cleanup optional */ }
 
     console.log(`[OfficeCLI] Imported: ${filePath}`);
     return { success: true, html, title: path.basename(filePath, ext) };
@@ -117,7 +117,7 @@ async function exportDoc(htmlContent, format, title) {
     fs.writeFileSync(htmlPath, htmlContent);
     const result = await executeCommand('convert', [htmlPath, outputPath, '--to', ext]);
 
-    try { fs.unlinkSync(htmlPath); } catch {}
+    try { fs.unlinkSync(htmlPath); } catch (_) { /* cleanup optional */ }
 
     if (result.success) {
         console.log(`[OfficeCLI] Exported: ${outputPath}`);
@@ -160,7 +160,7 @@ async function mergeTemplate(templatePath, data, outputPath) {
 
     const result = await executeCommand('merge', [templatePath, dataPath, '--output', outputPath]);
 
-    try { fs.unlinkSync(dataPath); } catch {}
+    try { fs.unlinkSync(dataPath); } catch (_) { /* cleanup optional */ }
 
     if (result.success) {
         console.log(`[OfficeCLI] Merged: ${outputPath}`);

@@ -10,6 +10,8 @@
 // =============================================================================
 
 const BASE_PATH = '/v1';
+const httpFetch = globalThis.fetch;
+const AbortCtrl = globalThis.AbortController;
 
 // ── 通用请求 ──────────────────────────────────────────────────────────────
 async function callFusionMLX({ method, path, body, config }) {
@@ -21,7 +23,7 @@ async function callFusionMLX({ method, path, body, config }) {
     headers['Authorization'] = `Bearer ${config.apiKey}`;
   }
 
-  const response = await fetch(url, {
+  const response = await httpFetch(url, {
     method: method || 'POST',
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -45,7 +47,10 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
     headers['Authorization'] = `Bearer ${config.apiKey}`;
   }
 
-  const response = await fetch(url, {
+  const controller = new AbortCtrl();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const response = await httpFetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -53,10 +58,11 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
       messages,
       stream: true,
     }),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: controller.signal,
   });
 
   if (!response.ok) {
+    clearTimeout(timer);
     const text = await response.text().catch(() => '');
     throw new Error(`Fusion-MLX 流式请求错误 (${response.status}): ${text.slice(0, 200)}`);
   }
@@ -78,13 +84,14 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
         const trimmed = line.trim();
         if (!trimmed || !trimmed.startsWith('data: ')) continue;
         const data = trimmed.slice(6);
-        if (data === '[DONE]') return;
+        if (data === '[DONE]') { clearTimeout(timer); return; }
         try {
           yield JSON.parse(data);
-        } catch { /* 跳过无法解析的 chunk */ }
+        } catch (_) { /* 跳过无法解析的 chunk */ }
       }
     }
   } finally {
+    clearTimeout(timer);
     reader.releaseLock();
   }
 }
@@ -129,10 +136,14 @@ async function listModels(config) {
 
 // ── 健康检查 ──────────────────────────────────────────────────────────────
 async function healthCheck(config) {
+  const controller = new AbortCtrl();
+  const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    const response = await fetch(`${config.url}/health`, { method: 'GET', signal: AbortSignal.timeout(3000) });
+    const response = await httpFetch(`${config.url}/health`, { method: 'GET', signal: controller.signal });
+    clearTimeout(timer);
     return response.ok;
-  } catch {
+  } catch (_) {
+    clearTimeout(timer);
     return false;
   }
 }

@@ -19,7 +19,7 @@ async function loadPlugins(app) {
   } catch (e) { /* ignore */ }
 
   // 扫描插件目录
-  let entries = [];
+  let entries;
   try {
     entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
   } catch (e) {

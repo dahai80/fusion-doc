@@ -134,7 +134,8 @@ class FusionDocApp {
       if (route.method !== method && route.method !== 'ALL') continue;
       if (route.pathname === pathname) {
         req.params = {};
-        return await route.handler(req, res);
+        await route.handler(req, res);
+        return true;
       }
     }
 
@@ -160,7 +161,8 @@ class FusionDocApp {
       }
       if (matched) {
         req.params = params;
-        return await route.handler(req, res);
+        await route.handler(req, res);
+        return true;
       }
     }
     return false;
