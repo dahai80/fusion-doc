@@ -5,8 +5,24 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const { uid, now } = require('../utils/helpers');
+
+const ALLOWED_EXTS = new Set([
+    '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
+    '.pdf', '.txt', '.md', '.csv', '.html', '.rtf',
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp',
+    '.zip', '.tar', '.gz', '.mp3', '.mp4', '.wav',
+]);
+
+function sanitizeExt(rawName) {
+    const ext = path.extname(rawName || 'file.bin').toLowerCase();
+    if (ALLOWED_EXTS.has(ext)) return ext;
+    console.warn(`[Storage] Rejected extension "${ext}" from name "${rawName}", defaulting to .bin`);
+    return '.bin';
+}
 
 class StorageService {
   constructor(app) {
@@ -19,7 +35,7 @@ class StorageService {
   // 保存文件
   save(name, base64Content, mime, pageId = null) {
     const fileId = uid();
-    const ext = path.extname(name || 'file.bin');
+    const ext = sanitizeExt(name);
     const fileName = fileId + ext;
     const buf = Buffer.from(base64Content || '', 'base64');
     fs.writeFileSync(path.join(this.storageDir, fileName), buf);
@@ -44,10 +60,17 @@ class StorageService {
   }
 
   // 提取文本（Office 文档 → 纯文本）
-  extractText(fileName, fileId, ext) {
+  async extractText(fileName, fileId, ext) {
     try {
       const txtPath = path.join(this.storageDir, fileId + '.txt');
-      execSync(`pandoc "${path.join(this.storageDir, fileName)}" -t plain -o "${txtPath}" 2>/dev/null || libreoffice --headless --convert-to txt --outdir "${this.storageDir}" "${path.join(this.storageDir, fileName)}" 2>/dev/null || true`, { timeout: 30000 });
+      const srcPath = path.join(this.storageDir, fileName);
+      try {
+        await execFileAsync('pandoc', [srcPath, '-t', 'plain', '-o', txtPath], { timeout: 30000 });
+      } catch {
+        try {
+          await execFileAsync('libreoffice', ['--headless', '--convert-to', 'txt', '--outdir', this.storageDir, srcPath], { timeout: 30000 });
+        } catch { /* libreoffice not available */ }
+      }
       if (fs.existsSync(txtPath)) {
         const text = fs.readFileSync(txtPath, 'utf-8').slice(0, 50000);
         fs.unlinkSync(txtPath);

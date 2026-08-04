@@ -5,7 +5,14 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
+
+const ALLOWED_OCR_LANGS = new Set([
+    'chi_sim', 'chi_tra', 'eng', 'jpn', 'kor', 'fra', 'deu',
+    'chi_sim+eng', 'chi_tra+eng', 'jpn+eng', 'kor+eng',
+]);
 
 class OCRIntegration {
   constructor(app) {
@@ -16,7 +23,7 @@ class OCRIntegration {
   // 检查是否可用
   isAvailable() {
     try {
-      execSync('tesseract --version 2>/dev/null', { timeout: 3000 });
+      execFileAsync('tesseract', ['--version'], { timeout: 3000 });
       return true;
     } catch {
       return false;
@@ -25,6 +32,11 @@ class OCRIntegration {
 
   // OCR 识别（通过 Tesseract）
   async recognize(imagePath, language = 'chi_sim+eng') {
+    if (!ALLOWED_OCR_LANGS.has(language)) {
+      console.warn(`[OCR] Rejected language "${language}", defaulting to chi_sim+eng`);
+      language = 'chi_sim+eng';
+    }
+
     if (!this.isAvailable()) {
       return { error: 'Tesseract not available. Install with: brew install tesseract' };
     }
@@ -37,7 +49,7 @@ class OCRIntegration {
 
     try {
       const outputBase = path.join(path.dirname(imagePath), path.basename(imagePath, ext));
-      execSync(`tesseract "${imagePath}" "${outputBase}" -l ${language} 2>/dev/null`, { timeout: 60000 });
+      await execFileAsync('tesseract', [imagePath, outputBase, '-l', language], { timeout: 60000 });
       const txtPath = `${outputBase}.txt`;
       if (fs.existsSync(txtPath)) {
         const text = fs.readFileSync(txtPath, 'utf-8');

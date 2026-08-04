@@ -4,9 +4,26 @@
 
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const { parseBody } = require('../middleware/body-parser');
 const { uid, now } = require('../utils/helpers');
 const { json, list, notFound } = require('../utils/response');
+
+const ALLOWED_EXTS = new Set([
+    '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
+    '.pdf', '.txt', '.md', '.csv', '.html', '.rtf',
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp',
+    '.zip', '.tar', '.gz', '.mp3', '.mp4', '.wav',
+]);
+
+function sanitizeExt(rawName) {
+    const ext = path.extname(rawName || 'file.bin').toLowerCase();
+    if (ALLOWED_EXTS.has(ext)) return ext;
+    console.warn(`[File] Rejected extension "${ext}" from name "${rawName}", defaulting to .bin`);
+    return '.bin';
+}
 
 function register(app) {
   const { db } = app;
@@ -28,7 +45,7 @@ function register(app) {
   app.registerRoute('POST', '/api/files/upload', async (req, res) => {
     const body = await parseBody(req);
     const fileId = uid();
-    const ext = path.extname(body.name || 'file.bin');
+    const ext = sanitizeExt(body.name);
     const fileName = fileId + ext;
     fs.mkdirSync(storageDir, { recursive: true });
     const buf = Buffer.from(body.content || '', 'base64');
@@ -49,8 +66,14 @@ function register(app) {
     if (officeExts.includes(ext)) {
       try {
         const txtPath = path.join(storageDir, fileId + '.txt');
-        const { execSync } = require('child_process');
-        execSync(`pandoc "${path.join(storageDir, fileName)}" -t plain -o "${txtPath}" 2>/dev/null || libreoffice --headless --convert-to txt --outdir "${storageDir}" "${path.join(storageDir, fileName)}" 2>/dev/null || true`, { timeout: 30000 });
+        const srcPath = path.join(storageDir, fileName);
+        try {
+          await execFileAsync('pandoc', [srcPath, '-t', 'plain', '-o', txtPath], { timeout: 30000 });
+        } catch {
+          try {
+            await execFileAsync('libreoffice', ['--headless', '--convert-to', 'txt', '--outdir', storageDir, srcPath], { timeout: 30000 });
+          } catch { /* libreoffice not available */ }
+        }
         if (fs.existsSync(txtPath)) {
           file.extracted_text = fs.readFileSync(txtPath, 'utf-8').slice(0, 50000);
           fs.unlinkSync(txtPath);

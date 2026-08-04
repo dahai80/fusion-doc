@@ -4,7 +4,7 @@
   <p><strong>Apple Silicon 原生离线智能文档知识库</strong></p>
   <p>模块化 MVC · 插件体系 · 融合生态</p>
   <p>
-    <a href="./README_ZH.md">🇨🇳 中文</a> •
+    <a href="./README_CN.md">🇨🇳 中文</a> •
     <a href="./README.md">🇬🇧 English</a>
   </p>
 </div>
@@ -204,6 +204,4 @@ node -c server/db.js
 
 ## 许可证
 
-- **Fusion-Doc 自有代码** — MIT
-- **DocMost 前端** — AGPL-3.0
-- **Fusion-MLX** — Apache-2.0
+Apache-2.0

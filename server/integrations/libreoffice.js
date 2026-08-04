@@ -5,7 +5,9 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 
 class LibreOfficeIntegration {
   constructor(app) {
@@ -17,23 +19,29 @@ class LibreOfficeIntegration {
   // 检查是否可用
   isAvailable() {
     try {
-      execSync('pandoc --version 2>/dev/null || libreoffice --version 2>/dev/null', { timeout: 3000 });
+      execFileAsync('pandoc', ['--version'], { timeout: 3000 });
       return true;
     } catch {
-      return false;
+      try {
+        execFileAsync('libreoffice', ['--version'], { timeout: 3000 });
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 
   // 转换到文本
-  toText(inputPath) {
+  async toText(inputPath) {
     const ext = path.extname(inputPath).toLowerCase();
     const outputPath = path.join(this.tmpDir, `${path.basename(inputPath, ext)}.txt`);
 
     try {
-      execSync(
-        `pandoc "${inputPath}" -t plain -o "${outputPath}" 2>/dev/null || libreoffice --headless --convert-to txt --outdir "${this.tmpDir}" "${inputPath}" 2>/dev/null || true`,
-        { timeout: 30000, stdio: 'pipe' }
-      );
+      try {
+        await execFileAsync('pandoc', [inputPath, '-t', 'plain', '-o', outputPath], { timeout: 30000 });
+      } catch {
+        await execFileAsync('libreoffice', ['--headless', '--convert-to', 'txt', '--outdir', this.tmpDir, inputPath], { timeout: 30000 });
+      }
       if (fs.existsSync(outputPath)) {
         const text = fs.readFileSync(outputPath, 'utf-8');
         fs.unlinkSync(outputPath);
@@ -44,15 +52,20 @@ class LibreOfficeIntegration {
   }
 
   // 转换到 PDF
-  toPDF(inputPath) {
+  async toPDF(inputPath) {
     const ext = path.extname(inputPath).toLowerCase();
     const outputPath = path.join(this.tmpDir, `${path.basename(inputPath, ext)}.pdf`);
 
     try {
-      execSync(
-        `pandoc "${inputPath}" -o "${outputPath}" --pdf-engine=weasyprint 2>/dev/null || pandoc "${inputPath}" -o "${outputPath}" 2>/dev/null || libreoffice --headless --convert-to pdf --outdir "${this.tmpDir}" "${inputPath}" 2>/dev/null || true`,
-        { timeout: 30000, stdio: 'pipe' }
-      );
+      try {
+        await execFileAsync('pandoc', [inputPath, '-o', outputPath, '--pdf-engine=weasyprint'], { timeout: 30000 });
+      } catch {
+        try {
+          await execFileAsync('pandoc', [inputPath, '-o', outputPath], { timeout: 30000 });
+        } catch {
+          await execFileAsync('libreoffice', ['--headless', '--convert-to', 'pdf', '--outdir', this.tmpDir, inputPath], { timeout: 30000 });
+        }
+      }
       if (fs.existsSync(outputPath)) {
         const data = fs.readFileSync(outputPath);
         fs.unlinkSync(outputPath);
@@ -63,15 +76,16 @@ class LibreOfficeIntegration {
   }
 
   // 转换到 DOCX
-  toDocx(inputPath) {
+  async toDocx(inputPath) {
     const ext = path.extname(inputPath).toLowerCase();
     const outputPath = path.join(this.tmpDir, `${path.basename(inputPath, ext)}.docx`);
 
     try {
-      execSync(
-        `pandoc "${inputPath}" -o "${outputPath}" 2>/dev/null || libreoffice --headless --convert-to docx --outdir "${this.tmpDir}" "${inputPath}" 2>/dev/null || true`,
-        { timeout: 30000, stdio: 'pipe' }
-      );
+      try {
+        await execFileAsync('pandoc', [inputPath, '-o', outputPath], { timeout: 30000 });
+      } catch {
+        await execFileAsync('libreoffice', ['--headless', '--convert-to', 'docx', '--outdir', this.tmpDir, inputPath], { timeout: 30000 });
+      }
       if (fs.existsSync(outputPath)) {
         const data = fs.readFileSync(outputPath);
         fs.unlinkSync(outputPath);

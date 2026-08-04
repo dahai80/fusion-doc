@@ -36,7 +36,7 @@ const config = {
 
   // Fusion-MLX 配置
   fusionMlx: {
-    url: process.env.FUSION_MLX_URL || 'http://localhost:11434',
+    url: process.env.FUSION_MLX_URL || 'http://localhost:11432',
     apiKey: process.env.FUSION_MLX_API_KEY || '',
     chatModel: process.env.AI_CHAT_MODEL || 'Qwen3.5-9B-4bit',
     embeddingModel: process.env.AI_EMBEDDING_MODEL || 'bge-small-en-v1.5',

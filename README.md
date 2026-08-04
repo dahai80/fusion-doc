@@ -4,7 +4,7 @@
   <p><strong>AI-First Document OS for Apple Silicon</strong></p>
   <p>TipTap Editor · AI Copilot · Knowledge Graph · Office Format · Real-time Collab</p>
   <p>
-    <a href="./README_ZH.md">🇨🇳 中文</a> •
+    <a href="./README_CN.md">🇨🇳 中文</a> •
     <a href="./README.md">🇬🇧 English</a>
   </p>
 </div>
@@ -205,5 +205,4 @@ bash scripts/start.sh
 
 ## License
 
-- **Fusion-Doc own code** — MIT
-- **Fusion-MLX** — Apache-2.0
+Apache-2.0

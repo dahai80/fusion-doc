@@ -4,7 +4,9 @@
 // =============================================================================
 
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const fs = require('fs');
 
 class ExportService {
@@ -43,7 +45,7 @@ class ExportService {
   }
 
   // 导出 PDF（通过 pandoc）
-  exportPDF(pageId) {
+  async exportPDF(pageId) {
     const page = this._getPage(pageId);
     if (!page) return null;
     const md = this._getMarkdown(page);
@@ -52,7 +54,13 @@ class ExportService {
       const mdPath = path.join(this.exportDir, `${pageId}.md`);
       const pdfPath = path.join(this.exportDir, `${pageId}.pdf`);
       fs.writeFileSync(mdPath, md, 'utf-8');
-      execSync(`pandoc "${mdPath}" -o "${pdfPath}" --pdf-engine=weasyprint 2>/dev/null || pandoc "${mdPath}" -o "${pdfPath}" 2>/dev/null || true`, { timeout: 30000 });
+      try {
+        await execFileAsync('pandoc', [mdPath, '-o', pdfPath, '--pdf-engine=weasyprint'], { timeout: 30000 });
+      } catch {
+        try {
+          await execFileAsync('pandoc', [mdPath, '-o', pdfPath], { timeout: 30000 });
+        } catch { /* pandoc not available */ }
+      }
       if (fs.existsSync(pdfPath)) {
         const data = fs.readFileSync(pdfPath);
         try { fs.unlinkSync(mdPath); fs.unlinkSync(pdfPath); } catch (_) { /* cleanup optional */ }
@@ -63,7 +71,7 @@ class ExportService {
   }
 
   // 导出 DOCX（通过 pandoc）
-  exportDocx(pageId) {
+  async exportDocx(pageId) {
     const page = this._getPage(pageId);
     if (!page) return null;
     const md = this._getMarkdown(page);
@@ -72,7 +80,13 @@ class ExportService {
       const mdPath = path.join(this.exportDir, `${pageId}.md`);
       const docxPath = path.join(this.exportDir, `${pageId}.docx`);
       fs.writeFileSync(mdPath, md, 'utf-8');
-      execSync(`pandoc "${mdPath}" -o "${docxPath}" 2>/dev/null || libreoffice --headless --convert-to docx --outdir "${this.exportDir}" "${mdPath}" 2>/dev/null || true`, { timeout: 30000 });
+      try {
+        await execFileAsync('pandoc', [mdPath, '-o', docxPath], { timeout: 30000 });
+      } catch {
+        try {
+          await execFileAsync('libreoffice', ['--headless', '--convert-to', 'docx', '--outdir', this.exportDir, mdPath], { timeout: 30000 });
+        } catch { /* libreoffice not available */ }
+      }
       if (fs.existsSync(docxPath)) {
         const data = fs.readFileSync(docxPath);
         try { fs.unlinkSync(mdPath); fs.unlinkSync(docxPath); } catch (_) { /* cleanup optional */ }

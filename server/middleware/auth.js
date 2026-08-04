@@ -52,7 +52,13 @@ function auth(req, res, pipeline) {
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
   if (token) {
-    const secret = req.ctx?.config?.auth?.jwtSecret || 'fusion-doc-dev-secret';
+    const secret = req.ctx?.config?.auth?.jwtSecret;
+    if (!secret) {
+      console.error('[Auth] JWT secret not configured — rejecting all token auth');
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Server misconfiguration: JWT secret not set', code: 'AUTH_CONFIG_ERROR' }));
+      return true;
+    }
     const payload = verifyToken(token, secret);
     if (payload) {
       req.user = payload;
@@ -60,8 +66,8 @@ function auth(req, res, pipeline) {
     }
   }
 
-  // 开发模式：通过 X-User-Id 头模拟用户（仅开发环境）
-  if (req.ctx?.config?.isDev && req.headers['x-user-id']) {
+  // 开发模式：通过 X-User-Id 头模拟用户（仅 NODE_ENV=development 时生效）
+  if (process.env.NODE_ENV === 'development' && req.headers['x-user-id']) {
     req.user = { id: req.headers['x-user-id'], role: 'admin' };
     return false;
   }
