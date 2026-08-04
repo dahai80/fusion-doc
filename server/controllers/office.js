@@ -7,8 +7,30 @@ const { parseBody } = require('../middleware/body-parser');
 const { json, error } = require('../utils/response');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { officeImport, officeExport, getOfficeStatus } = require('../services/office');
 const officecli = require('../integrations/officecli');
+
+const ALLOWED_COMMANDS = new Set(['create', 'convert', 'preview', 'merge']);
+
+function allowedRoots(app) {
+    const storageDir = path.resolve(app.config.storage.dir);
+    const dataDir = path.resolve(app.config.dataDir);
+    const workDir = path.join(os.tmpdir(), 'fusion-doc-office');
+    return [storageDir, dataDir, workDir];
+}
+
+function safePath(app, rawPath, label) {
+    if (!rawPath || typeof rawPath !== 'string') return null;
+    const resolved = path.resolve(rawPath);
+    const roots = allowedRoots(app);
+    const ok = roots.some(root => resolved === root || resolved.startsWith(root + path.sep));
+    if (!ok) {
+        console.warn(`[Office] Path traversal blocked for ${label}: ${rawPath}`);
+        return null;
+    }
+    return resolved;
+}
 
 function register(app) {
     const { db } = app;
@@ -39,8 +61,10 @@ function register(app) {
         const body = await parseBody(req);
         const { file_path, book_id, chapter_id } = body;
         if (!file_path) return error(res, 'file_path required', 400);
+        const safeFilePath = safePath(app, file_path, 'import');
+        if (!safeFilePath) return error(res, 'file_path not allowed', 403);
         try {
-            const result = await officeImport(app, { file_path, book_id, chapter_id });
+            const result = await officeImport(app, { file_path: safeFilePath, book_id, chapter_id });
             json(res, result);
         } catch (e) {
             error(res, `Import failed: ${e.message}`, 500);
@@ -104,9 +128,13 @@ function register(app) {
         const body = await parseBody(req);
         const { template_path, data, output_path } = body;
         if (!template_path) return error(res, 'template_path required', 400);
+        const safeTemplate = safePath(app, template_path, 'merge.template');
+        if (!safeTemplate) return error(res, 'template_path not allowed', 403);
+        const safeOutput = output_path ? safePath(app, output_path, 'merge.output') : undefined;
+        if (output_path && !safeOutput) return error(res, 'output_path not allowed', 403);
 
         try {
-            const result = await officecli.mergeTemplate(template_path, data || {}, output_path);
+            const result = await officecli.mergeTemplate(safeTemplate, data || {}, safeOutput);
             json(res, result);
         } catch (e) {
             error(res, `Merge failed: ${e.message}`, 500);
@@ -118,8 +146,10 @@ function register(app) {
         const body = await parseBody(req);
         const { dir_path, book_id } = body;
         if (!dir_path) return error(res, 'dir_path required', 400);
+        const safeDir = safePath(app, dir_path, 'import-dir');
+        if (!safeDir) return error(res, 'dir_path not allowed', 403);
         try {
-            const result = await officeImport(app, { dir_path, book_id, recursive: true });
+            const result = await officeImport(app, { dir_path: safeDir, book_id, recursive: true });
             json(res, result);
         } catch (e) {
             error(res, `Import-dir failed: ${e.message}`, 500);
@@ -131,9 +161,14 @@ function register(app) {
         const body = await parseBody(req);
         const { command, args } = body;
         if (!command) return error(res, 'command required', 400);
+        if (!ALLOWED_COMMANDS.has(command)) {
+            console.warn(`[Office] Rejected disallowed command: ${command}`);
+            return error(res, `command not allowed, valid: ${[...ALLOWED_COMMANDS].join(', ')}`, 403);
+        }
+        const safeArgs = Array.isArray(args) ? args.filter(a => typeof a === 'string') : [];
 
         try {
-            const result = await officecli.executeCommand(command, args || []);
+            const result = await officecli.executeCommand(command, safeArgs);
             json(res, result);
         } catch (e) {
             error(res, `Command failed: ${e.message}`, 500);
