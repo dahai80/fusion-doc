@@ -11,7 +11,7 @@
     "start": "node server/index.js",
     "setup": "bash scripts/setup.sh",
     "test": "bash scripts/test.sh",
-    "lint": "eslint server/ --no-warn",
+    "lint": "eslint server/ --quiet",
     "lint:fix": "eslint server/ --fix"
   },
   "dependencies": {
@@ -19,7 +19,7 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.0.0",
     "concurrently": "^9.1.0",
     "eslint": "^9.39.5"
   }
