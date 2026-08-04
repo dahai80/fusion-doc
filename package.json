@@ -11,7 +11,7 @@
     "start": "node server/index.js",
     "setup": "bash scripts/setup.sh",
     "test": "bash scripts/test.sh",
-    "lint": "eslint server/ --no-warn",
+    "lint": "eslint server/ --quiet",
     "lint:fix": "eslint server/ --fix"
   },
   "dependencies": {
