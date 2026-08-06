@@ -35,8 +35,9 @@ const config = {
   publicDir: path.resolve(process.env.FUSION_PUBLIC_DIR || path.join(__dirname, '..', 'gateway', 'public')),
 
   // Fusion-MLX 配置
+  // 端口约定: 直连 fusion-mlx 本体 11434 (网关 11432 后端未连通, 禁用默认值)
   fusionMlx: {
-    url: process.env.FUSION_MLX_URL || 'http://localhost:11432',
+    url: process.env.FUSION_MLX_URL || 'http://127.0.0.1:11434',
     apiKey: process.env.FUSION_MLX_API_KEY || '',
     chatModel: process.env.AI_CHAT_MODEL || 'Qwen3.5-9B-4bit',
     embeddingModel: process.env.AI_EMBEDDING_MODEL || 'bge-small-en-v1.5',
@@ -97,5 +98,10 @@ const config = {
   isDev: process.env.NODE_ENV !== 'production',
   isTest: process.env.NODE_ENV === 'test',
 };
+
+// §2.2: FUSION_MLX_API_KEY 未设置时启动 WARN, 调用时 fail visibly (禁止字面量/静默放行)
+if (!config.fusionMlx.apiKey && !config.isTest) {
+  console.warn('  [⚠] FUSION_MLX_API_KEY 未设置, MLX 调用将被拒绝 (请于部署 env 注入, 禁止字面量)');
+}
 
 module.exports = config;
