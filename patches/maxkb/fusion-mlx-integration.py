@@ -22,8 +22,9 @@ import os
 import httpx
 from typing import Any
 
-FUSION_MLX_URL = os.environ.get("FUSION_MLX_URL", "http://localhost:8000")
-FUSION_MLX_API_KEY = os.environ.get("FUSION_MLX_API_KEY", "fusion-mlx")
+FUSION_MLX_URL = os.environ.get("FUSION_MLX_URL", "http://localhost:11434")
+# key 由部署 env 注入, 严禁字面量默认值; 空则调用时报错 (fail visibly)
+FUSION_MLX_API_KEY = os.environ.get("FUSION_MLX_API_KEY", "")
 
 class FusionMLXModelProvider:
     """仅对接本地 Fusion-MLX 推理引擎"""

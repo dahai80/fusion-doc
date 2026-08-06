@@ -5,7 +5,7 @@
 // =============================================================================
 //
 // Fusion-MLX 是 Apple Silicon 原生 MLX 推理引擎，提供 OpenAI 兼容 API
-// 默认端口: 11432
+// 默认端口: 11434 (直连 fusion-mlx 本体; 网关 11432 后端未连通, 禁用默认值)
 // 端点: /v1/chat/completions, /v1/embeddings, /v1/models, /v1/rerank
 // =============================================================================
 
@@ -15,13 +15,15 @@ const AbortCtrl = globalThis.AbortController;
 
 // ── 通用请求 ──────────────────────────────────────────────────────────────
 async function callFusionMLX({ method, path, body, config }) {
+  // §2.2: key 未设置时 fail visibly, 禁止静默放行 (字面量亦禁止)
+  if (!config.apiKey) {
+    throw new Error('Fusion-MLX 调用被拒绝: FUSION_MLX_API_KEY 未设置 (请在部署 env 注入)');
+  }
   const url = `${config.url}${BASE_PATH}${path}`;
   const headers = {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${config.apiKey}`,
   };
-  if (config.apiKey) {
-    headers['Authorization'] = `Bearer ${config.apiKey}`;
-  }
 
   const response = await httpFetch(url, {
     method: method || 'POST',
@@ -39,13 +41,15 @@ async function callFusionMLX({ method, path, body, config }) {
 
 // ── 流式请求（SSE） ───────────────────────────────────────────────────────
 async function* callFusionMLXStream({ model, messages, config, timeoutMs = 120000 }) {
+  // §2.2: key 未设置时 fail visibly, 禁止静默放行
+  if (!config.apiKey) {
+    throw new Error('Fusion-MLX 流式调用被拒绝: FUSION_MLX_API_KEY 未设置 (请在部署 env 注入)');
+  }
   const url = `${config.url}${BASE_PATH}/chat/completions`;
   const headers = {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${config.apiKey}`,
   };
-  if (config.apiKey) {
-    headers['Authorization'] = `Bearer ${config.apiKey}`;
-  }
 
   const controller = new AbortCtrl();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
