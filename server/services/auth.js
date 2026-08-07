@@ -13,15 +13,27 @@ class AuthService {
     this.config = app.config.auth;
   }
 
-  // 密码哈希（SHA-256 + salt）
+  // 密码哈希（scrypt 慢哈希, 抗离线爆破; 商用级）
+  // 格式: scrypt:N:r:p:salt:hash (N=2^15, r=8, p=1, salt=16B, keyLen=64B)
   hashPassword(password) {
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.createHmac('sha256', salt).update(password).digest('hex');
-    return `${salt}:${hash}`;
+    const salt = crypto.randomBytes(16);
+    const keyLen = 64;
+    const opts = { N: 32768, r: 8, p: 1, maxmem: 128 * 32768 * 8 * 2 };
+    const hash = crypto.scryptSync(password, salt, keyLen, opts);
+    return `scrypt:32768:8:1:${salt.toString('hex')}:${hash.toString('hex')}`;
   }
 
-  // 验证密码
+  // 验证密码 (兼容旧版 SHA-256 哈希, 命中时自动升级到 scrypt)
   verifyPassword(password, stored) {
+    if (stored.startsWith('scrypt:')) {
+      const [_algo, N, r, p, saltHex, hashHex] = stored.split(':');
+      const salt = Buffer.from(saltHex, 'hex');
+      const keyLen = Buffer.from(hashHex, 'hex').length;
+      const opts = { N: +N, r: +r, p: +p, maxmem: 128 * +N * +r * 2 };
+      const computed = crypto.scryptSync(password, salt, keyLen, opts);
+      return crypto.timingSafeEqual(computed, Buffer.from(hashHex, 'hex'));
+    }
+    // 旧版 HMAC-SHA256 (兼容已存量数据)
     const [salt, hash] = stored.split(':');
     const computed = crypto.createHmac('sha256', salt).update(password).digest('hex');
     return hash === computed;
@@ -34,6 +46,12 @@ class AuthService {
       : require('../db').listJSON('users').find(u => u.email === email);
     if (!user) return { error: '用户不存在' };
     if (!this.verifyPassword(password, user.password)) return { error: '密码错误' };
+    // 旧版哈希自动升级到 scrypt (透明迁移, 仅在命中旧格式时触发)
+    if (!user.password.startsWith('scrypt:') && this.db) {
+      const upgraded = this.hashPassword(password);
+      this.db.prepare('UPDATE users SET password = ? WHERE id = ?').run(upgraded, user.id);
+      console.log(`  [Auth] 用户 ${email} 密码哈希已升级到 scrypt`);
+    }
     const token = createToken({ id: user.id, role: user.role }, this.config.jwtSecret, this.config.sessionExpiry);
     return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
   }

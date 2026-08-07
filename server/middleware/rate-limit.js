@@ -15,13 +15,23 @@ setInterval(() => {
   }
 }, 60000);
 
+function clientKey(req) {
+  return req.ip
+    || (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || req.connection?.remoteAddress
+    || req.socket?.remoteAddress
+    || 'unknown';
+}
+
+// 单规则限流工厂
 function rateLimit(options = {}) {
   const windowMs = options.windowMs || 60000;      // 时间窗口（默认 1 分钟）
   const maxRequests = options.maxRequests || 100;   // 最大请求数
   const message = options.message || '请求过于频繁，请稍后再试';
+  const tag = options.tag || 'default';
 
   return function rateLimitMiddleware(req, res, pipeline) {
-    const key = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
+    const key = `${tag}:${clientKey(req)}`;
     const now = Date.now();
 
     if (!requestCounts.has(key)) {
@@ -38,8 +48,10 @@ function rateLimit(options = {}) {
 
     entry.count++;
     if (entry.count > maxRequests) {
-      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': Math.ceil((entry.resetTime - now) / 1000) });
-      res.end(JSON.stringify({ error: message, code: 'RATE_LIMITED' }));
+      const retry = Math.ceil((entry.resetTime - now) / 1000);
+      console.warn(`  [RateLimit] ${tag} 限流触发: ${clientKey(req)} (${entry.count}/${maxRequests})`);
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': retry });
+      res.end(JSON.stringify({ error: message, code: 'RATE_LIMITED', retryAfter: retry }));
       return true;
     }
 
@@ -47,4 +59,24 @@ function rateLimit(options = {}) {
   };
 }
 
-module.exports = { rateLimit };
+// 管道级限流: 认证端点加严, 其余 API 走通用配额
+// 规则匹配按声明顺序, 首条命中即生效
+const RULES = [
+  { match: (p) => p.startsWith('/api/auth/'), windowMs: 60000, maxRequests: 10, message: '认证请求过于频繁，请稍后再试', tag: 'auth' },
+  { match: (p) => p.startsWith('/api/'), windowMs: 60000, maxRequests: 120, message: '请求过于频繁，请稍后再试', tag: 'api' },
+];
+
+const _middlewareCache = RULES.map(r => ({ ...r, fn: rateLimit(r) }));
+
+function globalRateLimit(req, res, pipeline) {
+  if (!req.url || !req.url.startsWith('/api/')) return false;
+  const pathname = req.url.split('?')[0];
+  for (const rule of _middlewareCache) {
+    if (rule.match(pathname)) {
+      return rule.fn(req, res, pipeline);
+    }
+  }
+  return false;
+}
+
+module.exports = { rateLimit, globalRateLimit };

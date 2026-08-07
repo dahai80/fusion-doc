@@ -69,9 +69,11 @@ class FusionDocApp {
     const { logger } = require('./middleware/logger');
     const { errorHandler } = require('./middleware/error-handler');
     const { auth } = require('./middleware/auth');
+    const { globalRateLimit } = require('./middleware/rate-limit');
 
     this.middleware.use('cors', cors, 0);
     this.middleware.use('logger', logger, 10);
+    this.middleware.use('rateLimit', globalRateLimit, 15); // 认证前限流, 防爆破
     this.middleware.use('auth', auth, 20);
     this.middleware.use('error', errorHandler, 100); // 最后执行
   }
@@ -227,10 +229,14 @@ class FusionDocApp {
     }
 
     return new Promise((resolve) => {
-      this.server.listen(config.port, () => {
+      this.server.listen(config.port, config.host, () => {
         const elapsed = ((Date.now() - this._startTime) / 1000).toFixed(1);
+        const displayHost = config.host === '0.0.0.0' ? 'localhost' : config.host;
         console.log(`  ─────────────────────────────────────────`);
-        console.log(`  📍  http://localhost:${config.port}`);
+        console.log(`  📍  http://${displayHost}:${config.port}  (绑定 ${config.host})`);
+        if (config.host === '0.0.0.0') {
+          console.warn('  [⚠] 监听 0.0.0.0: 已暴露到所有网卡, 商用部署须前置反向代理 + TLS');
+        }
         console.log(`  🧠  AI: ${config.fusionMlx.url}`);
         console.log(`  💾  存储: ${this.db ? 'SQLite' : 'JSON'}`);
         console.log(`  ⚡  启动耗时: ${elapsed}s`);
