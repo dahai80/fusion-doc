@@ -49,4 +49,4 @@ class TestFusionMLXModelProvider:
         assert len(result) >= 1
 
     def test_env_vars(self):
-        assert fusion_mlx_integration.FUSION_MLX_URL == os.environ.get("FUSION_MLX_URL", "http://localhost:11434")
+        assert fusion_mlx_integration.FUSION_MLX_URL == os.environ.get("FUSION_MLX_URL", "http://localhost:11432")

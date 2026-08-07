@@ -47,7 +47,8 @@ if [ ! -f .env ]; then
 FUSION_DOC_PORT=11449
 
 # Fusion-MLX（本地 AI 推理引擎）
-FUSION_MLX_URL=http://localhost:11434
+# 默认经 fusion-gateway 11432 统一组网 (方案B); env 可覆盖回直连 11434
+FUSION_MLX_URL=http://127.0.0.1:11432
 FUSION_MLX_API_KEY=
 
 # AI 模型配置
