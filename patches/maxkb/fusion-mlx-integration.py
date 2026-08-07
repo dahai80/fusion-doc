@@ -22,7 +22,8 @@ import os
 import httpx
 from typing import Any
 
-FUSION_MLX_URL = os.environ.get("FUSION_MLX_URL", "http://localhost:11434")
+# 默认经 fusion-gateway 11432 统一组网 (方案B); env 可覆盖回直连 11434
+FUSION_MLX_URL = os.environ.get("FUSION_MLX_URL", "http://localhost:11432")
 # key 由部署 env 注入, 严禁字面量默认值; 空则调用时报错 (fail visibly)
 FUSION_MLX_API_KEY = os.environ.get("FUSION_MLX_API_KEY", "")
 

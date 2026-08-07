@@ -12,7 +12,7 @@ const path = require('path');
 const { URL } = require('url');
 
 const PORT = parseInt(process.env.FUSION_DOC_PORT || '11449', 10);
-const FUSION_MLX_URL = process.env.FUSION_MLX_URL || 'http://localhost:11434';
+const FUSION_MLX_URL = process.env.FUSION_MLX_URL || 'http://127.0.0.1:11432';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 

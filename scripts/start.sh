@@ -37,7 +37,8 @@ else
 fi
 
 # Fusion-MLX
-MLX_URL="${FUSION_MLX_URL:-http://localhost:11434}"
+# 默认经 fusion-gateway 11432 统一组网 (方案B); env 可覆盖回直连 11434
+MLX_URL="${FUSION_MLX_URL:-http://127.0.0.1:11432}"
 echo "  [~] 检查 Fusion-MLX ${MLX_URL}..."
 if curl -sf "${MLX_URL}/v1/models" > /dev/null 2>&1; then
   echo "  [✓] Fusion-MLX"

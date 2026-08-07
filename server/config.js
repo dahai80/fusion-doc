@@ -35,9 +35,9 @@ const config = {
   publicDir: path.resolve(process.env.FUSION_PUBLIC_DIR || path.join(__dirname, '..', 'gateway', 'public')),
 
   // Fusion-MLX 配置
-  // 端口约定: 直连 fusion-mlx 本体 11434 (网关 11432 后端未连通, 禁用默认值)
+  // 端口约定: 经 fusion-gateway 11432 调用 MLX (统一组网方案B; env 可覆盖回直连 11434)
   fusionMlx: {
-    url: process.env.FUSION_MLX_URL || 'http://127.0.0.1:11434',
+    url: process.env.FUSION_MLX_URL || 'http://127.0.0.1:11432',
     apiKey: process.env.FUSION_MLX_API_KEY || '',
     chatModel: process.env.AI_CHAT_MODEL || 'Qwen3.5-9B-4bit',
     embeddingModel: process.env.AI_EMBEDDING_MODEL || 'bge-small-en-v1.5',
