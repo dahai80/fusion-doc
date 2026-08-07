@@ -34,6 +34,7 @@ function registerRoutes(app) {
     require('./workflow'),
     require('./collaboration'),
     require('./rag-enhanced'),
+    require('./training'),
   ];
 
   for (const controller of controllers) {
