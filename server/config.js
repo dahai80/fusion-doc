@@ -44,6 +44,12 @@ const config = {
     rerankModel: process.env.AI_RERANK_MODEL || 'bge-reranker-v2-m3',
   },
 
+  // Fusion-Trainer 微调
+  // 子进程调用共享 .venv 的 fusion-trainer CLI (env FUSION_TRAINER_BIN 可覆盖)
+  fusionTrainer: {
+    binPath: process.env.FUSION_TRAINER_BIN || '/Users/dahai/fusion/.venv/bin/fusion-trainer',
+  },
+
   // Fusion-KB 知识库
   fusionKb: {
     url: process.env.FUSION_KB_URL || 'http://localhost:11436',
