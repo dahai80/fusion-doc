@@ -3,12 +3,13 @@
 // =============================================================================
 
 const { json } = require('../utils/response');
+const { version: APP_VERSION } = require('../../package.json');
 
 function register(app) {
   app.registerRoute('GET', '/api/branding', (req, res) => {
     json(res, {
       name: 'Fusion-Doc', slogan: 'Apple Silicon 原生离线智能文档知识库',
-      version: '1.0.0', theme: { primary: '#6366f1', secondary: '#06b6d4' },
+      version: APP_VERSION, theme: { primary: '#6366f1', secondary: '#06b6d4' },
       features: [
         'TipTap 编辑器 + Yjs 实时协作（DocMost）',
         '空间→书架→章节→页面 三层结构（BookStack）',

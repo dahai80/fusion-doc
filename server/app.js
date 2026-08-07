@@ -6,6 +6,7 @@
 const http = require('http');
 const path = require('path');
 const config = require('./config');
+const { version: APP_VERSION } = require('../package.json');
 const { initDB } = require('./db');
 const { registerRoutes } = require('./controllers');
 const { loadPlugins } = require('./plugins/loader');
@@ -32,7 +33,7 @@ class FusionDocApp {
   async init() {
     console.log(`
   ╔══════════════════════════════════════════╗
-  ║         Fusion-Doc V1.0.0                ║
+  ║         Fusion-Doc V${APP_VERSION}                ║
   ║   Apple Silicon 原生离线智能文档知识库    ║
   ╚══════════════════════════════════════════╝
     `);

@@ -3,6 +3,8 @@
 // 支持可配置的允许来源，生产环境需配置 CORS_ORIGINS
 // =============================================================================
 
+const { version: APP_VERSION } = require('../../package.json');
+
 function getOrigins(config) {
   const configured = config?.cors?.origins;
   if (!configured || configured.length === 0) {
@@ -42,7 +44,7 @@ function cors(req, res, pipeline) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Max-Age', '86400');
   res.setHeader('Vary', 'Origin');
-  res.setHeader('X-Fusion-Doc', '1.0.0');
+  res.setHeader('X-Fusion-Doc', APP_VERSION);
 
   // 预检请求直接返回
   if (req.method === 'OPTIONS') {
