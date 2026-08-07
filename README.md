@@ -203,6 +203,27 @@ bash scripts/test.sh
 bash scripts/start.sh
 ```
 
+## Production Deployment
+
+商用部署须配置以下环境变量并前置反向代理 + TLS，详见 [SECURITY.md](./SECURITY.md)。
+
+```bash
+# 必需
+export JWT_SECRET="$(openssl rand -hex 32)"   # JWT 签名密钥 (生产缺失则启动 fail-fast)
+export FUSION_MLX_API_KEY="..."               # Fusion-MLX 调用密钥
+export NODE_ENV="production"                  # 生产模式 (默认绑 127.0.0.1)
+
+# 前置反代时
+export FUSION_DOC_HOST="0.0.0.0"              # 暴露到反代; 仍需 TLS 终结
+export CORS_ORIGINS="https://your-domain.com" # CORS 白名单
+
+# 定时备份 (crontab)
+0 2 * * * cd /path/to/fusion-doc && bash scripts/backup.sh 30
+```
+
+安全特性: scrypt 密码哈希 · 认证端点限流 · JWT 强制密钥 · 默认本机绑定 · 在线热备 · SQL 参数化。
+变更历史见 [CHANGELOG.md](./CHANGELOG.md)。
+
 ## License
 
 Apache-2.0

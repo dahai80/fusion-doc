@@ -35,6 +35,7 @@ function registerRoutes(app) {
     require('./collaboration'),
     require('./rag-enhanced'),
     require('./training'),
+    require('./system'),
   ];
 
   for (const controller of controllers) {

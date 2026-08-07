@@ -27,6 +27,20 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # 安全审计: 依赖漏洞扫描 (high/critical 即失败,商用级安全闸)
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm audit --audit-level=high --omit=dev
+      - name: 客户端依赖审计
+        run: cd client && npm ci && npm audit --audit-level=high --omit=dev
+        continue-on-error: true # 客户端依赖单独跟踪,不阻塞服务端发版
+
   build-client:
     runs-on: ubuntu-latest
     steps:

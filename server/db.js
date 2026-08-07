@@ -309,6 +309,20 @@ function runPageEditorMigration(database) {
 
 function getDB() { return db; }
 
+// 数据备份: 使用 better-sqlite3 原生 .backup() 在线热备 (WAL 安全, 不阻塞写入)
+// 异步返回备份文件绝对路径; 失败抛错 (商用级 fail visibly)
+async function backupDB(destDir) {
+  if (!db) throw new Error('数据库未初始化, 无法备份');
+  const fs = require('fs');
+  const targetDir = destDir || path.join(DB_DIR, 'backups');
+  fs.mkdirSync(targetDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dest = path.join(targetDir, `fusion-doc-${stamp}.db`);
+  await db.backup(dest);
+  console.log(`  [Backup] 数据库已备份: ${dest}`);
+  return dest;
+}
+
 function getTemplatesSchema() {
   return `
     CREATE TABLE IF NOT EXISTS templates (
@@ -326,7 +340,7 @@ function getTemplatesSchema() {
   `;
 }
 
-module.exports = { initDB, getDB, db, readJSON, writeJSON, listJSON, deleteJSON };
+module.exports = { initDB, getDB, db, readJSON, writeJSON, listJSON, deleteJSON, backupDB };
 
 function getOfficeFilesSchema() {
   return `

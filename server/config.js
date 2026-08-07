@@ -28,6 +28,9 @@ const config = {
   // 服务端口
   port: parseInt(process.env.FUSION_DOC_PORT || '11449', 10),
 
+  // 绑定地址: 生产默认 127.0.0.1 (仅本机), 显式 0.0.0.0 才暴露 (商用须前置反代+TLS)
+  host: process.env.FUSION_DOC_HOST || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0'),
+
   // 数据目录
   dataDir: path.resolve(process.env.FUSION_DATA_DIR || path.join(__dirname, '..', 'data')),
 
@@ -88,10 +91,17 @@ const config = {
 
   // 认证
   auth: {
+    // 生产环境强制要求 JWT_SECRET (env 注入), 缺失则启动 fail-fast
+    // 开发/测试环境可自动生成随机密钥 (重启失效, 仅本机使用)
     jwtSecret: process.env.JWT_SECRET || (() => {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('  [✗] JWT_SECRET 未设置: 生产环境禁止自动生成随机密钥 (会话将随重启失效, 且无法跨实例共享)');
+        console.error('      请在部署 env 注入 JWT_SECRET (建议 >=32 字节随机串, 例: openssl rand -hex 32)');
+        process.exit(1);
+      }
       const crypto = require('crypto');
       const generated = crypto.randomBytes(32).toString('hex');
-      console.warn('  [⚠] JWT_SECRET 未设置，已自动生成随机密钥（服务重启后会话将失效）');
+      console.warn('  [⚠] JWT_SECRET 未设置，已自动生成随机密钥（仅开发环境, 服务重启后会话将失效）');
       return generated;
     })(),
     sessionExpiry: parseInt(process.env.SESSION_EXPIRY || '86400', 10), // 24h
