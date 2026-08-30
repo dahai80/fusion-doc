@@ -6,8 +6,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { json, notFound } = require('../utils/response');
+const { json, notFound, error } = require('../utils/response');
+const { parseBody } = require('../middleware/body-parser');
+const { requireAdmin } = require('../middleware/require-admin');
 const trainer = require('../integrations/fusion-trainer');
+
+const MAX_OUTPUT_DIR_LEN = 512;
 
 function _exportDataset(app, { bookId, pageIds }) {
   const { db } = app;
@@ -58,11 +62,12 @@ function _exportDataset(app, { bookId, pageIds }) {
 }
 
 function register(app) {
+  // ── SFT 训练: admin 闸 + 输出目录校验 (P2-24) ───────────────────────
   app.registerRoute('POST', '/api/training/sft', async (req, res) => {
-    const { parseBody } = require('../middleware/body-parser');
+    if (!requireAdmin(req, res)) return;
     const body = await parseBody(req);
     const model = body.model;
-    if (!model) {
+    if (!model || typeof model !== 'string') {
       json(res, { error: 'model 必填' }, 400);
       return;
     }
@@ -73,26 +78,45 @@ function register(app) {
     }
     try {
       const binPath = app.config.fusionTrainer && app.config.fusionTrainer.binPath;
+      // 输出目录: 仅允许相对路径或配置内目录, 防任意写盘
+      let outputDir = undefined;
+      if (typeof body.outputDir === 'string' && body.outputDir.length > 0 && body.outputDir.length <= MAX_OUTPUT_DIR_LEN) {
+        // 拒绝对父目录遍历
+        if (body.outputDir.includes('..')) {
+          json(res, { error: 'outputDir 禁止含 ..' }, 400);
+          return;
+        }
+        outputDir = body.outputDir;
+      }
       const result = trainer.startSft({
         dataset: exportResult.dataset,
         model,
         config: body.config,
-        outputDir: body.outputDir,
+        outputDir,
         binPath,
       });
       json(res, { ...result, dataset: exportResult.dataset, count: exportResult.count });
     } catch (err) {
       console.error('[training] startSft failed:', err.message);
-      json(res, { error: err.message }, 500);
+      // R21 修复: 走 error() 统一 5xx 屏蔽, 生产环境不回显 err.message (含 bin 路径/命令片段)
+      error(res, '训练任务启动失败', 500);
     }
   });
 
+  // ── 训练信息: admin 闸 (P2-24, 暴露 bin 路径/环境) ──────────────────
   app.registerRoute('GET', '/api/training/info', (req, res) => {
+    if (!requireAdmin(req, res)) return;
     const binPath = app.config.fusionTrainer && app.config.fusionTrainer.binPath;
-    trainer.info(binPath).then((infoResult) => json(res, infoResult));
+    trainer.info(binPath).then((infoResult) => json(res, infoResult)).catch((e) => {
+      console.error('[training] info failed:', e.message);
+      // R21 修复: 走 error() 统一 5xx 屏蔽, 生产环境不回显 e.message
+      error(res, '训练信息获取失败', 500);
+    });
   });
 
   app.registerRoute('GET', '/api/training/:jobId/status', (req, res) => {
+    // R14 修复: 暴露 stdout/stderr 含数据集路径/模型 ID, 与 info 同加 admin 闸防 IDOR 读他人日志。
+    if (!requireAdmin(req, res)) return;
     const { jobId } = req.params;
     const status = trainer.getJobStatus(jobId);
     if (!status) {

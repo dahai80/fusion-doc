@@ -26,6 +26,11 @@ async function getOfficeStatus() {
     }
 }
 
+// ── 安全清理临时文件 ────────────────────────────────────────────────────────
+function safeUnlink(p) {
+    try { if (p && fs.existsSync(p)) fs.unlinkSync(p); } catch (_) { /* noop */ }
+}
+
 // ── 导入 ────────────────────────────────────────────────────────────────────
 async function officeImport(app, opts) {
     const { file_path, dir_path, book_id, chapter_id, recursive } = opts;
@@ -39,16 +44,19 @@ async function officeImport(app, opts) {
         throw new Error(`Unsupported format: ${ext}`);
     }
 
-    const outputPath = path.join(UPLOAD_DIR, `${path.basename(file_path, ext)}.html`);
+    const baseName = path.basename(file_path, ext).replace(/[^a-zA-Z0-9一-龥_.-]/g, '_') || 'import';
+    const outputPath = path.join(UPLOAD_DIR, `${baseName}.html`);
     await runOfficeCLI('convert', file_path, outputPath, '--to', 'html');
 
-    const html = fs.readFileSync(outputPath, 'utf-8');
-    const title = path.basename(file_path, ext);
-    const page = await createPageFromHTML(app, title, html, book_id, chapter_id);
-
-    fs.unlinkSync(outputPath);
-    console.log(`[Office] Imported: ${file_path} → page ${page.id}`);
-    return { success: true, page_id: page.id, title };
+    try {
+        const html = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
+        const title = path.basename(file_path, ext);
+        const page = await createPageFromHTML(app, title, html, book_id, chapter_id);
+        console.log(`[Office] Imported: ${file_path} → page ${page.id}`);
+        return { success: true, page_id: page.id, title };
+    } finally {
+        safeUnlink(outputPath);
+    }
 }
 
 // ── 导出 ────────────────────────────────────────────────────────────────────
@@ -56,15 +64,18 @@ async function officeExport(app, opts) {
     const { page, format } = opts;
     const ext = format === 'xlsx' ? 'xlsx' : format === 'pptx' ? 'pptx' : 'docx';
 
+    // 输出名用 page.id (安全 uid), 不用 page.title (用户可控, 可路径遍历)
     const htmlPath = path.join(UPLOAD_DIR, `${page.id}.html`);
-    const outputPath = path.join(UPLOAD_DIR, `${page.title || page.id}.${ext}`);
+    const outputPath = path.join(UPLOAD_DIR, `${page.id}.${ext}`);
 
     fs.writeFileSync(htmlPath, page.content || '');
-    await runOfficeCLI('convert', htmlPath, outputPath, '--to', ext);
-
-    fs.unlinkSync(htmlPath);
-    console.log(`[Office] Exported: page ${page.id} → ${outputPath}`);
-    return { success: true, file_path: outputPath, format: ext };
+    try {
+        await runOfficeCLI('convert', htmlPath, outputPath, '--to', ext);
+        console.log(`[Office] Exported: page ${page.id} → ${outputPath}`);
+        return { success: true, file_path: outputPath, format: ext };
+    } finally {
+        safeUnlink(htmlPath);
+    }
 }
 
 // ── 目录批量导入 ────────────────────────────────────────────────────────────

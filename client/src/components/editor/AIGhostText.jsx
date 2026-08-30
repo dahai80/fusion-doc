@@ -1,5 +1,8 @@
 // =============================================================================
 // AI Ghost Text — 内联续写 (Cmd+J)
+// R22 修复: ghostText/ghostFrom/ghostTimeout 原为模块级全局变量, 多 editor 实例
+// (StrictMode 双挂载/同时开两页) 共享同一状态 → A 编辑器续写渲染进 B 编辑器,
+// Tab 插入错位。改为存于 editor.storage (per-editor 作用域), 各实例隔离。
 // =============================================================================
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -8,9 +11,12 @@ import { apiStream } from '../../lib/api';
 
 const ghostKey = new PluginKey('ai-ghost-text');
 
-let ghostTimeout = null;
-let ghostText = '';
-let ghostFrom = 0;
+function getGhostState(editor) {
+    if (!editor.storage.aiGhostState) {
+        editor.storage.aiGhostState = { text: '', from: 0, timeout: null };
+    }
+    return editor.storage.aiGhostState;
+}
 
 export const AIGhostText = Extension.create({
     name: 'aiGhostText',
@@ -28,11 +34,12 @@ export const AIGhostText = Extension.create({
                     init: () => DecorationSet.empty,
                     apply(tr, old) {
                         if (tr.getMeta(ghostKey)) {
-                            if (!ghostText) return DecorationSet.empty;
-                            const pos = tr.getMeta(ghostKey).from || ghostFrom;
+                            const gs = getGhostState(editor);
+                            if (!gs.text) return DecorationSet.empty;
+                            const pos = tr.getMeta(ghostKey).from || gs.from;
                             const widget = document.createElement('span');
                             widget.className = 'ai-ghost-text';
-                            widget.textContent = ghostText;
+                            widget.textContent = gs.text;
                             widget.style.color = 'var(--ai-ghost, #888)';
                             widget.style.pointerEvents = 'none';
                             return DecorationSet.create(tr.doc, [
@@ -54,15 +61,21 @@ export const AIGhostText = Extension.create({
 
     addCommands() {
         return {
+            // R22 修复: accept 用 ghostFrom (续写起始位) 而非 tr.selection.from,
+            // 光标移动后不致在错误位置插入。
             acceptGhostText: () => ({ tr, dispatch }) => {
-                if (!ghostText) return false;
-                const pos = tr.selection.from;
-                dispatch(tr.insertText(ghostText, pos, pos).setMeta(ghostKey, { from: pos, clear: true }));
-                ghostText = '';
+                const gs = getGhostState(this.editor);
+                if (!gs.text) return false;
+                const pos = gs.from;
+                dispatch(tr.insertText(gs.text, pos, pos).setMeta(ghostKey, { from: pos, clear: true }));
+                gs.text = '';
+                gs.from = 0;
                 return true;
             },
             rejectGhostText: () => ({ tr, dispatch }) => {
-                ghostText = '';
+                const gs = getGhostState(this.editor);
+                gs.text = '';
+                gs.from = 0;
                 dispatch(tr.setMeta(ghostKey, { from: 0, clear: true }));
                 return true;
             },
@@ -77,14 +90,16 @@ export const AIGhostText = Extension.create({
         return {
             'Mod-j': () => this.editor.commands.triggerGhostText(),
             Tab: () => {
-                if (ghostText) {
+                const gs = getGhostState(this.editor);
+                if (gs.text) {
                     this.editor.commands.acceptGhostText();
                     return true;
                 }
                 return false;
             },
             Escape: () => {
-                if (ghostText) {
+                const gs = getGhostState(this.editor);
+                if (gs.text) {
                     this.editor.commands.rejectGhostText();
                     return true;
                 }
@@ -95,22 +110,25 @@ export const AIGhostText = Extension.create({
 });
 
 async function requestGhostCompletion(editor) {
-    clearTimeout(ghostTimeout);
+    const gs = getGhostState(editor);
+    if (gs.timeout) clearTimeout(gs.timeout);
     const { from } = editor.state.selection;
     const textBefore = editor.state.doc.textBetween(0, from, '\n');
     const textAfter = editor.state.doc.textBetween(from, editor.state.doc.content.size, '\n').slice(0, 500);
     const pageId = editor.storage.pageId || '';
     let result = '';
+    gs.from = from;
     try {
-        await apiStream('/api/copilot/complete', { page_id: pageId, text_before: textBefore, text_after: textAfter }, (chunk) => {
+        await apiStream('/copilot/complete', { page_id: pageId, text_before: textBefore, text_after: textAfter }, (chunk) => {
             if (chunk.choices?.[0]?.delta?.content) {
                 result += chunk.choices[0].delta.content;
-                ghostText = result;
-                ghostFrom = from;
+                gs.text = result;
+                gs.from = from;
                 editor.view.dispatch(editor.state.tr.setMeta(ghostKey, { from }));
             }
         });
     } catch (e) {
         console.warn('[GhostText] Error:', e.message);
+        gs.text = '';
     }
 }

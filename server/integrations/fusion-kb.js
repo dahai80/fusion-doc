@@ -6,29 +6,25 @@
 
 const httpFetch = globalThis.fetch;
 const AbortCtrl = globalThis.AbortController;
+const { fetchWithRetry } = require('./http-retry');
 
 const DEFAULT_URL = 'http://localhost:11436';
 
-async function callFusionKB({ method, path, body, config }) {
+async function callFusionKB({ method, path, body, config, retries }) {
     const baseUrl = config?.url || DEFAULT_URL;
     const url = `${baseUrl}${path}`;
-    const controller = new AbortCtrl();
-    const timer = setTimeout(() => controller.abort(), 30000);
-    try {
-        const resp = await httpFetch(url, {
+    // E19 修复: 兄弟服务瞬时抖动加指数退避重试 (网络错误/5xx), 4xx 立即失败
+    const resp = await fetchWithRetry(() => {
+        const controller = new AbortCtrl();
+        const timer = setTimeout(() => controller.abort(), 30000);
+        return httpFetch(url, {
             method: method || 'GET',
             headers: { 'Content-Type': 'application/json' },
             body: body ? JSON.stringify(body) : undefined,
             signal: controller.signal,
-        });
-        if (!resp.ok) {
-            const text = await resp.text();
-            throw new Error(`Fusion-KB ${resp.status}: ${text}`);
-        }
-        return await resp.json();
-    } finally {
-        clearTimeout(timer);
-    }
+        }).finally(() => clearTimeout(timer));
+    }, { retries: retries ?? 2 });
+    return await resp.json();
 }
 
 async function healthCheck(config) {
@@ -55,19 +51,23 @@ async function queryKnowledge(config, params) {
 }
 
 async function indexDocument(config, params) {
+    // 写操作不重试, 防止 5xx 后重放致重复索引
     return callFusionKB({
         method: 'POST',
         path: '/api/index',
         body: params,
         config,
+        retries: 0,
     });
 }
 
 async function deleteDocument(config, docId) {
+    // 删除不重试, 防止重放
     return callFusionKB({
         method: 'DELETE',
         path: `/api/documents/${docId}`,
         config,
+        retries: 0,
     });
 }
 

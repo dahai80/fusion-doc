@@ -33,10 +33,13 @@ class AuthService {
       const computed = crypto.scryptSync(password, salt, keyLen, opts);
       return crypto.timingSafeEqual(computed, Buffer.from(hashHex, 'hex'));
     }
-    // 旧版 HMAC-SHA256 (兼容已存量数据)
+    // 旧版 HMAC-SHA256 (兼容已存量数据) — 恒定时间比较
     const [salt, hash] = stored.split(':');
     const computed = crypto.createHmac('sha256', salt).update(password).digest('hex');
-    return hash === computed;
+    const a = Buffer.from(hash || '', 'utf-8');
+    const b = Buffer.from(computed, 'utf-8');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   }
 
   // 登录
@@ -44,8 +47,10 @@ class AuthService {
     let user = this.db
       ? this.db.prepare('SELECT * FROM users WHERE email = ?').get(email)
       : require('../db').listJSON('users').find(u => u.email === email);
-    if (!user) return { error: '用户不存在' };
-    if (!this.verifyPassword(password, user.password)) return { error: '密码错误' };
+    // 统一错误信息, 杜绝用户名枚举 oracle
+    const GENERIC = '邮箱或密码错误';
+    if (!user) return { error: GENERIC };
+    if (!this.verifyPassword(password, user.password)) return { error: GENERIC };
     // 旧版哈希自动升级到 scrypt (透明迁移, 仅在命中旧格式时触发)
     if (!user.password.startsWith('scrypt:') && this.db) {
       const upgraded = this.hashPassword(password);

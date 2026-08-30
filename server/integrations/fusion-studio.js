@@ -51,24 +51,49 @@ class FusionStudioBridge {
                 socket.write(message + '\n');
                 resolve();
             });
+            // R17 修复: 跨 chunk 行缓冲。JSON-RPC 响应可能跨多个 TCP 段到达,
+            // 逐 data 事件 split('\n') 直接 JSON.parse 会因半行抛错被吞 → pending 永不 resolve。
+            // 用 socket 级 buffer 累积, 仅解析完整行, 半行留待下一段拼接。
+            if (!socket._fdBuffer) socket._fdBuffer = '';
             socket.on('error', (e) => {
                 reject(new Error(`Fusion-Studio socket error: ${e.message}`));
             });
             socket.on('data', (data) => {
-                const lines = data.toString().split('\n').filter(Boolean);
-                for (const line of lines) {
+                socket._fdBuffer += data.toString();
+                let idx;
+                while ((idx = socket._fdBuffer.indexOf('\n')) >= 0) {
+                    const line = socket._fdBuffer.slice(0, idx).trim();
+                    socket._fdBuffer = socket._fdBuffer.slice(idx + 1);
+                    if (!line) continue;
                     try {
                         const resp = JSON.parse(line);
                         if (resp.id && this._pending.has(resp.id)) {
-                            const { resolve, reject, timer } = this._pending.get(resp.id);
+                            const { resolve: r, reject: j, timer } = this._pending.get(resp.id);
                             clearTimeout(timer);
                             this._pending.delete(resp.id);
-                            if (resp.error) reject(new Error(resp.error.message || 'RPC error'));
-                            else resolve(resp.result);
+                            if (resp.error) j(new Error(resp.error.message || 'RPC error'));
+                            else r(resp.result);
                         }
-                    } catch (_) { /* ignore non-JSON lines */ }
+                    } catch (e) {
+                        console.warn(`[Fusion-Studio] 解析响应行失败 (已缓冲跨段): ${e.message}`);
+                    }
                 }
-                socket.end();
+                // R17: 不在首个 data 即 socket.end() — 多响应/流式场景需保持连接直到对方关闭或超时
+            });
+            socket.on('end', () => {
+                if (socket._fdBuffer && socket._fdBuffer.trim()) {
+                    // 连接关闭时残留半行: 尝试解析最后一次响应
+                    try {
+                        const resp = JSON.parse(socket._fdBuffer.trim());
+                        if (resp.id && this._pending.has(resp.id)) {
+                            const { resolve: r, reject: j, timer } = this._pending.get(resp.id);
+                            clearTimeout(timer);
+                            this._pending.delete(resp.id);
+                            if (resp.error) j(new Error(resp.error.message || 'RPC error'));
+                            else r(resp.result);
+                        }
+                    } catch (_) { /* 残留非 JSON, 忽略 */ }
+                }
             });
         });
     }

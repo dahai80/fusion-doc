@@ -18,20 +18,27 @@ function register(app) {
 
             edges = db.prepare('SELECT id, source_page_id as source, target_page_id as target, link_type as label FROM page_links').all();
 
+            // E17 修复: 原 O(N×M×(N+E)) — 每条 wiki link 都 nodes.find + edges.find 全表扫。
+            // 改用 title->node Map + "src|tgt" 去重 Set, 单次建索引后 O(1) 查, 总体 O(N×M)。
+            const nodeByTitle = new Map(nodes.map(n => [n.title, n]));
+            const edgeSeen = new Set(edges.map(e => `${e.source}|${e.target}`));
+
             // 从内容中提取 [[]] 双向链接
             const pages = db.prepare('SELECT id, content FROM pages').all();
             for (const page of pages) {
                 const links = extractWikiLinks(page.content || '');
                 for (const link of links) {
-                    const target = nodes.find(n => n.title === link);
-                    if (target && !edges.find(e => e.source === page.id && e.target === target.id)) {
-                        edges.push({
-                            id: `wiki-${page.id}-${target.id}`,
-                            source: page.id,
-                            target: target.id,
-                            label: 'wikilink',
-                        });
-                    }
+                    const target = nodeByTitle.get(link);
+                    if (!target) continue;
+                    const key = `${page.id}|${target.id}`;
+                    if (edgeSeen.has(key)) continue;
+                    edgeSeen.add(key);
+                    edges.push({
+                        id: `wiki-${page.id}-${target.id}`,
+                        source: page.id,
+                        target: target.id,
+                        label: 'wikilink',
+                    });
                 }
             }
         }

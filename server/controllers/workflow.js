@@ -6,7 +6,8 @@
 const { json, error, created } = require('../utils/response');
 const { uid } = require('../utils/helpers');
 const { parseYAML, validateWorkflow, executeWorkflow, seedPresetWorkflows } = require('../services/workflow-engine');
-const { transitionPage, getWorkflowStatus, getAvailableTransitions, STATES } = require('../services/workflow');
+// A8 修复: 页面发布状态机改名 page-state (原 services/workflow), 消除与 workflow-engine 的命名碰撞
+const { transitionPage, getWorkflowStatus, getAvailableTransitions, STATES } = require('../services/page-state');
 
 function register(app) {
     const { db } = app;
@@ -110,11 +111,13 @@ function register(app) {
     app.registerRoute('POST', '/api/workflow/:id/transition', async (req, res) => {
         const { parseBody } = require('../middleware/body-parser');
         const body = await parseBody(req);
-        const { state, user_id } = body;
+        const { state } = body;
         if (!state) return error(res, 'state required', 400);
 
         try {
-            const result = await transitionPage(db, req.params.id, state, user_id || 'system');
+            // E29 修复: 归因身份取 req.user.id, 不信 body.user_id (同 R12, 否则客户端可伪造
+            // 操作者污染审计/权限判定)。transitionPage 内已做 STATES 合法迁移校验。
+            const result = await transitionPage(db, req.params.id, state, req.user?.id || 'system');
             json(res, result);
         } catch (e) {
             error(res, e.message, 400);

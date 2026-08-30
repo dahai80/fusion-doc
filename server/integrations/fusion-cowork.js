@@ -6,29 +6,26 @@
 
 const httpFetch = globalThis.fetch;
 const AbortCtrl = globalThis.AbortController;
+const { fetchWithRetry } = require('./http-retry');
 
 const DEFAULT_URL = 'http://localhost:11437';
 
-async function callFusionCowork({ method, path, body, config }) {
+// E19 修复: 兄弟服务瞬时抖动加指数退避重试。
+// retries 可由调用方覆盖: 写操作 (runWorkflow) 传 0 防止重放致 DAG 重复执行。
+async function callFusionCowork({ method, path, body, config, retries }) {
     const baseUrl = config?.url || DEFAULT_URL;
     const url = `${baseUrl}${path}`;
-    const controller = new AbortCtrl();
-    const timer = setTimeout(() => controller.abort(), 30000);
-    try {
-        const resp = await httpFetch(url, {
+    const resp = await fetchWithRetry(() => {
+        const controller = new AbortCtrl();
+        const timer = setTimeout(() => controller.abort(), 30000);
+        return httpFetch(url, {
             method: method || 'GET',
             headers: { 'Content-Type': 'application/json' },
             body: body ? JSON.stringify(body) : undefined,
             signal: controller.signal,
-        });
-        if (!resp.ok) {
-            const text = await resp.text();
-            throw new Error(`Fusion-Cowork ${resp.status}: ${text}`);
-        }
-        return await resp.json();
-    } finally {
-        clearTimeout(timer);
-    }
+        }).finally(() => clearTimeout(timer));
+    }, { retries: retries ?? 2 });
+    return await resp.json();
 }
 
 async function healthCheck(config) {
@@ -50,11 +47,13 @@ async function getWorkflow(config, workflowId) {
 }
 
 async function runWorkflow(config, workflowId, input) {
+    // 写操作不重试, 防止 5xx 后重放致 DAG 重复执行
     return callFusionCowork({
         method: 'POST',
         path: `/api/workflows/${workflowId}/run`,
         body: { input },
         config,
+        retries: 0,
     });
 }
 

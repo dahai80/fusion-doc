@@ -39,9 +39,16 @@ app.start().catch((err) => {
 // ── 优雅关闭 ──────────────────────────────────────────────────────────────
 process.on('SIGINT', async () => { await app.shutdown(); process.exit(0); });
 process.on('SIGTERM', async () => { await app.shutdown(); process.exit(0); });
-process.on('uncaughtException', (err) => {
-  console.error(`[Fusion-Doc] 未捕获异常: ${err.message}`);
-});
-process.on('unhandledRejection', (err) => {
-  console.error(`[Fusion-Doc] 未处理的 Promise 拒绝: ${err.message}`);
-});
+// R4 修复: uncaughtException/unhandledRejection 后进程状态不可预测, 必须退出交守护重启。
+// 原设计仅记录不退出, 进程带伤持续接客, 返回脏数据/写半截 DB/WS 丢稿。
+let _shuttingDown = false;
+async function _fatalExit(reason, err) {
+  console.error(`[Fusion-Doc] ${reason}: ${err && err.message || err}`);
+  console.error((err && err.stack) || '');
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  try { await app.shutdown(); } catch (_) { /* noop */ }
+  process.exit(1);
+}
+process.on('uncaughtException', (err) => _fatalExit('未捕获异常', err));
+process.on('unhandledRejection', (err) => _fatalExit('未处理的 Promise 拒绝', err));

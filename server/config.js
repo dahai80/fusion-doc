@@ -48,9 +48,19 @@ const config = {
   },
 
   // Fusion-Trainer 微调
-  // 子进程调用共享 .venv 的 fusion-trainer CLI (env FUSION_TRAINER_BIN 可覆盖)
+  // 子进程调用共享 .venv 的 fusion-trainer CLI。
+  // E13 修复: 默认路径不写机器相关绝对路径, 改为相对仓库根解析 + PATH 兜底。
+  // 优先级: env FUSION_TRAINER_BIN > <repo>/.venv/bin/fusion-trainer > PATH 中的 fusion-trainer
   fusionTrainer: {
-    binPath: process.env.FUSION_TRAINER_BIN || '/Users/dahai/fusion/.venv/bin/fusion-trainer',
+    binPath: (function resolveTrainerBin() {
+      if (process.env.FUSION_TRAINER_BIN) return process.env.FUSION_TRAINER_BIN;
+      const repoVenv = path.join(__dirname, '..', '..', '.venv', 'bin', 'fusion-trainer');
+      try {
+        const fs = require('fs');
+        if (fs.existsSync(repoVenv)) return repoVenv;
+      } catch (_) { /* ignore, fall through to PATH */ }
+      return 'fusion-trainer'; // 依赖 PATH 解析; 不存在时 trainer.info() 会以可见错误回显
+    })(),
   },
 
   // Fusion-KB 知识库

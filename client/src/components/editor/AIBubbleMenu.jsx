@@ -27,7 +27,7 @@ export default function AIBubbleMenu({ editor, pageId }) {
         let result = '';
         try {
             const { apiStream } = await import('../../lib/api');
-            await apiStream(`/api/copilot/${action}`, {
+            await apiStream(`/copilot/${action}`, {
                 page_id: pageId,
                 text_before: textBefore,
                 selected_text: selectedText,

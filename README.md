@@ -221,8 +221,8 @@ export CORS_ORIGINS="https://your-domain.com" # CORS 白名单
 0 2 * * * cd /path/to/fusion-doc && bash scripts/backup.sh 30
 ```
 
-安全特性: scrypt 密码哈希 · 认证端点限流 · JWT 强制密钥 · 默认本机绑定 · 在线热备 · SQL 参数化。
-变更历史见 [CHANGELOG.md](./CHANGELOG.md)。
+安全特性: scrypt 密码哈希 · 认证端点限流 · JWT 强制密钥 · 默认本机绑定 · 在线热备 · SQL 参数化 · 请求体大小上限 · Webhook SSRF 防护 · 数据端点所有权校验 · 文件路径穿越防护 · MIME 白名单 · CORS 来源白名单 · 日志脱敏。
+变更历史见 [CHANGELOG.md](./CHANGELOG.md)。完整对抗性安全审计见 [../audit/fusion-doc-audit-0830.md](../audit/fusion-doc-audit-0830.md)。
 
 ## License
 

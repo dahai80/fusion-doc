@@ -2,6 +2,9 @@
 // Fusion-Doc — 模型层基类
 // 封装 SQLite 查询构建器，支持 JSON 文件降级
 // 参考 DocMost Prisma + BookStack Eloquent 设计
+//
+// ⚠️ P3-27 维护性: 孤儿层, 当前未被引用 (见 ./index.js 说明)。
+//    其中 WHERE 字段名/ORDER BY 直接插值, 接入时须对 identifier 做白名单校验。
 // =============================================================================
 
 const { uid, now } = require('../utils/helpers');

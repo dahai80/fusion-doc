@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Fusion-Doc V1.0.0 — 一键启动
+# Fusion-Doc — 一键启动
 # 架构: 模块化 MVC（Model-View-Controller）
 # 生态: Fusion-MLX + Fusion-Coder + Fusion-KB
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# E10 修复: 版本从 package.json 读取, 不再硬编码 (CLAUDE.md 明令 never hardcode version)
+APP_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "0.0.0")
+
 # 加载环境变量
 set -a; [ -f .env ] && source .env; set +a
 
 echo "=========================================="
-echo "  Fusion-Doc V1.0.0"
+echo "  Fusion-Doc V${APP_VERSION}"
 echo "  Apple Silicon 原生离线智能文档知识库"
 echo "  模块化 MVC · 插件体系 · 融合生态"
 echo "=========================================="

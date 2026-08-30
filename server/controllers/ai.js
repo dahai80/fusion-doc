@@ -1,12 +1,17 @@
 // =============================================================================
 // Fusion-Doc — AI 控制器（Fusion-MLX 深度集成）
 // 支持聊天、嵌入、RAG、Streaming
+// 商用级: SSE 客户端断开中止上游流, RAG 检索限量防 OOM
 // =============================================================================
+/* global AbortController */
 
 const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLX, callFusionMLXStream } = require('../integrations/fusion-mlx');
 const { json, error, notFound } = require('../utils/response');
-const { uid } = require('../utils/helpers');
+// A8 修复: RAG 统一到 rag-hybrid 单存储 (rag_chunks), 不再内联写 rag_index 表。
+const ragHybrid = require('../services/rag-hybrid');
+
+const MAX_QUERY_LEN = 2000;
 
 function register(app) {
   const { db } = app;
@@ -23,26 +28,38 @@ function register(app) {
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
       });
+      // 客户端断开时中止上游流, 防 KV/连接泄漏 (P2-22 + R7 修复: 真正 abort 上游)
+      // E23 修复: 监听 res close (流式响应客户端断开优先触发 res close), 与 ai-copilot.js 统一
+      let aborted = false;
+      const abortController = new AbortController();
+      const onClose = () => { aborted = true; abortController.abort(); };
+      res.on('close', onClose);
       try {
         const streamIter = callFusionMLXStream({
           model: body.model || app.config.fusionMlx.chatModel,
           messages: body.messages || [],
+          abortSignal: abortController.signal,
         });
         for await (const chunk of streamIter) {
-          res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          if (aborted) break;
+          res.write('data: ' + JSON.stringify(chunk) + '\n\n');
         }
-        res.write(`data: [DONE]\n\n`);
+        if (!aborted) res.write('data: [DONE]\n\n');
         res.end();
       } catch (e) {
-        res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+        if (!aborted) {
+          res.write('data: ' + JSON.stringify({ error: e.message }) + '\n\n');
+        }
         res.end();
+      } finally {
+        res.off('close', onClose);
       }
     } else {
       // 非流式响应
       try {
         const data = await callFusionMLX({
           method: 'POST',
-          path: '/v1/chat/completions',
+          path: '/chat/completions',
           body: { model: body.model || app.config.fusionMlx.chatModel, messages: body.messages || [], stream: false },
           config: app.config.fusionMlx,
         });
@@ -58,7 +75,7 @@ function register(app) {
     const body = await parseBody(req);
     try {
       const data = await callFusionMLX({
-        method: 'POST', path: '/v1/embeddings',
+        method: 'POST', path: '/embeddings',
         body: { model: app.config.fusionMlx.embeddingModel, input: body.input || [] },
         config: app.config.fusionMlx,
       });
@@ -68,70 +85,35 @@ function register(app) {
     }
   });
 
-  // ── RAG 文档索引 ─────────────────────────────────────────────────────
+  // ── RAG 文档索引 (A8 修复: 委托 rag-hybrid 统一存储 rag_chunks, 不再写 rag_index) ──
   app.registerRoute('POST', '/api/rag/index', async (req, res) => {
     const body = await parseBody(req);
     const pageId = body.page_id;
     let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) : null;
     if (!page) return notFound(res, 'Page not found');
 
-    const text = (page.title + '\n\n' + (page.markdown || page.content || '')).slice(0, 50000);
     try {
-      // 分块处理
-      const chunks = chunkText(text, 1000);
-      const indexed = [];
-
-      for (let i = 0; i < chunks.length; i++) {
-        const data = await callFusionMLX({
-          method: 'POST', path: '/v1/embeddings',
-          body: { model: app.config.fusionMlx.embeddingModel, input: [chunks[i]] },
-          config: app.config.fusionMlx,
-        });
-        const vector = JSON.stringify(data.data[0].embedding);
-        if (db) {
-          if (i === 0) {
-            db.exec(`CREATE TABLE IF NOT EXISTS rag_index (id TEXT PRIMARY KEY, page_id TEXT, chunk_index INTEGER, chunk TEXT, vector TEXT, created_at TEXT)`);
-          }
-          db.prepare('INSERT INTO rag_index (id, page_id, chunk_index, chunk, vector, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(uid(), pageId, i, chunks[i], vector, new Date().toISOString());
-        }
-        indexed.push({ index: i, dimensions: data.data[0].embedding.length });
-      }
-      json(res, { indexed: true, chunks: indexed.length, dimensions: indexed[0]?.dimensions });
+      // 统一走 rag-hybrid.reindexPage: 段落切分 + embedding + 事务原子写 rag_chunks 单表
+      const result = await ragHybrid.reindexPage(app, pageId);
+      json(res, { indexed: true, chunks: result.chunks });
     } catch (e) {
       error(res, `Indexing failed: ${e.message}`, 500);
     }
   });
 
-  // ── RAG 查询 ─────────────────────────────────────────────────────────
+  // ── RAG 查询 (A8 修复: 委托 rag-hybrid.hybridSearch 统一检索, 向量+FTS+BM25 融合) ──
   app.registerRoute('POST', '/api/rag/query', async (req, res) => {
     const body = await parseBody(req);
-    const question = body.question || '';
+    const question = (typeof body.question === 'string' ? body.question : '').slice(0, MAX_QUERY_LEN);
     if (!question) { json(res, { error: 'Question required' }, 400); return; }
 
     try {
-      // 1. 生成查询嵌入
-      const embData = await callFusionMLX({
-        method: 'POST', path: '/v1/embeddings',
-        body: { model: app.config.fusionMlx.embeddingModel, input: [question] },
-        config: app.config.fusionMlx,
-      });
-      const queryVector = embData.data[0].embedding;
+      // 1. 混合检索 (向量 0.5 + FTS5 0.3 + BM25 0.2 + 可选 rerank), 单存储 rag_chunks
+      const topK = Math.min(parseInt(body.top_k || '5', 10), 20);
+      const results = await ragHybrid.hybridSearch(app, question, topK);
+      const contexts = results.map(r => r.chunk_text);
 
-      // 2. 检索相似文档（带有 LIMIT 的分页向量搜索）
-      let contexts = [];
-      if (db) {
-        const topK = Math.min(parseInt(body.top_k || '5', 10), 20);
-        const allDocs = db.prepare('SELECT * FROM rag_index LIMIT 1000').all();
-        // 简单余弦相似度计算
-        const scored = allDocs.map(doc => ({
-          ...doc,
-          score: cosineSimilarity(queryVector, JSON.parse(doc.vector || '[]')),
-        }));
-        scored.sort((a, b) => b.score - a.score);
-        contexts = scored.slice(0, topK).map(s => s.chunk);
-      }
-
-      // 3. 构建增强提示
+      // 2. 构建增强提示
       const contextStr = contexts.length > 0 ? `\n\n相关上下文:\n${contexts.join('\n---\n')}` : '';
       const messages = [
         { role: 'system', content: 'You are a document assistant. Answer based on the provided context.' + contextStr },
@@ -139,7 +121,7 @@ function register(app) {
       ];
 
       const data = await callFusionMLX({
-        method: 'POST', path: '/v1/chat/completions',
+        method: 'POST', path: '/chat/completions',
         body: { model: body.model || app.config.fusionMlx.chatModel, messages, stream: false },
         config: app.config.fusionMlx,
       });
@@ -148,35 +130,6 @@ function register(app) {
       error(res, `RAG query failed: ${e.message}`, 500);
     }
   });
-}
-
-// ── 文本分块 ──────────────────────────────────────────────────────────────
-function chunkText(text, maxLen) {
-  const chunks = [];
-  const paragraphs = text.split(/\n\n+/);
-  let current = '';
-  for (const p of paragraphs) {
-    if ((current + '\n\n' + p).length > maxLen && current) {
-      chunks.push(current.trim());
-      current = p;
-    } else {
-      current = current ? current + '\n\n' + p : p;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks.length ? chunks : [text];
-}
-
-// ── 余弦相似度 ────────────────────────────────────────────────────────────
-function cosineSimilarity(a, b) {
-  if (!a.length || !b.length) return 0;
-  let dot = 0, magA = 0, magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * (b[i] || 0);
-    magA += a[i] * a[i];
-    magB += (b[i] || 0) * (b[i] || 0);
-  }
-  return dot / (Math.sqrt(magA) * Math.sqrt(magB) || 1);
 }
 
 module.exports = { register };

@@ -16,9 +16,13 @@ function success(res, data, status = 200) {
 }
 
 // ── 错误响应 ──────────────────────────────────────────────────────────────
+// R21 修复: 生产环境 5xx 屏蔽内部错误细节 (SQL 片段/上游 URL/堆栈),
+// 仅回通用信息; 4xx 保留 message (多为用户可读的校验提示)。dev 全量回显便于排障。
 function error(res, message, status = 500, code = null) {
+  const isProd = process.env.NODE_ENV === 'production';
+  const safeMessage = (status >= 500 && isProd) ? 'Internal Server Error' : message;
   return json(res, {
-    error: message,
+    error: safeMessage,
     code: code || `ERR_${status}`,
     timestamp: new Date().toISOString(),
   }, status);

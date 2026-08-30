@@ -11,6 +11,7 @@
     "start": "node server/index.js",
     "setup": "bash scripts/setup.sh",
     "test": "bash scripts/test.sh",
+    "test:unit": "node --test tests/unit/*.js",
     "lint": "eslint server/ --quiet",
     "lint:fix": "eslint server/ --fix"
   },

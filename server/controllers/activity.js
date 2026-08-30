@@ -10,7 +10,10 @@ function register(app) {
   const { db } = app;
 
   app.registerRoute('GET', '/api/activity', (req, res) => {
-    const limit = parseInt(req.ctx.url.searchParams.get('limit') || '50', 10);
+    // 夹取 limit 到 [1,200], 杜绝 -1 无限全量泄漏审计日志
+    let limit = parseInt(req.ctx.url.searchParams.get('limit') || '50', 10);
+    if (!Number.isFinite(limit) || limit < 1) limit = 50;
+    if (limit > 200) limit = 200;
     const data = db ? db.prepare('SELECT * FROM activity ORDER BY created_at DESC LIMIT ?').all(limit) : [];
     list(res, data);
   });
@@ -18,7 +21,9 @@ function register(app) {
   app.registerRoute('POST', '/api/activity', async (req, res) => {
     const body = await parseBody(req);
     if (db) {
-      db.prepare('INSERT INTO activity (id, user_id, action, target_type, target_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), body.user_id || 'local', body.action, body.target_type || '', body.target_id || '', JSON.stringify(body.metadata || {}), now());
+      // R12 修复: user_id 取服务端权威 req.user.id, 拒绝 body 自报 (原设计可伪造审计归因他人)。
+      const userId = req.user?.id || 'local';
+      db.prepare('INSERT INTO activity (id, user_id, action, target_type, target_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), userId, body.action, body.target_type || '', body.target_id || '', JSON.stringify(body.metadata || {}), now());
     }
     json(res, { logged: true }, 201);
   });

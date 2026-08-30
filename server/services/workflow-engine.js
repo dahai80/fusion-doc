@@ -82,6 +82,18 @@ function parseYAML(yamlStr) {
     return def;
 }
 
+// A4 修复: 规范化 depends_on。自研 YAML 解析把 "depends_on: [outline, draft]" 存为字符串
+// "[outline, draft]", 后续 Array.isArray 检查失败, 依赖图失效。统一解析为数组。
+function normalizeDeps(dep) {
+    if (!dep) return [];
+    if (Array.isArray(dep)) return dep.map(d => String(d).trim()).filter(Boolean);
+    const s = String(dep).trim();
+    if (s.startsWith('[') && s.endsWith(']')) {
+        return s.slice(1, -1).split(',').map(d => d.trim()).filter(Boolean);
+    }
+    return [s];
+}
+
 function validateWorkflow(def) {
     const errors = [];
 
@@ -103,7 +115,7 @@ function validateWorkflow(def) {
         }
 
         if (step.depends_on) {
-            const deps = Array.isArray(step.depends_on) ? step.depends_on : [step.depends_on];
+            const deps = normalizeDeps(step.depends_on);
             for (const dep of deps) {
                 if (!stepIds.has(dep) && !def.steps.some(s => s.name === dep)) {
                     errors.push(`Step "${step.id}" depends on unknown step: ${dep}`);
@@ -134,7 +146,7 @@ function detectCycle(step, allSteps, visited, stack) {
     stack.add(step.id);
 
     if (step.depends_on) {
-        const deps = Array.isArray(step.depends_on) ? step.depends_on : [step.depends_on];
+        const deps = normalizeDeps(step.depends_on);
         for (const dep of deps) {
             const depStep = allSteps.find(s => s.id === dep || s.name === dep);
             if (depStep && detectCycle(depStep, allSteps, visited, stack)) return true;
@@ -143,6 +155,34 @@ function detectCycle(step, allSteps, visited, stack) {
 
     stack.delete(step.id);
     return false;
+}
+
+// E30 修复: 按依赖图拓扑序编排执行, 不再依赖 YAML 声明顺序 (Object.values/数组序)。
+// 原设计 for (const step of def.steps) 按 YAML 出现顺序跑, 若 step 声明在其依赖之前,
+// previousResults 中无上游结果, {{dep}} 模板变量原样残留传入 LLM, 输出错乱。
+// DFS 后序逆序 = 合法拓扑序; 无依赖步保持原相对序 (声明序) 稳定插入。
+function topologicalSort(def) {
+    const order = [];
+    const visited = new Set();
+    const inStack = new Set();
+    function dfs(step) {
+        const key = step.id || step.name;
+        if (visited.has(key)) return;
+        if (inStack.has(key)) return; // cycle — detectCycle 已先拦, 此处防御
+        inStack.add(key);
+        if (step.depends_on) {
+            const deps = normalizeDeps(step.depends_on);
+            for (const dep of deps) {
+                const depStep = def.steps.find(s => s.id === dep || s.name === dep);
+                if (depStep) dfs(depStep);
+            }
+        }
+        inStack.delete(key);
+        visited.add(key);
+        order.push(step);
+    }
+    for (const step of def.steps) dfs(step);
+    return order;
 }
 
 async function executeWorkflow(app, workflowId, input) {
@@ -175,8 +215,13 @@ async function executeWorkflow(app, workflowId, input) {
     let finalOutput;
 
     try {
-        for (const step of def.steps) {
+        // E30 修复: 拓扑序执行, 上游步先于依赖步跑, previousResults 解析可靠。
+        const orderedSteps = topologicalSort(def);
+        for (const step of orderedSteps) {
             const stepResult = await executeStep(app, step, stepResults, input);
+            // A4 修复: 结果同时以 name 和 id 为键, 让 depends_on 引用 name 时能解析。
+            // 原设计仅以 step.id ("step_N") 为键, 而 depends_on 引用 step.name ("outline") 永不命中。
+            if (step.name) stepResults[step.name] = stepResult;
             stepResults[step.id || step.name] = stepResult;
             stepStatuses.push({
                 id: step.id,
@@ -249,7 +294,7 @@ function buildStepContext(step, previousResults, globalInput) {
     const context = { ...globalInput };
 
     if (step.depends_on) {
-        const deps = Array.isArray(step.depends_on) ? step.depends_on : [step.depends_on];
+        const deps = normalizeDeps(step.depends_on);
         for (const dep of deps) {
             if (previousResults[dep]) {
                 context[dep] = previousResults[dep];
@@ -377,7 +422,15 @@ function executeTransform(step, context) {
         case 'join': return Array.isArray(input) ? input.join(step.separator || '\n') : input;
         case 'extract':
             try {
-                const re = new RegExp(step.pattern || '(.+)');
+                // 防 ReDoS: 用户模式须受限 (P2-25). 拒绝嵌套量词/回溯陷阱; 强制超时不可用, 故用模式复杂度上限
+                const pat = String(step.pattern || '(.+)');
+                if (pat.length > 200) return input;
+                // 检测典型回溯灾难: 量词紧随量词 (如 (a+)+ ) 或 .+ 在分组内重复
+                if (/(\\.|[\w)\]])\?*\+\+|\(.*[+*].*[+*].*\)/.test(pat)) {
+                    console.warn('[WorkflowEngine] extract pattern 疑似 ReDoS, 拒绝:', pat);
+                    return input;
+                }
+                const re = new RegExp(pat);
                 const match = String(input).match(re);
                 return match ? match[1] || match[0] : null;
             } catch { return input; }
@@ -571,6 +624,8 @@ module.exports = {
     executeWorkflow,
     executeStep,
     buildStepContext,
+    normalizeDeps,
+    detectCycle,
     PRESET_WORKFLOWS,
     seedPresetWorkflows,
 };
