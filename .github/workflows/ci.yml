@@ -27,6 +27,33 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  # P2-O6 修复: 数据库迁移测试。原 CI 无迁移校验, 迁移破裂只能上线才发现。
+  # 全新临时 data 目录跑 initDB (建库 + 迁移), 再跑第二次验证幂等 (IF NOT EXISTS),
+  # 断言核心表存在。迁移回滚为 by-design 不测 (见 db.js migrateDown 注释)。
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: 全新迁移 + 幂等校验
+        env:
+          FUSION_DOC_DATA_DIR: ${{ runner.temp }}/fusion-doc-data
+        run: |
+          node -e "
+          const { initDB, getDB } = require('./server/db');
+          initDB(); initDB(); // 两次: 幂等
+          const db = getDB();
+          const tbls = db.prepare(\"SELECT name FROM sqlite_master WHERE type='table'\").all().map(t=>t.name);
+          for (const need of ['users','pages','books','workflows','_migrations']) {
+            if (!tbls.includes(need)) { console.error('MISSING TABLE:', need); process.exit(1); }
+          }
+          const cnt = db.prepare('SELECT COUNT(*) c FROM _migrations').get().c;
+          console.log('迁移表数:', cnt, '核心表校验通过');
+          "
+
   # 安全审计: 依赖漏洞扫描 (high/critical 即失败,商用级安全闸)
   # E9 修复: 客户端审计原 continue-on-error: true 致 high/critical 漏洞 CI 仍绿,
   # 与服务端阻断策略矛盾, 供应链风险静默进发布产物。改为阻断, 与服务端一致。

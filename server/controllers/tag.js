@@ -3,14 +3,16 @@
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
-const { uid } = require('../utils/helpers');
+const { uid, parsePaging } = require('../utils/helpers');
 const { list, created } = require('../utils/response');
 
 function register(app) {
   const { db } = app;
 
   app.registerRoute('GET', '/api/tags', (req, res) => {
-    const data = db ? db.prepare('SELECT * FROM tags ORDER BY name').all() : require('../db').listJSON('tags');
+    // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+    const { size, offset } = parsePaging(req);
+    const data = db ? db.prepare('SELECT * FROM tags ORDER BY name LIMIT ? OFFSET ?').all(size, offset) : require('../db').listJSON('tags').slice(offset, offset + size);
     list(res, data);
   });
 

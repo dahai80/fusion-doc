@@ -2,7 +2,7 @@
 // Office 导入导出面板
 // =============================================================================
 import { useState, useEffect } from 'react';
-import { api } from '../../lib/api';
+import { api, apiUpload } from '../../lib/api';
 
 export default function OfficePanel({ pageId, pageTitle }) {
     const [status, setStatus] = useState(null);
@@ -44,15 +44,10 @@ export default function OfficePanel({ pageId, pageTitle }) {
         if (!file) return;
         setImporting(true);
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('file_path', file.name);
-            const res = await fetch('/api/office/import', {
-                method: 'POST',
-                body: formData,
-            });
-            const result = await res.json();
-            if (result.success) {
+            // F7 修复: 原 /api/office/import 走 JSON parseBody, 客户端发 multipart 契约断裂。
+            // 改用 /api/office/upload-import (服务端 multipart 端点) + apiUpload 助手。
+            const result = await apiUpload('/office/upload-import', file);
+            if (result.success || result.page_id) {
                 window.location.href = `/page/${result.page_id}`;
             }
         } catch (e) {

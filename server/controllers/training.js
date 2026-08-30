@@ -12,6 +12,9 @@ const { requireAdmin } = require('../middleware/require-admin');
 const trainer = require('../integrations/fusion-trainer');
 
 const MAX_OUTPUT_DIR_LEN = 512;
+// A13 修复: 导出数据集无页面上限 → 巨书导出超大 .jsonl 占盘 + 全量 SELECT * 载入内存。
+// 限定单次导出页数, 超出截断并回显, 防单请求资源失控。
+const MAX_EXPORT_PAGES = parseInt(process.env.TRAINING_EXPORT_MAX_PAGES || '5000', 10);
 
 function _exportDataset(app, { bookId, pageIds }) {
   const { db } = app;
@@ -21,7 +24,7 @@ function _exportDataset(app, { bookId, pageIds }) {
       const placeholders = pageIds.map(() => '?').join(',');
       pages = db.prepare(`SELECT * FROM pages WHERE id IN (${placeholders})`).all(...pageIds);
     } else if (bookId) {
-      pages = db.prepare('SELECT * FROM pages WHERE book_id = ? ORDER BY sort_order').all(bookId);
+      pages = db.prepare('SELECT * FROM pages WHERE book_id = ? ORDER BY sort_order LIMIT ?').all(bookId, MAX_EXPORT_PAGES);
     } else {
       return { error: '必须提供 bookId 或 pageIds' };
     }
@@ -34,6 +37,14 @@ function _exportDataset(app, { bookId, pageIds }) {
 
   if (!pages.length) {
     return { error: '没有可导出的页面' };
+  }
+
+  // A13: 截断超量页并回显 (pageIds 显式指定时不截, 信任 admin 显式列举)
+  let dropped = 0;
+  if (!pageIds && pages.length > MAX_EXPORT_PAGES) {
+    dropped = pages.length - MAX_EXPORT_PAGES;
+    pages = pages.slice(0, MAX_EXPORT_PAGES);
+    console.warn(`[training] 导出截断: 仅取前 ${MAX_EXPORT_PAGES}/${MAX_EXPORT_PAGES + dropped} 页 (env TRAINING_EXPORT_MAX_PAGES 可调)`);
   }
 
   const dataDir = app.config.dataDir;
@@ -57,8 +68,8 @@ function _exportDataset(app, { bookId, pageIds }) {
     count++;
   }
   stream.end();
-  console.log('[training] exported %d pages -> %s', count, outFile);
-  return { dataset: outFile, count };
+  console.log('[training] exported %d pages -> %s (dropped %d)', count, outFile, dropped);
+  return { dataset: outFile, count, dropped };
 }
 
 function register(app) {

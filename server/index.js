@@ -37,11 +37,30 @@ app.start().catch((err) => {
 });
 
 // ── 优雅关闭 ──────────────────────────────────────────────────────────────
-process.on('SIGINT', async () => { await app.shutdown(); process.exit(0); });
-process.on('SIGTERM', async () => { await app.shutdown(); process.exit(0); });
+// E14 修复: SIGINT/SIGTERM 共用 _shuttingDown 重入闸, 连按 Ctrl+C 不并发 shutdown。
+// A9 修复: shutdown 加外层 10s 硬超时, 防 shutdown 卡死 (DB close/WS drain 挂) 成僵尸。
+let _shuttingDown = false;
+async function _gracefulShutdown(sig) {
+  if (_shuttingDown) { console.warn(`[Fusion-Doc] 已在关闭中, 忽略重复 ${sig}`); return; }
+  _shuttingDown = true;
+  console.log(`[Fusion-Doc] 收到 ${sig}, 开始优雅关闭...`);
+  const forceTimer = setTimeout(() => {
+    console.error('[Fusion-Doc] shutdown 超过 10s, 强制退出');
+    process.exit(1);
+  }, 10000);
+  try {
+    await app.shutdown();
+  } catch (e) {
+    console.error(`[Fusion-Doc] shutdown 异常: ${e.message}`);
+  } finally {
+    clearTimeout(forceTimer);
+    process.exit(0);
+  }
+}
+process.on('SIGINT', () => _gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => _gracefulShutdown('SIGTERM'));
 // R4 修复: uncaughtException/unhandledRejection 后进程状态不可预测, 必须退出交守护重启。
 // 原设计仅记录不退出, 进程带伤持续接客, 返回脏数据/写半截 DB/WS 丢稿。
-let _shuttingDown = false;
 async function _fatalExit(reason, err) {
   console.error(`[Fusion-Doc] ${reason}: ${err && err.message || err}`);
   console.error((err && err.stack) || '');

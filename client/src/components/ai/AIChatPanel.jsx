@@ -32,24 +32,45 @@ export default function AIChatPanel() {
                 role: m.role,
                 content: m.content,
             }));
-            await apiStream(
-                '/ai/chat',
-                { messages: chatMessages, stream: true },
-                (chunk) => {
-                    const text = chunk.choices?.[0]?.delta?.content || chunk.text || '';
-                    if (text) {
-                        setMessages((prev) => {
-                            const updated = [...prev];
-                            updated[updated.length - 1] = {
-                                ...updated[updated.length - 1],
-                                content: updated[updated.length - 1].content + text,
-                            };
-                            return updated;
-                        });
-                    }
-                },
-                () => setStreaming(false)
-            );
+            // F5 修复: RAG 模式不再装饰 — 实发 /ai/rag/query 走知识库检索增强回答。
+            // /rag/query 非流式返回 { answer, sources }; chat 模式仍走 /ai/chat 流式。
+            const rawInput = userMsg.content;
+            const ragQuestion = aiPanelMode === 'rag'
+                ? rawInput.replace(/^\?\s*/, '')
+                : rawInput;
+            if (aiPanelMode === 'rag' && ragQuestion) {
+                const { api } = await import('../../lib/api');
+                const data = await api('POST', '/ai/rag/query', { question: ragQuestion, top_k: 5 });
+                const answer = data.answer || '(知识库无相关结果)';
+                const sources = Array.isArray(data.sources) && data.sources.length
+                    ? `\n\n---\n📚 来源:\n${data.sources.slice(0, 3).map((s, i) => `${i + 1}. ${String(s).slice(0, 80)}`).join('\n')}`
+                    : '';
+                setMessages((prev) => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { ...updated[updated.length - 1], content: answer + sources };
+                    return updated;
+                });
+                setStreaming(false);
+            } else {
+                await apiStream(
+                    '/ai/chat',
+                    { messages: chatMessages, stream: true },
+                    (chunk) => {
+                        const text = chunk.choices?.[0]?.delta?.content || chunk.text || '';
+                        if (text) {
+                            setMessages((prev) => {
+                                const updated = [...prev];
+                                updated[updated.length - 1] = {
+                                    ...updated[updated.length - 1],
+                                    content: updated[updated.length - 1].content + text,
+                                };
+                                return updated;
+                            });
+                        }
+                    },
+                    () => setStreaming(false)
+                );
+            }
         } catch (e) {
             setMessages((prev) => {
                 const updated = [...prev];

@@ -3,7 +3,7 @@
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
-const { uid, now, slugify } = require('../utils/helpers');
+const { uid, now, slugify, parsePaging } = require('../utils/helpers');
 const { json, list, created, error, notFound } = require('../utils/response');
 const { requireAdmin } = require('../middleware/require-admin');
 
@@ -15,7 +15,9 @@ function register(app) {
 
   app.registerRoute('GET', '/api/chapters', (req, res) => {
     const bookId = req.ctx.url.searchParams.get('bookId');
-    let data = db ? db.prepare('SELECT * FROM chapters WHERE book_id = ? ORDER BY sort_order').all(bookId) : require('../db').listJSON('chapters').filter(c => c.book_id === bookId);
+    // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+    const { size, offset } = parsePaging(req);
+    let data = db ? db.prepare('SELECT * FROM chapters WHERE book_id = ? ORDER BY sort_order LIMIT ? OFFSET ?').all(bookId, size, offset) : require('../db').listJSON('chapters').filter(c => c.book_id === bookId).slice(offset, offset + size);
     list(res, data);
   });
 
@@ -61,7 +63,34 @@ function register(app) {
   app.registerRoute('DELETE', '/api/chapters/:id', (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { id } = req.params;
-    if (db) { db.prepare('DELETE FROM chapters WHERE id = ?').run(id); } else { require('../db').deleteJSON('chapters', id); }
+    // E4 修复: 原 DELETE chapters 触发 FK constraint failed (pages.chapter_id 引用未级联)。
+    // 单事务内先收集该章全部 page_id, 级联删 page 子表 + pages + chapters, 失败回滚。
+    if (db) {
+      const tx = db.transaction(() => {
+        const pageIds = db.prepare('SELECT id FROM pages WHERE chapter_id = ?').all(id).map(r => r.id);
+        if (pageIds.length) {
+          const ph = pageIds.map(() => '?').join(',');
+          db.prepare(`DELETE FROM page_versions WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM page_links WHERE source_page_id IN (${ph}) OR target_page_id IN (${ph})`).run(...pageIds, ...pageIds);
+          db.prepare(`DELETE FROM page_tags WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM comments WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM favorites WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM metadata WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM files WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM rag_chunks WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM office_files WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM yjs_docs WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM yjs_updates WHERE page_id IN (${ph})`).run(...pageIds);
+          db.prepare(`DELETE FROM pages WHERE chapter_id = ?`).run(id);
+        }
+        db.prepare('DELETE FROM chapters WHERE id = ?').run(id);
+      });
+      try { tx(); }
+      catch (e) {
+        console.error(`[Chapter] DELETE 级联失败 ${id}: ${e.message}`);
+        return error(res, `删除失败: ${e.message}`, 500);
+      }
+    } else { require('../db').deleteJSON('chapters', id); }
     json(res, { deleted: true });
   });
 }

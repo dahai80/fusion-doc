@@ -24,13 +24,20 @@ function sleep(ms) {
 }
 
 // 执行带重试的 fetch。attemptFn: () => Promise<{ok, status, text(), json()}>
+// P2-E6 修复: 加 totalDeadlineMs 总 deadline, 超时即放弃 — 防慢 5xx 重试 3×30s 拉请求至分钟级。
 async function fetchWithRetry(buildRequest, opts = {}) {
     const retries = opts.retries ?? DEFAULT_RETRIES;
     const baseDelay = opts.baseDelay ?? DEFAULT_BASE_DELAY;
     const maxDelay = opts.maxDelay ?? DEFAULT_MAX_DELAY;
+    const totalDeadlineMs = opts.totalDeadlineMs ?? 30000;
 
+    const deadline = Date.now() + totalDeadlineMs;
     let lastErr = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
+        if (Date.now() >= deadline) {
+            console.warn(`[HTTP-Retry] 总 deadline ${totalDeadlineMs}ms 超限, 放弃`);
+            throw lastErr || new Error('retry deadline exceeded');
+        }
         try {
             const resp = await buildRequest();
             if (resp.ok) return resp;

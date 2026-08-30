@@ -8,6 +8,63 @@ const { getDB } = require('../db');
 const { uid } = require('../utils/helpers');
 
 const WEIGHTS = { vector: 0.5, fts5: 0.3, bm25: 0.2 };
+
+// ── P0-P1/P0-P2 修复: 向量扫描 offload 到 worker_thread ──────────────────
+// 原 JSON.parse+余弦 ×候选行 跑主线程阻塞事件循环, 串行化全部请求。移至 worker,
+// 主线程事件循环不被 CPU 重活占住。懒启动单 worker 复用; 失败降级主线程 (零回归)。
+// env RAG_WORKER=0 可关闭 (调试/回退)。
+const { Worker } = require('worker_threads');
+let _ragWorker = null;
+let _reqSeq = 0;
+const _pending = new Map();
+let _workerDisabled = process.env.RAG_WORKER === '0';
+
+function getRagWorker() {
+    if (_workerDisabled) return null;
+    if (_ragWorker) return _ragWorker;
+    try {
+        _ragWorker = new Worker(require('path').join(__dirname, 'rag-worker.js'));
+        _ragWorker.on('message', (msg) => {
+            const cb = _pending.get(msg.reqId);
+            if (!cb) return;
+            _pending.delete(msg.reqId);
+            if (msg.ok) cb.resolve(msg.result);
+            else cb.reject(new Error(msg.error));
+        });
+        _ragWorker.on('error', (err) => {
+            console.warn('[RAG-Hybrid] worker error, 降级主线程:', err.message);
+            for (const { reject } of _pending.values()) reject(err);
+            _pending.clear();
+            _ragWorker = null;
+            _workerDisabled = true;
+        });
+        _ragWorker.on('exit', (code) => {
+            if (code !== 0) console.warn(`[RAG-Hybrid] worker exit code=${code}`);
+            _ragWorker = null;
+        });
+        console.log('[RAG-Hybrid] 向量扫描 worker 已启动 (offload 事件循环)');
+        return _ragWorker;
+    } catch (e) {
+        console.warn('[RAG-Hybrid] worker 启动失败, 降级主线程:', e.message);
+        _workerDisabled = true;
+        return null;
+    }
+}
+
+function workerScore(rows, queryVec, topK, weight) {
+    const w = getRagWorker();
+    if (!w) return Promise.reject(new Error('worker disabled'));
+    const reqId = ++_reqSeq;
+    return new Promise((resolve, reject) => {
+        _pending.set(reqId, { resolve, reject });
+        try {
+            w.postMessage({ rows, queryVec, topK, weight, reqId });
+        } catch (e) {
+            _pending.delete(reqId);
+            reject(e);
+        }
+    });
+}
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 200;
 // 商用级: 限制全表扫描规模, 防 OOM (P2-23)
@@ -124,17 +181,23 @@ async function reindexPage(app, pageId) {
 }
 
 // ── 混合检索 ────────────────────────────────────────────────────────────────
-async function hybridSearch(app, query, topK) {
+// S1 修复: 新增 accessiblePageIds 参数 — 调用方传入当前用户可见的 page_id 集合,
+// 检索全程按此集合过滤, 杜绝 RAG 返回他人私有页 chunk (IDOR 跨租户数据泄露)。
+// 传 null/undefined 表示 admin (无限制); 传空数组表示无可见页 (返回空)。
+async function hybridSearch(app, query, topK, accessiblePageIds) {
     topK = Math.min(Math.max(parseInt(topK, 10) || 10, 1), 50);
     if (typeof query !== 'string' || !query.trim()) return [];
     query = query.slice(0, MAX_QUERY_LEN); // 防 ReDoS / 巨型查询 (P2-23)
     const db = getDB();
     const config = app.config.fusionMlx;
 
+    // S1: 非 admin 且可见页为空 → 直接返回, 不扫描 (亦避免无意义全表扫)
+    if (Array.isArray(accessiblePageIds) && accessiblePageIds.length === 0) return [];
+
     const [vectorResults, ftsResults, bm25Results] = await Promise.all([
-        vectorSearch(db, config, query, topK),
-        fts5Search(db, query, topK),
-        bm25Search(db, query, topK),
+        vectorSearch(db, config, query, topK, accessiblePageIds),
+        fts5Search(db, query, topK, accessiblePageIds),
+        bm25Search(db, query, topK, accessiblePageIds),
     ]);
 
     const fused = fuseResults(vectorResults, ftsResults, bm25Results, topK);
@@ -151,8 +214,20 @@ async function hybridSearch(app, query, topK) {
     return fused;
 }
 
+// S1: 构造 page_id 过滤 SQL 片段与参数。
+// accessiblePageIds 为 null → admin 无限制; 为数组 → IN (?) 绑定。
+function pageIdFilter(accessiblePageIds) {
+    if (accessiblePageIds === null || accessiblePageIds === undefined) return { clause: '', params: [] };
+    if (!Array.isArray(accessiblePageIds) || accessiblePageIds.length === 0) {
+        // 无可见页: 用恒假条件阻断, 不返任何行
+        return { clause: ' AND 1=0', params: [] };
+    }
+    const placeholders = accessiblePageIds.map(() => '?').join(',');
+    return { clause: ` AND page_id IN (${placeholders})`, params: accessiblePageIds };
+}
+
 // ── 向量检索 ────────────────────────────────────────────────────────────────
-async function vectorSearch(db, config, query, topK) {
+async function vectorSearch(db, config, query, topK, accessiblePageIds) {
     let queryVec = null;
     try {
         const resp = await callFusionMLX({
@@ -166,31 +241,40 @@ async function vectorSearch(db, config, query, topK) {
     }
     if (!queryVec || !db) return [];
 
+    // S1: 按 accessiblePageIds 过滤候选; admin (null) 无限制
+    const pf = pageIdFilter(accessiblePageIds);
     // 商用级: 限制候选规模, 防全表 OOM (P2-23)
-    const rows = db.prepare('SELECT id, page_id, chunk_index, chunk_text, heading, vector FROM rag_chunks WHERE vector IS NOT NULL LIMIT ?').all(MAX_VECTOR_CANDIDATES);
-    return rows
-        .map(r => {
-            let v;
-            try { v = JSON.parse(r.vector); } catch { return null; }
-            if (!Array.isArray(v) || v.length !== queryVec.length) return null;
-            return { id: r.id, page_id: r.page_id, chunk_index: r.chunk_index, chunk_text: r.chunk_text, heading: r.heading, score: cosineSimilarity(queryVec, v) * WEIGHTS.vector };
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, topK);
+    const rows = db.prepare(`SELECT id, page_id, chunk_index, chunk_text, heading, vector FROM rag_chunks WHERE vector IS NOT NULL${pf.clause} LIMIT ?`).all(...pf.params, MAX_VECTOR_CANDIDATES);
+    // P0-P1/P0-P2: JSON.parse+余弦×候选行 offload 到 worker, 不阻塞事件循环; 失败降级主线程
+    try {
+        return await workerScore(rows, queryVec, topK, WEIGHTS.vector);
+    } catch (e) {
+        console.warn('[RAG-Hybrid] worker 评分失败, 降级主线程:', e.message);
+        return rows
+            .map(r => {
+                let v;
+                try { v = JSON.parse(r.vector); } catch { return null; }
+                if (!Array.isArray(v) || v.length !== queryVec.length) return null;
+                return { id: r.id, page_id: r.page_id, chunk_index: r.chunk_index, chunk_text: r.chunk_text, heading: r.heading, score: cosineSimilarity(queryVec, v) * WEIGHTS.vector };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, topK);
+    }
 }
 
 // ── FTS5 检索 (修复: 直接用 chunk_text LIKE, 不误联 pages_fts.content) ──────
-function fts5Search(db, query, topK) {
+function fts5Search(db, query, topK, accessiblePageIds) {
     if (!db) return [];
     try {
+        const pf = pageIdFilter(accessiblePageIds);
         // chunk_text LIKE 定位候选; pages_fts JOIN 原实现引用了 pages 表 content, 与 chunk 无关, 已移除
         const rows = db.prepare(`
             SELECT id, page_id, chunk_index, chunk_text, heading
             FROM rag_chunks
-            WHERE chunk_text LIKE ?
+            WHERE chunk_text LIKE ?${pf.clause}
             LIMIT ?
-        `).all(`%${query}%`, Math.min(topK * 3, 200));
+        `).all(`%${query}%`, ...pf.params, Math.min(topK * 3, 200));
         // 伪分数: 按命中位置/长度归一, 给 RRF 提供稳定排序
         return rows
             .map(r => {
@@ -207,13 +291,14 @@ function fts5Search(db, query, topK) {
 }
 
 // ── BM25 检索 ───────────────────────────────────────────────────────────────
-function bm25Search(db, query, topK) {
+function bm25Search(db, query, topK, accessiblePageIds) {
     if (!db) return [];
     try {
         const queryTokens = tokenizeBM25(query);
         if (!queryTokens.length) return [];
+        const pf = pageIdFilter(accessiblePageIds);
         // 商用级: 限制候选规模, 防全表 OOM (P2-23)
-        const rows = db.prepare('SELECT id, page_id, chunk_index, chunk_text, heading, bm25_tokens FROM rag_chunks LIMIT ?').all(MAX_BM25_CANDIDATES);
+        const rows = db.prepare(`SELECT id, page_id, chunk_index, chunk_text, heading, bm25_tokens FROM rag_chunks WHERE 1=1${pf.clause} LIMIT ?`).all(...pf.params, MAX_BM25_CANDIDATES);
         return rows
             .map(r => {
                 let docTokens;

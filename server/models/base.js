@@ -9,10 +9,21 @@
 
 const { uid, now } = require('../utils/helpers');
 
+// S8 修复: identifier (表名/字段名/ORDER BY 列) 直接插值入 SQL 有注入风险。
+// 虽本层当前为孤儿层未被引用, 但接入时若传用户可控字段名即可复活注入。
+// 这里加白名单守卫: identifier 仅允许 [A-Za-z0-9_] 且非空, 杜绝引号/分号/空格注入。
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function assertIdentifier(name, label) {
+    if (typeof name !== 'string' || !IDENT_RE.test(name)) {
+        throw new Error(`[Model] 非法 identifier (${label}): ${String(name)}`);
+    }
+    return name;
+}
+
 class Model {
   constructor(db, tableName, jsonDir = null) {
     this.db = db;
-    this.tableName = tableName;
+    this.tableName = assertIdentifier(tableName, 'tableName');
     this.jsonDir = jsonDir || tableName;
   }
 
@@ -21,9 +32,9 @@ class Model {
     const { orderBy = null, orderDir = 'ASC', limit = null, offset = null } = options;
     if (this.db) {
       let sql = `SELECT * FROM ${this.tableName}`;
-      if (orderBy) sql += ` ORDER BY ${orderBy} ${orderDir}`;
-      if (limit) sql += ` LIMIT ${limit}`;
-      if (offset) sql += ` OFFSET ${offset}`;
+      if (orderBy) sql += ` ORDER BY ${assertIdentifier(orderBy, 'orderBy')} ${orderDir === 'DESC' ? 'DESC' : 'ASC'}`;
+      if (limit != null) sql += ` LIMIT ${parseInt(limit, 10) || 0}`;
+      if (offset != null) sql += ` OFFSET ${parseInt(offset, 10) || 0}`;
       return this.db.prepare(sql).all();
     }
     return this._listJSON();
@@ -40,6 +51,7 @@ class Model {
   // ── 按条件查询（单条） ─────────────────────────────────────────────────
   findBy(field, value) {
     if (this.db) {
+      assertIdentifier(field, 'findBy.field');
       return this.db.prepare(`SELECT * FROM ${this.tableName} WHERE ${field} = ?`).get(value);
     }
     return this._listJSON().find(item => item[field] === value) || null;
@@ -48,6 +60,7 @@ class Model {
   // ── 按条件查询（多条） ─────────────────────────────────────────────────
   where(field, value) {
     if (this.db) {
+      assertIdentifier(field, 'where.field');
       return this.db.prepare(`SELECT * FROM ${this.tableName} WHERE ${field} = ?`).all(value);
     }
     return this._listJSON().filter(item => item[field] === value);
@@ -68,6 +81,8 @@ class Model {
 
     if (this.db) {
       const keys = Object.keys(record);
+      // S8: 校验全部列名合法, 防 data 键注入列名
+      keys.forEach(k => assertIdentifier(k, 'create.key'));
       const placeholders = keys.map(() => '?').join(', ');
       const values = keys.map(k => record[k]);
       this.db.prepare(`INSERT INTO ${this.tableName} (${keys.join(', ')}) VALUES (${placeholders})`).run(...values);
@@ -83,6 +98,7 @@ class Model {
 
     if (this.db) {
       const keys = Object.keys(record);
+      keys.forEach(k => assertIdentifier(k, 'update.key'));
       const setClause = keys.map(k => `${k} = ?`).join(', ');
       const values = keys.map(k => record[k]);
       this.db.prepare(`UPDATE ${this.tableName} SET ${setClause} WHERE id = ?`).run(...values, id);
@@ -110,6 +126,7 @@ class Model {
   count(where = null) {
     if (this.db) {
       if (where) {
+        assertIdentifier(where.field, 'count.where.field');
         return this.db.prepare(`SELECT COUNT(*) as c FROM ${this.tableName} WHERE ${where.field} = ?`).get(where.value).c;
       }
       return this.db.prepare(`SELECT COUNT(*) as c FROM ${this.tableName}`).get().c;

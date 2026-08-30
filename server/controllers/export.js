@@ -9,6 +9,27 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
 const { notFound } = require('../utils/response');
+// P1-P5 修复: 流式下载替代 readFileSync, 避免大 PDF/DOCX 整文件入内存 OOM
+const { createReadStream, mkdirSync, writeFileSync, existsSync, statSync, unlinkSync } = require('fs');
+
+// 流式发送已生成文件, 发完清理 temp; 流错不杀进程
+function streamFile(res, filePath, contentType, filename, cleanupPaths) {
+    const stat = statSync(filePath);
+    res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
+        'Content-Length': stat.size,
+    });
+    const stream = createReadStream(filePath);
+    stream.on('error', (e) => {
+        console.error(`[Export] stream error ${filePath}: ${e.message}`);
+        if (!res.writableEnded) res.end();
+    });
+    stream.on('end', () => {
+        for (const p of cleanupPaths) { try { unlinkSync(p); } catch (_) { /* cleanup optional */ } }
+    });
+    stream.pipe(res);
+}
 
 function register(app) {
   const { db } = app;
@@ -40,7 +61,6 @@ function register(app) {
       case 'pdf':
         try {
           const tmpDir = path.join(app.config.dataDir, 'exports');
-          const { mkdirSync, writeFileSync, readFileSync, unlinkSync } = require('fs');
           mkdirSync(tmpDir, { recursive: true });
           const mdPath = path.join(tmpDir, `${id}.md`);
           const pdfPath = path.join(tmpDir, `${id}.pdf`);
@@ -52,18 +72,12 @@ function register(app) {
               await execFileAsync('pandoc', [mdPath, '-o', pdfPath], { timeout: 30000 });
             } catch { /* pandoc not available */ }
           }
-          if (require('fs').existsSync(pdfPath)) {
-            const data = readFileSync(pdfPath);
-            res.writeHead(200, {
-              'Content-Type': 'application/pdf',
-              'Content-Disposition': `attachment; filename="${encodeURIComponent(page.slug || 'page')}.pdf"`,
-              'Content-Length': data.length,
-            });
-            res.end(data);
-            try { unlinkSync(mdPath); unlinkSync(pdfPath); } catch (_) { /* cleanup optional */ }
+          if (existsSync(pdfPath)) {
+            streamFile(res, pdfPath, 'application/pdf', `${page.slug || 'page'}.pdf`, [mdPath, pdfPath]);
           } else {
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end(markdown);
+            try { unlinkSync(mdPath); } catch (_) { /* cleanup optional */ }
           }
         } catch {
           res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -74,7 +88,6 @@ function register(app) {
       case 'docx':
         try {
           const tmpDir = path.join(app.config.dataDir, 'exports');
-          const { mkdirSync, writeFileSync, readFileSync, unlinkSync } = require('fs');
           mkdirSync(tmpDir, { recursive: true });
           const mdPath = path.join(tmpDir, `${id}.md`);
           const docxPath = path.join(tmpDir, `${id}.docx`);
@@ -86,18 +99,12 @@ function register(app) {
               await execFileAsync('libreoffice', ['--headless', '--convert-to', 'docx', '--outdir', tmpDir, mdPath], { timeout: 30000 });
             } catch { /* libreoffice not available */ }
           }
-          if (require('fs').existsSync(docxPath)) {
-            const data = readFileSync(docxPath);
-            res.writeHead(200, {
-              'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-              'Content-Disposition': `attachment; filename="${encodeURIComponent(page.slug || 'page')}.docx"`,
-              'Content-Length': data.length,
-            });
-            res.end(data);
-            try { unlinkSync(mdPath); unlinkSync(docxPath); } catch (_) { /* cleanup optional */ }
+          if (existsSync(docxPath)) {
+            streamFile(res, docxPath, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', `${page.slug || 'page'}.docx`, [mdPath, docxPath]);
           } else {
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end(markdown);
+            try { unlinkSync(mdPath); } catch (_) { /* cleanup optional */ }
           }
         } catch {
           res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });

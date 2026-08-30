@@ -10,6 +10,21 @@ const { callFusionMLX, callFusionMLXStream } = require('../integrations/fusion-m
 const { json, error, notFound } = require('../utils/response');
 // A8 修复: RAG 统一到 rag-hybrid 单存储 (rag_chunks), 不再内联写 rag_index 表。
 const ragHybrid = require('../services/rag-hybrid');
+// S3 修复: 索引重建为重操作 (全页 embedding 调用), 仅 admin 可触发, 杜绝普通用户消耗算力
+const { requireAdmin } = require('../middleware/require-admin');
+
+// S1 修复: 计算当前用户可见 page_id 集合。
+// admin → null (无限制); 普通用户 → 已发布页 OR 自己创建的页。传给 hybridSearch 做 IDOR 过滤。
+// 修复: 原实现引用模块级未定义的 db (register 内的 const { db } 闭包不可见), 非管理员 RAG 查询必抛 ReferenceError。
+// 改从 app.db 取 (注入于 req.ctx), 失败时降级为空数组 (fail-closed: 无可见页 → 返回空, 不泄露)。
+function accessiblePageIdsFor(req) {
+    if (req.user?.role === 'admin') return null;
+    const db = req.ctx?.app?.db || req.ctx?.db;
+    if (!db) return [];
+    const uid = req.user?.id || 'local';
+    const rows = db.prepare('SELECT id FROM pages WHERE is_published = 1 OR created_by = ?').all(uid);
+    return rows.map(r => r.id);
+}
 
 const MAX_QUERY_LEN = 2000;
 
@@ -87,6 +102,8 @@ function register(app) {
 
   // ── RAG 文档索引 (A8 修复: 委托 rag-hybrid 统一存储 rag_chunks, 不再写 rag_index) ──
   app.registerRoute('POST', '/api/rag/index', async (req, res) => {
+    // S3 修复: 索引重建调 embedding 算力大, 仅 admin 可触发
+    if (!requireAdmin(req, res)) return;
     const body = await parseBody(req);
     const pageId = body.page_id;
     let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) : null;
@@ -110,7 +127,9 @@ function register(app) {
     try {
       // 1. 混合检索 (向量 0.5 + FTS5 0.3 + BM25 0.2 + 可选 rerank), 单存储 rag_chunks
       const topK = Math.min(parseInt(body.top_k || '5', 10), 20);
-      const results = await ragHybrid.hybridSearch(app, question, topK);
+      // S1 修复: 按用户可见 page_id 过滤检索, 杜绝 RAG 返回他人私有页 chunk (跨租户泄露)
+      const accessiblePageIds = accessiblePageIdsFor(req);
+      const results = await ragHybrid.hybridSearch(app, question, topK, accessiblePageIds);
       const contexts = results.map(r => r.chunk_text);
 
       // 2. 构建增强提示

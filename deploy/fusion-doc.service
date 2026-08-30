@@ -1,0 +1,34 @@
+# =============================================================================
+# Fusion-Doc — systemd 单元 (P2-O4 修复)
+# 原无进程托管交付件, 进程崩需人工拉起。systemd 提供自动拉起 + 日志接管。
+# 安装: cp deploy/fusion-doc.service /etc/systemd/system/ && systemctl daemon-reload
+# 启动: systemctl enable --now fusion-doc
+# =============================================================================
+[Unit]
+Description=Fusion-Doc (AI-first document OS)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fusion
+Group=fusion
+WorkingDirectory=/opt/fusion-doc
+EnvironmentFile=-/opt/fusion-doc/.env
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGINT
+TimeoutStopSec=15s
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/fusion-doc/data
+PrivateTmp=true
+# 生产必设密钥 (见 SECURITY.md): JWT_SECRET, FUSION_MLX_API_KEY
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fusion-doc
+
+[Install]
+WantedBy=multi-user.target

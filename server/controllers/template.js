@@ -5,7 +5,7 @@
 
 const { parseBody } = require('../middleware/body-parser');
 const { json, error } = require('../utils/response');
-const { uid } = require('../utils/helpers');
+const { uid, parsePaging } = require('../utils/helpers');
 const { extractVariables, fillVariables, createFromTemplate } = require('../services/template-engine');
 
 function register(app) {
@@ -14,7 +14,9 @@ function register(app) {
     // ── 模板列表 ────────────────────────────────────────────────────────
     app.registerRoute('GET', '/api/templates', (req, res) => {
         if (!db) return json(res, []);
-        const rows = db.prepare('SELECT * FROM templates ORDER BY category, name').all();
+        // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+        const { size, offset } = parsePaging(req);
+        const rows = db.prepare('SELECT * FROM templates ORDER BY category, name LIMIT ? OFFSET ?').all(size, offset);
         json(res, rows);
     });
 

@@ -1,7 +1,24 @@
 // E20 修复: 所有 fetch 加超时 + AbortController, 防后端卡死时前端无限挂起。
 // 超时默认 20s, 可经第四参 opts.timeout 覆盖 (0/负值 = 不超时, 供流式调用)。
+// P0-F1 修复: 自动附 Authorization: Bearer <token> (从 localStorage 读), 处理 401 清 token 触发登录。
 const API_BASE = '/api';
 const DEFAULT_TIMEOUT = 20000;
+const TOKEN_KEY = 'fusion-doc-token';
+
+function getToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
+}
+
+function clearTokenOn401() {
+    try {
+        if (localStorage.getItem(TOKEN_KEY)) {
+            localStorage.removeItem(TOKEN_KEY);
+            localStorage.removeItem('fusion-doc-user');
+            // 触发刷新让 App 网关回到登录页
+            window.dispatchEvent(new Event('fusion-doc-logout'));
+        }
+    } catch {}
+}
 
 function withTimeout(opts, timeout) {
     const ms = timeout === undefined ? DEFAULT_TIMEOUT : timeout;
@@ -16,10 +33,14 @@ function withTimeout(opts, timeout) {
 }
 
 export async function api(method, path, body = null, reqOpts = {}) {
-    const opts = {
-        method,
-        headers: { 'Content-Type': 'application/json', ...(reqOpts.headers || {}) },
-    };
+    const headers = { 'Content-Type': 'application/json', ...(reqOpts.headers || {}) };
+    // P0-F1: 认证路径自身不带 token (登录/setup); 其余路径自动附 Bearer
+    const isAuthPath = path.startsWith('/auth/') || path.startsWith('/system/setup');
+    if (!isAuthPath) {
+        const token = getToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
+    const opts = { method, headers };
     if (body && method !== 'GET') {
         opts.body = JSON.stringify(body);
     }
@@ -34,6 +55,8 @@ export async function api(method, path, body = null, reqOpts = {}) {
     }
     if (timed._timer) clearTimeout(timed._timer);
     if (!res.ok) {
+        // P0-F1: 401 清 token, 让 App 网关回到登录页
+        if (res.status === 401 && !isAuthPath) clearTokenOn401();
         const err = await res.json().catch(() => ({ message: res.statusText }));
         throw new Error(err.message || `API ${res.status}`);
     }
@@ -57,9 +80,12 @@ export async function apiStream(path, body, onChunk, onDone, reqOpts = {}) {
     resetIdle();
     let res;
     try {
+        const streamHeaders = { 'Content-Type': 'application/json' };
+        const token = getToken();
+        if (token) streamHeaders['Authorization'] = `Bearer ${token}`;
         res = await fetch(`${API_BASE}${path}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: streamHeaders,
             body: JSON.stringify(body),
             signal: controller.signal,
         });
@@ -105,11 +131,16 @@ export async function apiStream(path, body, onChunk, onDone, reqOpts = {}) {
 export async function apiUpload(path, file) {
     const formData = new FormData();
     formData.append('file', file);
+    const headers = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API_BASE}${path}`, {
         method: 'POST',
+        headers,
         body: formData,
     });
     if (!res.ok) {
+        if (res.status === 401) clearTokenOn401();
         throw new Error(`Upload failed: ${res.status}`);
     }
     return res.json();
