@@ -22,38 +22,36 @@ import { AIGhostText } from './AIGhostText';
 import AIBubbleMenu from './AIBubbleMenu';
 import { AISlashCommand } from './AISlashCommand';
 import { BiLinkNode, BiLinkExtension } from './BiLinkExtension';
-import { getCollabExtensions, destroyYjsConnection } from '../../lib/yjs-provider';
+// F6 修复: WorkflowBadge / OfficePanel 已实现但从未挂载, 是死代码。
+// 接入编辑器: 头部挂工作流状态徽章 + 可折叠 Office 面板抽屉。
+import WorkflowBadge from '../workflow/WorkflowBadge';
+import OfficePanel from '../office/OfficePanel';
+// P0-F3 修复: 实时协作 (Yjs) 协议层未实现 (客户端 y-websocket 二进制 vs 服务端 JSON 中继),
+// 原 UI "协作" 按钮切换 collabEnabled 但从不接线 provider, 是死代码 + 功能谎言。
+// 移除误导 UI 与未接线导入, 协作列为未发布特性 (见审计报告 A1/A2 已知限制)。
 
 export default function EditorPage() {
     const { id } = useParams();
     const { currentPage, fetchPage, updatePage } = usePageStore();
     const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
+    // F6: Office 面板抽屉开关 (默认收起)
+    const [officeOpen, setOfficeOpen] = useState(false);
     const saveTimerRef = useRef(null);
     const lastContentRef = useRef('');
-    const [collabEnabled, setCollabEnabled] = useState(false);
     // R28 修复: useEditor 的 onUpdate/handleKeyDown 闭包在 editor 创建时冻结,
     // currentPage 变化后旧闭包仍指向旧 page, 保存写入旧 page。
     // 用 ref 始终读最新 currentPage, 闭包只读 ref 不捕获 page。
     const currentPageRef = useRef(currentPage);
     useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
-    // R23 修复: setContent 节流标志。远端更新触发 onUpdate 回写时不重入 setContent。
-    const applyingRemoteRef = useRef(false);
 
     useEffect(() => {
         if (id) fetchPage(id);
-    }, [id]);
-
-    // R24 修复: 卸载时只销毁本页连接, 不清全部 (多 tab 编辑其他页不应被波及)
-    useEffect(() => {
-        return () => { if (id) destroyYjsConnection(id); };
     }, [id]);
 
     const handleContentChange = useCallback((html) => {
         // R28: 读 ref 而非闭包 currentPage
         const page = currentPageRef.current;
         if (!page) return;
-        // R23: 若是远端 setContent 回触发的 onUpdate, 不回写服务端 (避免来回抖动)
-        if (applyingRemoteRef.current) return;
         lastContentRef.current = html;
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
@@ -127,26 +125,16 @@ export default function EditorPage() {
         }
     }, [editor, currentPage?.id]);
 
-    // R23 修复: setContent 与 Yjs CRDT 冲突。原实现字符串比较 HTML 恒触发 setContent 抖动循环,
-    // 协同模式下覆盖远端 update。改为: 仅在切换页面 (id 变化) 时初始化一次内容,
-    // 用 applyingRemoteRef 标记防止 onUpdate 回写服务端; 协作开启时交由 Yjs sync, 不 setContent。
+    // R23 修复: 仅在切换页面 (id 变化) 时初始化一次内容, 避免 setContent 与输入抖动循环。
+    // P0-F3: 协作模式已移除 (未实现), 不再有 CRDT 冲突; 仅按 id 变化 setContent。
     useEffect(() => {
         if (!editor || !currentPage) return;
-        // 协作模式由 Yjs provider 同步内容, setContent 会破坏 CRDT, 跳过
-        if (collabEnabled) return;
-        applyingRemoteRef.current = true;
-        try {
-            const current = editor.getHTML();
-            // 仅当内容实质不同 (非空白归一后) 才 setContent, 避免格式差异恒触发
-            const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-            if (norm(current) !== norm(currentPage.content || '')) {
-                editor.commands.setContent(currentPage.content || '', false);
-            }
-        } finally {
-            // 下个 tick 解除标记, 让后续用户输入正常回写
-            setTimeout(() => { applyingRemoteRef.current = false; }, 0);
+        const current = editor.getHTML();
+        const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+        if (norm(current) !== norm(currentPage.content || '')) {
+            editor.commands.setContent(currentPage.content || '', false);
         }
-    }, [currentPage?.id, currentPage?.content, collabEnabled, editor]);
+    }, [currentPage?.id, editor]);
 
     if (!currentPage) {
         return (
@@ -167,17 +155,18 @@ export default function EditorPage() {
                     className="text-xl font-semibold bg-transparent border-none outline-none flex-1 text-gray-100 placeholder-gray-500"
                 />
                 <button
-                    onClick={() => setCollabEnabled(prev => !prev)}
-                    className={`text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 ${collabEnabled ? 'bg-green-600 hover:bg-green-500' : 'bg-surface-2 hover:bg-surface-3'}`}
-                >
-                    {collabEnabled ? '🟢 协作中' : '👥 协作'}
-                </button>
-                <button
                     onClick={toggleAIPanel}
                     className="text-xs bg-brand-600 hover:bg-brand-500 px-3 py-1.5 rounded-lg flex items-center gap-1"
                 >
                     🤖 AI
                 </button>
+                <button
+                    onClick={() => setOfficeOpen((v) => !v)}
+                    className="text-xs bg-surface-2 hover:bg-surface-3 px-3 py-1.5 rounded-lg"
+                >
+                    📄 Office
+                </button>
+                <WorkflowBadge pageId={currentPage.id} />
             </div>
             <EditorToolbar editor={editor} />
             <div className="flex-1 overflow-auto relative">
@@ -186,6 +175,11 @@ export default function EditorPage() {
                 </div>
                 <AIBubbleMenu editor={editor} pageId={currentPage.id} />
             </div>
+            {officeOpen && (
+                <div className="border-t border-surface-3 bg-surface-1 max-h-72 overflow-auto">
+                    <OfficePanel pageId={currentPage.id} pageTitle={currentPage.title} />
+                </div>
+            )}
             <div className="border-t border-surface-3 px-4 py-1 flex items-center gap-4 text-xs text-gray-500">
                 <span>字符: {editor?.storage.characterCount?.characters() ?? 0}</span>
                 <span>词数: {editor?.storage.characterCount?.words() ?? 0}</span>

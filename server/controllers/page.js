@@ -6,41 +6,13 @@
 const { parseBody } = require('../middleware/body-parser');
 const { uid, now, slugify } = require('../utils/helpers');
 const { json, list, created, notFound, error } = require('../utils/response');
-const { errorResponse } = require('../middleware/error-handler');
+// 授权守卫统一走共享 middleware/authz (R13 读隔离 + R12 写隔离), 杜绝各控制器重复实现 IDOR
+const { canReadPage, canModifyPage, getPage } = require('../middleware/authz');
 
 const EDITOR_MODES = new Set(['rich-text', 'markdown', 'plain']);
 const MAX_TITLE = 500;
 const MAX_CONTENT = 5 * 1024 * 1024; // 5MB 单页内容上限
 const MAX_DIFF_LINES = 5000; // diff 行数上限, 防 DP 矩阵 OOM
-
-// 所有权校验: admin 放行, 否则需 created_by 匹配; 返回 true=放行
-function canModifyPage(req, res, page) {
-    if (req.user?.role === 'admin') return true;
-    const owner = page.created_by;
-    // 历史数据无 created_by 视为本地所有者 (兼容迁移)
-    if (!owner) return true;
-    if (owner === (req.user?.id || 'local')) return true;
-    errorResponse(res, 403, '无权修改他人页面', 'FORBIDDEN');
-    return false;
-}
-
-// R13 修复: 读隔离。admin 放行; 已发布页 (is_published=1) 任何人可读;
-// 私有页仅 owner/admin 可读。杜绝跨用户遍历 id 读取他人私有页面。
-function canReadPage(req, res, page) {
-    if (req.user?.role === 'admin') return true;
-    if (page.is_published === 1 || page.is_published === '1') return true;
-    const owner = page.created_by;
-    if (!owner) return true; // 历史数据兼容
-    if (owner === (req.user?.id || 'local')) return true;
-    errorResponse(res, 403, '无权读取他人私有页面', 'FORBIDDEN');
-    return false;
-}
-
-// 取页面对象 (DB/JSON), 不存在返 null
-function getPage(app, id) {
-    const { db } = app;
-    return db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : require('../db').readJSON('pages', id);
-}
 
 function register(app) {
   const { db } = app;
@@ -142,7 +114,10 @@ function register(app) {
       });
       tx();
     } else { Object.assign(page, { title, content, markdown, updated_at: now() }); require('../db').writeJSON('pages', id, page); }
-    json(res, { updated: true });
+    // P0-F2 修复: 返回完整更新后页对象, 非裸 {updated:true}。
+    // 原响应让 pageStore 把 currentPage 覆盖成 {updated:true}, 摧毁编辑器内容。
+    const refreshed = getPage(app, id);
+    json(res, refreshed || { ...page, title, content, markdown, updated_at: now() });
   });
 
   app.registerRoute('DELETE', '/api/pages/:id', (req, res) => {

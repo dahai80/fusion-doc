@@ -118,7 +118,9 @@ export const BiLinkExtension = Extension.create({
                 items: async ({ query }) => {
                     try {
                         const data = await api('GET', `/api/search?q=${encodeURIComponent(query)}`);
-                        return (data.results || []).slice(0, 8).map(p => ({
+                        // F4 修复: /api/search 经 list() 返回 { data: [...] }, 非 results。读错字段致下拉恒空。
+                        const rows = Array.isArray(data) ? data : (data.data || data.results || []);
+                        return rows.slice(0, 8).map(p => ({
                             pageId: p.id,
                             pageTitle: p.title,
                         }));

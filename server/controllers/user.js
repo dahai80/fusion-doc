@@ -5,6 +5,7 @@
 const { parseBody } = require('../middleware/body-parser');
 const { json, list } = require('../utils/response');
 const { errorResponse } = require('../middleware/error-handler');
+const { parsePaging } = require('../utils/helpers');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_NAME = 64;
@@ -22,9 +23,11 @@ function register(app) {
         : { id: req.user?.id || 'local', name: 'Me', email: '', role: req.user?.role || 'user' };
       return list(res, self ? [self] : []);
     }
+    // A6 修复: admin 列表分页上限, 防 unbounded 全表拉 OOM
+    const { size, offset } = parsePaging(req);
     const data = db
-      ? db.prepare('SELECT id, email, name, role, avatar, created_at FROM users ORDER BY name').all()
-      : require('../db').listJSON('users').map(u => ({ id: u.id, email: u.email, name: u.name, role: u.role }));
+      ? db.prepare('SELECT id, email, name, role, avatar, created_at FROM users ORDER BY name LIMIT ? OFFSET ?').all(size, offset)
+      : require('../db').listJSON('users').map(u => ({ id: u.id, email: u.email, name: u.name, role: u.role })).slice(offset, offset + size);
     list(res, data);
   });
 

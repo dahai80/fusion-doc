@@ -29,7 +29,7 @@ Fusion-Doc Server (:11449) — AI-First Document Operating System
 │   ├── Models (SQLite + JSON dual storage)
 │   ├── Integrations (Fusion-MLX, OfficeCLI)
 │   └── Plugins (extensible plugin system)
-└── WebSocket (Real-time Collaboration)
+└── WebSocket (Real-time Collaboration — 未发布, 路由拒连 410)
 ```
 
 **Zero external dependencies:** No PostgreSQL, Redis, NestJS, or reverse proxy required.
@@ -75,7 +75,7 @@ bash scripts/start.sh
 | **AI Copilot** | Inline AI (complete/rewrite/translate) | `/api/copilot/*` | ✅ |
 | **Template** | Document templates + instantiation | `/api/templates` | ✅ |
 | **Workflow** | Document state machine (draft→review→publish) | `/api/workflow/*` | ✅ |
-| **Collaboration** | Real-time WebSocket + cursors | `/ws/collab/:pageId` | ✅ |
+| **Collaboration** | Real-time WebSocket + cursors (未发布, 路由拒连 410) | `/ws/collab/:pageId` | ⏸ |
 
 ## Project Structure
 
@@ -97,11 +97,10 @@ fusion-doc/
 │   │   │   ├── common/         ← Layout, HomePage, StatusBar, SearchModal
 │   │   │   ├── office/         ← Office import/export panel
 │   │   │   ├── template/       ← Template picker
-│   │   │   ├── workflow/       ← Workflow status badge
-│   │   │   └── collab/         ← Collaboration cursors
+│   │   │   └── workflow/       ← Workflow status badge
 │   │   ├── stores/             ← Zustand state (page, book, ui)
 │   │   ├── hooks/              ← Editor context hook
-│   │   ├── lib/                ← API client (fetch + SSE stream) + Yjs provider
+│   │   ├── lib/                ← API client (fetch + SSE stream)
 │   │   └── styles/             ← Tailwind + TipTap CSS
 │   ├── package.json
 │   ├── vite.config.js
@@ -112,7 +111,7 @@ fusion-doc/
 │   │   ├── office.js           ← Office import/export
 │   │   ├── template.js         ← Template CRUD + instantiate
 │   │   ├── workflow.js         ← Document workflow state machine
-│   │   ├── collaboration.js    ← WebSocket real-time collab
+│   │   ├── collaboration.js    ← WebSocket collab (未发布, 路由拒连 410)
 │   │   ├── graph.js            ← Knowledge graph (enhanced + semantic search)
 │   │   └── ...                 ← (health, auth, page, book, ai, etc.)
 │   ├── services/               ← Business logic
@@ -124,7 +123,7 @@ fusion-doc/
 │   │   ├── workflow-engine.js  ← YAML workflow engine + 5 presets
 │   │   ├── template-engine.js  ← Variable extraction + fill + create
 │   │   ├── seed-templates.js   ← 8 preset templates (auto-seed on first run)
-│   │   └── collaboration.js    ← Yjs state persistence
+│   │   └── rag-worker.js       ← 向量扫描 worker_thread (offload 事件循环)
 │   ├── integrations/           ← External service clients
 │   │   ├── fusion-mlx.js       ← OpenAI-compatible (chat/embed/rerank/SSE)
 │   │   └── officecli.js        ← OfficeCLI resident mode + preview + merge
@@ -176,7 +175,7 @@ fusion-doc/
 | POST | `/api/rag/enhanced-query` | Hybrid RAG query |
 | POST | `/api/rag/reindex/:id` | Reindex page chunks |
 | GET | `/api/rag/chunks/:pageId` | Get page chunks |
-| WS | `/ws/collab/:pageId` | Real-time collaboration |
+| WS | `/ws/collab/:pageId` | Real-time collaboration (未发布, 拒连 410) |
 
 ## Fusion Ecosystem
 
@@ -219,7 +218,39 @@ export CORS_ORIGINS="https://your-domain.com" # CORS 白名单
 
 # 定时备份 (crontab)
 0 2 * * * cd /path/to/fusion-doc && bash scripts/backup.sh 30
+
+# 内置自动备份 (进程内调度, env AUTO_BACKUP_HOURS, 默认 24h, <=0 关闭)
+export AUTO_BACKUP_HOURS="24"
+
+# 结构化日志 (ELK 采集)
+export LOG_FORMAT="json"
 ```
+
+### 容器/进程托管
+
+```bash
+# Docker (多阶段构建, 零外部依赖)
+docker build -f deploy/Dockerfile -t fusion-doc .
+docker run -d -p 11449:11449 \
+    -e JWT_SECRET="$(openssl rand -hex 32)" \
+    -e FUSION_MLX_API_KEY="..." \
+    -v fusion-doc-data:/app/data fusion-doc
+
+# systemd (进程自动拉起 + 日志接管)
+sudo cp deploy/fusion-doc.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now fusion-doc
+```
+
+### 运维端点
+
+- `GET /api/health/live` — liveness (进程存活, 永返 200)
+- `GET /api/health` — readiness (DB + MLX + 磁盘占用, DB down 返 503)
+- `GET /api/metrics` — Prometheus 文本指标 (uptime/内存/请求计数/业务计数/负载)
+- `POST /api/system/backup` — 触发备份 (admin)
+- `GET /api/system/backups` — 备份列表 (admin)
+- `POST /api/system/restore` — 从备份恢复 (admin, 文件名白名单 + 路径穿越拦截)
+- `GET /api/system/backup-schedule` — 自动备份调度状态 (admin)
+- `/settings` · `/admin` — SPA 设置页与管理后台 (备份/恢复 UI)
 
 安全特性: scrypt 密码哈希 · 认证端点限流 · JWT 强制密钥 · 默认本机绑定 · 在线热备 · SQL 参数化 · 请求体大小上限 · Webhook SSRF 防护 · 数据端点所有权校验 · 文件路径穿越防护 · MIME 白名单 · CORS 来源白名单 · 日志脱敏。
 变更历史见 [CHANGELOG.md](./CHANGELOG.md)。完整对抗性安全审计见 [../audit/fusion-doc-audit-0830.md](../audit/fusion-doc-audit-0830.md)。

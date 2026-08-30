@@ -57,6 +57,39 @@ function stopResident() {
     }
 }
 
+// ── 临时文件清扫 (P2-E11 修复) ────────────────────────────────────────────
+// 原导入/导出/预览临时产物落 os.tmpdir()/fusion-doc-office, 进程崩溃 (SIGKILL/掉电)
+// 后残留, 累积撑爆 /tmp。清扫: 启动时清超过 STALE_HOURS 的旧文件; 正常退出时清全部。
+// 不清当前活跃产物 (仅清过期/退出态), 避免误删进行中任务。
+const STALE_HOURS = Number(process.env.OFFICE_STALE_HOURS ?? 24);
+function sweepOfficeTemp(opts = {}) {
+    const all = opts.all === true;
+    const now = Date.now();
+    const threshold = STALE_HOURS * 3600 * 1000;
+    let removed = 0;
+    for (const dir of [WORK_DIR, PREVIEW_DIR]) {
+        if (!fs.existsSync(dir)) continue;
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+        for (const e of entries) {
+            if (e.isDirectory()) continue;
+            const full = path.join(dir, e.name);
+            try {
+                const st = fs.statSync(full);
+                if (all || (now - st.mtimeMs) > threshold) {
+                    fs.unlinkSync(full);
+                    removed++;
+                }
+            } catch { /* 已删/无权限忽略 */ }
+        }
+    }
+    if (removed > 0) console.log(`  [OfficeCLI] 临时清扫 ${removed} 个文件 (${all ? '退出' : '过期 ' + STALE_HOURS + 'h'})`);
+}
+// 启动清扫一次 (清上次崩溃残留)
+sweepOfficeTemp();
+// 进程退出清扫 (正常关闭路径)
+process.on('exit', () => { try { sweepOfficeTemp({ all: true }); } catch (e) { /* 退出清扫忽略错误 */ } });
+
 async function executeCommand(command, args) {
     try {
         const { stdout, stderr } = await execFileAsync(

@@ -8,11 +8,27 @@
 // 默认 bin: /Users/dahai/fusion/.venv/bin/fusion-trainer (env FUSION_TRAINER_BIN 可覆盖)
 // =============================================================================
 
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 
-const DEFAULT_BIN = process.env.FUSION_TRAINER_BIN || '/Users/dahai/fusion/.venv/bin/fusion-trainer';
+// S9 修复: 原硬编码机器绝对路径, 换机即断。优先 env, 否则 PATH 解析 'fusion-trainer',
+// 再降级到 monorepo 共享 venv (FUSION_VENV 环境变量或相对仓库根推导)。
+function resolveDefaultBin() {
+    if (process.env.FUSION_TRAINER_BIN) return process.env.FUSION_TRAINER_BIN;
+    // PATH 查找 (用户已 pip install -e fusion-trainer → 入 PATH)
+    try {
+        const out = execFileSync('which', ['fusion-trainer'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        if (out && fs.existsSync(out)) return out;
+    } catch (_) { /* not in PATH, fall through */ }
+    // 共享 venv 推导: 从本文件向上找 .venv
+    const venv = process.env.FUSION_VENV || require('path').resolve(__dirname, '../../.venv');
+    const candidate = `${venv}/bin/fusion-trainer`;
+    if (fs.existsSync(candidate)) return candidate;
+    console.warn('[Fusion-Trainer] 未找到 fusion-trainer CLI, 设 env FUSION_TRAINER_BIN 指向');
+    return 'fusion-trainer'; // 交由 spawn 报 fail-visible
+}
+const DEFAULT_BIN = resolveDefaultBin();
 const MAX_STDOUT = 256 * 1024; // 单 job stdout/stderr 上限 256KB
 const MAX_JOBS = 20; // 内存中保留的 job 上限
 const MAX_STATUS_OUTPUT = 4096; // 状态接口返回的输出截断长度
@@ -82,6 +98,18 @@ function startSft({ dataset, model, config, outputDir, binPath }) {
   _jobs.set(jobId, job);
   _gcJobs();
 
+  // E1 修复: 训练作业加超时, 防僵死子进程永占 GPU 槽位 (默认 30min, env 可调)。
+  const JOB_TIMEOUT_MS = parseInt(process.env.FUSION_TRAINER_TIMEOUT_MS || `${30 * 60 * 1000}`, 10);
+  const timer = setTimeout(() => {
+    if (job.status === 'running' && job._child) {
+      console.warn('[fusion-trainer] job %s 超时 %sms, SIGKILL', jobId, JOB_TIMEOUT_MS);
+      job.status = 'timeout';
+      job.error = `job timeout after ${JOB_TIMEOUT_MS}ms`;
+      try { job._child.kill('SIGKILL'); } catch (_) { /* noop */ }
+    }
+  }, JOB_TIMEOUT_MS);
+  job._timer = timer;
+
   // E13 修复: 达 cap 后解绑监听器 + destroy, 防 data 事件空转 CPU/GC 浪费
   child.stdout.on('data', (d) => {
     job.stdout = _appendCapped(job.stdout, d.toString());
@@ -97,8 +125,9 @@ function startSft({ dataset, model, config, outputDir, binPath }) {
     console.error('[fusion-trainer] spawn error:', err.message);
   });
   child.on('exit', (code) => {
+    if (job._timer) { clearTimeout(job._timer); job._timer = null; }
     job.exitCode = code;
-    job.status = code === 0 ? 'completed' : 'error';
+    job.status = code === 0 ? 'completed' : (job.status === 'timeout' ? 'timeout' : 'error');
     job._child = null;
     console.log('[fusion-trainer] job %s exitCode=%s', jobId, code);
   });
@@ -140,6 +169,7 @@ async function stopAllJobs() {
 
 function _stopOneJob(job, timeoutMs) {
   return new Promise((resolve) => {
+    if (job._timer) { clearTimeout(job._timer); job._timer = null; }
     const child = job._child;
     let settled = false;
     const done = () => { if (!settled) { settled = true; resolve(); } };

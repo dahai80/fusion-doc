@@ -45,6 +45,16 @@ function logger(req, res, pipeline) {
         const timestamp = new Date().toISOString().slice(11, 23);
         console.log(`  [${timestamp}] ${method} ${redactUrl(url)} → ${res.statusCode} (${duration}ms) [${level}]`);
       }
+      // P2-O5/P3-O11: 指标计数 + 结构化日志 (env LOG_FORMAT=json 时输出 JSON 行, 便 ELK 采集)
+      const m = req.ctx?.app?._metrics;
+      if (m) {
+        m.requests++;
+        m.byStatus[res.statusCode] = (m.byStatus[res.statusCode] || 0) + 1;
+        if (res.statusCode >= 500) m.errors++;
+      }
+      if (process.env.LOG_FORMAT === 'json') {
+        console.log(JSON.stringify({ ts: new Date().toISOString(), level, method, path: redactUrl(url), status: res.statusCode, ms: duration, ip: req.socket?.remoteAddress }));
+      }
     }
     return originalEnd(...args);
   };

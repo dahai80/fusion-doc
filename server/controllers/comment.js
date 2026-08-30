@@ -3,7 +3,7 @@
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
-const { uid, now } = require('../utils/helpers');
+const { uid, now, parsePaging } = require('../utils/helpers');
 const { json, list, error, notFound } = require('../utils/response');
 
 const MAX_CONTENT = 8000;
@@ -13,7 +13,9 @@ function register(app) {
 
   app.registerRoute('GET', '/api/comments', (req, res) => {
     const pageId = req.ctx.url.searchParams.get('pageId');
-    let data = db ? db.prepare('SELECT * FROM comments WHERE page_id = ? ORDER BY created_at').all(pageId) : [];
+    // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+    const { size, offset } = parsePaging(req);
+    let data = db ? db.prepare('SELECT * FROM comments WHERE page_id = ? ORDER BY created_at LIMIT ? OFFSET ?').all(pageId, size, offset) : [];
     list(res, data);
   });
 

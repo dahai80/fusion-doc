@@ -125,9 +125,15 @@ const config = {
   isTest: process.env.NODE_ENV === 'test',
 };
 
-// §2.2: FUSION_MLX_API_KEY 未设置时启动 WARN, 调用时 fail visibly (禁止字面量/静默放行)
+// §2.2: FUSION_MLX_API_KEY 未设置时启动告警, 调用时 fail visibly (禁止字面量/静默放行)
+// O9 修复: 生产环境升级为 error 级日志 + 标 mlxKeyMissing, /api/health 读绪探针报 degraded (非假阳性)。
+// 不 fail-fast 退出: AI 为可选特性, 缺密钥不应阻断 boot (与强制 JWT_SECRET 不同)。
 if (!config.fusionMlx.apiKey && !config.isTest) {
-  console.warn('  [⚠] FUSION_MLX_API_KEY 未设置, MLX 调用将被拒绝 (请于部署 env 注入, 禁止字面量)');
+  config.fusionMlx.mlxKeyMissing = true;
+  const log = process.env.NODE_ENV === 'production' ? console.error : console.warn;
+  log(process.env.NODE_ENV === 'production'
+    ? '  [✗] FUSION_MLX_API_KEY 未设置 (生产): AI 特性不可用, /api/health 将报 degraded。请于部署 env 注入 (禁止字面量)'
+    : '  [⚠] FUSION_MLX_API_KEY 未设置, MLX 调用将被拒绝 (请于部署 env 注入, 禁止字面量)');
 }
 
 module.exports = config;

@@ -4,7 +4,7 @@
 // =============================================================================
 
 const { json, error, created } = require('../utils/response');
-const { uid } = require('../utils/helpers');
+const { uid, parsePaging } = require('../utils/helpers');
 const { parseYAML, validateWorkflow, executeWorkflow, seedPresetWorkflows } = require('../services/workflow-engine');
 // A8 修复: 页面发布状态机改名 page-state (原 services/workflow), 消除与 workflow-engine 的命名碰撞
 const { transitionPage, getWorkflowStatus, getAvailableTransitions, STATES } = require('../services/page-state');
@@ -15,7 +15,9 @@ function register(app) {
     // ── 列出工作流 ─────────────────────────────────────────────────────
     app.registerRoute('GET', '/api/workflows', (req, res) => {
         if (!db) return json(res, []);
-        const workflows = db.prepare('SELECT id, name, description, status, last_run_at, created_at FROM workflows ORDER BY created_at DESC').all();
+        // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+        const { size, offset } = parsePaging(req);
+        const workflows = db.prepare('SELECT id, name, description, status, last_run_at, created_at FROM workflows ORDER BY created_at DESC LIMIT ? OFFSET ?').all(size, offset);
         json(res, workflows);
     });
 
@@ -70,6 +72,15 @@ function register(app) {
         if (!db) return error(res, 'DB not available', 503);
         const { parseBody } = require('../middleware/body-parser');
         const body = await parseBody(req);
+
+        // E8 修复: 拒绝重复执行 running 中的工作流, 防并发跑同一 DAG 步骤冲突/重复写页。
+        // (崩溃残留的 running 已由 app.js 启动清扫为 failed, 此处拦的是活动中的重复触发)
+        const wf = db.prepare('SELECT status FROM workflows WHERE id = ?').get(req.params.id);
+        if (!wf) return error(res, 'Workflow not found', 404);
+        if (wf.status === 'running') {
+            console.warn(`[Workflow] 拒绝重复执行 running 工作流: ${req.params.id}`);
+            return error(res, 'Workflow is already running', 409);
+        }
 
         try {
             const result = await executeWorkflow(app, req.params.id, body.input || body);

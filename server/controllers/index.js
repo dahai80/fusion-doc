@@ -9,6 +9,7 @@ const path = require('path');
 function registerRoutes(app) {
   const controllers = [
     require('./health'),
+    require('./metrics'),
     require('./auth'),
     require('./workspace'),
     require('./book'),

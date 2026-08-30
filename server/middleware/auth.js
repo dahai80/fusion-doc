@@ -36,6 +36,8 @@ function verifyToken(token, secret) {
 // 公开路径（无需认证）: 默认所有方法公开; METHOD:PATH 仅指定方法公开
 const PUBLIC_PATHS = [
   '/api/health',
+  '/api/health/live',
+  '/api/metrics', // P2-O5: 指标端点公开读 (仅计数, 无敏感数据), 便 Prometheus 抓取
   '/api/system/setup',
   '/api/auth/setup',
   '/api/auth/login',

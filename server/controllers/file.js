@@ -8,8 +8,10 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const { parseBody } = require('../middleware/body-parser');
-const { uid, now } = require('../utils/helpers');
+const { uid, now, parsePaging } = require('../utils/helpers');
 const { json, list, notFound, error } = require('../utils/response');
+// S2 修复: 文件读/写归属校验复用页面授权守卫, 杜绝跨用户下载/删除他人附件 (IDOR)
+const { canReadPage } = require('../middleware/authz');
 
 const ALLOWED_EXTS = new Set([
     '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
@@ -72,12 +74,14 @@ function register(app) {
   // ── 文件列表 ──────────────────────────────────────────────────────────
   app.registerRoute('GET', '/api/files', (req, res) => {
     const pageId = req.ctx.url.searchParams.get('pageId');
+    // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+    const { size, offset } = parsePaging(req);
     let data;
     if (db) {
       data = pageId
-        ? db.prepare('SELECT id, name, mime, size, page_id, created_at FROM files WHERE page_id = ?').all(pageId)
-        : db.prepare('SELECT id, name, mime, size, page_id, created_at FROM files ORDER BY created_at DESC').all();
-    } else { data = require('../db').listJSON('files').filter(f => !pageId || f.page_id === pageId); }
+        ? db.prepare('SELECT id, name, mime, size, page_id, created_at FROM files WHERE page_id = ? LIMIT ? OFFSET ?').all(pageId, size, offset)
+        : db.prepare('SELECT id, name, mime, size, page_id, created_at FROM files ORDER BY created_at DESC LIMIT ? OFFSET ?').all(size, offset);
+    } else { data = require('../db').listJSON('files').filter(f => !pageId || f.page_id === pageId).slice(offset, offset + size); }
     list(res, data);
   });
 
@@ -98,10 +102,12 @@ function register(app) {
       // P3-34: 用后缀映射 mime, 不采信客户端自报
       mime: EXT_MIME[ext] || 'application/octet-stream', size: buf.length,
       page_id: body.page_id || null, encrypted: 0,
+      // S2 修复: 记录上传者, 否则删除归属闸 created_by 恒 null 短路失效
+      created_by: req.user?.id || 'local',
       created_at: now(),
     };
     if (db) {
-      db.prepare('INSERT INTO files (id, name, path, mime, size, page_id, encrypted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(file.id, file.name, file.path, file.mime, file.size, file.page_id, file.encrypted, file.created_at);
+      db.prepare('INSERT INTO files (id, name, path, mime, size, page_id, encrypted, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(file.id, file.name, file.path, file.mime, file.size, file.page_id, file.encrypted, file.created_by, file.created_at);
     } else { require('../db').writeJSON('files', file.id, file); }
 
     // 尝试提取 Office 文档文本内容
@@ -127,11 +133,22 @@ function register(app) {
     json(res, file, 201);
   });
 
-  // ── 文件下载 (P3-35: 路径校验, 防 ../ 穿越) ──────────────────────────
+  // ── 文件下载 (P3-35: 路径校验, 防 ../ 穿越; S2: 读归属校验防跨用户下载) ─
   app.registerRoute('GET', '/api/files/:id', (req, res) => {
     const { id } = req.params;
     let file = db ? db.prepare('SELECT * FROM files WHERE id = ?').get(id) : require('../db').readJSON('files', id);
     if (!file) return notFound(res, 'File not found');
+    // S2 修复: 校验文件归属页的读权限。无 page_id 的散文件, admin/上传者放行, 否则拒绝。
+    if (file.page_id) {
+      const page = db ? db.prepare('SELECT id, is_published, created_by FROM pages WHERE id = ?').get(file.page_id) : null;
+      if (page) {
+        if (!canReadPage(req, res, page)) return;
+      } else if (req.user?.role !== 'admin' && file.created_by !== (req.user?.id || 'local')) {
+        return error(res, '无权下载该文件', 403, 'FORBIDDEN');
+      }
+    } else if (req.user?.role !== 'admin' && file.created_by !== (req.user?.id || 'local')) {
+      return error(res, '无权下载该文件', 403, 'FORBIDDEN');
+    }
     const filePath = safeStoragePath(storageDir, file.path);
     if (!filePath || !fs.existsSync(filePath)) {
       return notFound(res, 'File not found on disk');
@@ -159,7 +176,13 @@ function register(app) {
     let file = db ? db.prepare('SELECT * FROM files WHERE id = ?').get(id) : require('../db').readJSON('files', id);
     if (!file) return notFound(res, 'File not found');
     // R13 修复: 仅 owner/admin 可删, 杜绝跨用户删除他人附件
-    if (req.user?.role !== 'admin' && file.created_by && file.created_by !== (req.user?.id || 'local')) {
+    // S2 修复: 历史 file.created_by 为 NULL 时不再短路放行 (原逻辑允许任意非 admin 删任意无主文件),
+    // 改为 admin 放行; 有主则须 owner 匹配; 无主 (历史数据) 仅 admin 可删。
+    if (req.user?.role === 'admin') {
+      // admin 放行
+    } else if (file.created_by && file.created_by === (req.user?.id || 'local')) {
+      // owner 放行
+    } else {
       return error(res, '无权删除他人文件', 403, 'FORBIDDEN');
     }
     const fp = safeStoragePath(storageDir, file.path);

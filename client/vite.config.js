@@ -30,7 +30,6 @@ export default defineConfig({
                         '@tiptap/extension-placeholder', '@tiptap/extension-character-count',
                         '@tiptap/suggestion',
                     ],
-                    'vendor-yjs': ['yjs', 'y-websocket', '@tiptap/extension-collaboration', '@tiptap/extension-collaboration-cursor'],
                     'vendor-d3': ['d3'],
                 },
             },

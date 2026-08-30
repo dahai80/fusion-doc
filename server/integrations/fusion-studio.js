@@ -47,7 +47,20 @@ class FusionStudioBridge {
 
     async _send(message) {
         return new Promise((resolve, reject) => {
+            // P2-E12 修复: createConnection 对端无响应会永久挂起 (无连接超时), 且 call 的 10s
+            // 请求超时 reject 后 socket 仍打开 → fd 泄漏。加连接超时 + 统一 destroy 兜底。
+            let settled = false;
+            const done = () => {
+                if (settled) return;
+                settled = true;
+                try { socket.destroy(); } catch (_) { /* noop */ }
+            };
+            const connectTimer = setTimeout(() => {
+                reject(new Error('Fusion-Studio socket 连接超时'));
+                done();
+            }, REQUEST_TIMEOUT);
             const socket = net.createConnection(this.socketPath, () => {
+                clearTimeout(connectTimer);
                 socket.write(message + '\n');
                 resolve();
             });
@@ -56,7 +69,9 @@ class FusionStudioBridge {
             // 用 socket 级 buffer 累积, 仅解析完整行, 半行留待下一段拼接。
             if (!socket._fdBuffer) socket._fdBuffer = '';
             socket.on('error', (e) => {
+                clearTimeout(connectTimer);
                 reject(new Error(`Fusion-Studio socket error: ${e.message}`));
+                done();
             });
             socket.on('data', (data) => {
                 socket._fdBuffer += data.toString();
@@ -73,6 +88,7 @@ class FusionStudioBridge {
                             this._pending.delete(resp.id);
                             if (resp.error) j(new Error(resp.error.message || 'RPC error'));
                             else r(resp.result);
+                            done();
                         }
                     } catch (e) {
                         console.warn(`[Fusion-Studio] 解析响应行失败 (已缓冲跨段): ${e.message}`);
@@ -94,6 +110,7 @@ class FusionStudioBridge {
                         }
                     } catch (_) { /* 残留非 JSON, 忽略 */ }
                 }
+                done();
             });
         });
     }

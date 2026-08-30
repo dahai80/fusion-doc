@@ -21,8 +21,9 @@ async function indexPage(app, pageId) {
 }
 
 // ── 语义检索 (委托 rag-hybrid.hybridSearch, 单存储检索) ──────────────────────
-async function search(app, query, topK) {
-    const results = await ragHybrid.hybridSearch(app, query, topK || 5);
+// S1: accessiblePageIds 透传, 防 graph 语义搜索泄露他人私有页 chunk
+async function search(app, query, topK, accessiblePageIds) {
+    const results = await ragHybrid.hybridSearch(app, query, topK || 5, accessiblePageIds);
     // 归一为 graph.js 期望的 {page_id, chunk_index, chunk_text, score} 结构
     return results.map(r => ({
         page_id: r.page_id,

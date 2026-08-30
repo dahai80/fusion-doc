@@ -23,4 +23,14 @@ function slugify(text) {
   return (text || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
-module.exports = { uid, now, slugify };
+// A6 修复: 列表端点分页解析。从 req.ctx.url.searchParams 读 page/size,
+// 返回 { size, offset, page }。size 上限 200, 默认 50; 防 unbounded 全表拉 OOM。
+function parsePaging(req) {
+  const sizeRaw = parseInt(req.ctx.url.searchParams.get('size'), 10);
+  const pageRaw = parseInt(req.ctx.url.searchParams.get('page'), 10);
+  const size = Number.isFinite(sizeRaw) && sizeRaw > 0 && sizeRaw <= 200 ? sizeRaw : 50;
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+  return { size, offset: (page - 1) * size, page };
+}
+
+module.exports = { uid, now, slugify, parsePaging };

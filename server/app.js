@@ -45,6 +45,21 @@ class FusionDocApp {
     if (this.db) seedTemplates(this.db);
     console.log(`  [✓] 数据库: ${this.db ? 'SQLite' : 'JSON 文件存储'}`);
 
+    // E8 修复: 上次进程崩溃 (SIGKILL/掉电) 会留下 status='running' 的僵尸工作流运行,
+    // 永不结算, 用户侧表现为"卡死无法再跑"。启动时清扫: running → failed (标记为崩溃中断)。
+    if (this.db && typeof this.db.prepare === 'function') {
+        try {
+            const swept = this.db.prepare(
+                "UPDATE workflow_runs SET status = 'failed', error = ?, completed_at = ? WHERE status = 'running'"
+            ).run('进程重启中断 (E8 启动清扫)', new Date().toISOString());
+            if (swept.changes > 0) {
+                this.db.prepare("UPDATE workflows SET status = 'idle' WHERE status = 'running'")
+                    .run();
+                console.log(`  [✓] E8 清扫 ${swept.changes} 个僵尸工作流运行 → failed`);
+            }
+        } catch (e) { console.warn(`  [⚠] E8 工作流清扫失败: ${e.message}`); }
+    }
+
     // 2. 注册内置中间件
     console.log('  [2/4] 加载中间件...');
     this._registerBuiltinMiddleware();
@@ -59,6 +74,26 @@ class FusionDocApp {
     console.log('  [4/4] 加载插件...');
     this.plugins = await loadPlugins(this);
     console.log(`  [✓] 插件已加载: ${this.plugins.length} 个`);
+
+    // P1-O2 修复: 自动定时备份 (原仅手动备份无调度)。间隔由 env AUTO_BACKUP_HOURS 控制 (默认 24, <=0 关闭)。
+    // 单实例内存定时器, 触发 backupDB(); 失败仅记日志不中断服务。退出时清理。
+    this._backupIntervalHours = Number(process.env.AUTO_BACKUP_HOURS ?? 24);
+    if (this._backupIntervalHours > 0) {
+        const { backupDB } = require('./db');
+        const runBackup = async () => {
+            try {
+                const dest = await backupDB();
+                this._lastAutoBackupAt = new Date().toISOString();
+                console.log(`  [System] 自动备份完成: ${path.basename(dest)}`);
+            } catch (e) {
+                console.error(`  [System] 自动备份失败: ${e.message}`);
+            }
+        };
+        this._backupTimer = setInterval(runBackup, this._backupIntervalHours * 3600 * 1000);
+        // 不阻止进程退出
+        if (this._backupTimer.unref) this._backupTimer.unref();
+        console.log(`  [✓] 自动备份调度: 每 ${this._backupIntervalHours} 小时`);
+    }
 
     this._startTime = Date.now();
     return this;
@@ -205,7 +240,8 @@ class FusionDocApp {
 
     // WebSocket 支持
     if (WebSocketServer && this._wsRoutes.length > 0) {
-      this.wsServer = new WebSocketServer({ noServer: true });
+      // E3 修复: 设 maxPayload 上限 2MB, 拒巨型 WS 帧 OOM (Yjs update 远小于此)
+      this.wsServer = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
       // R1 修复: handler 抛错隔离为单连接关闭, 不杀全进程 (全员断连丢稿)
       this.wsServer.on('connection', (ws, req) => {
         try {
@@ -296,6 +332,13 @@ class FusionDocApp {
   // ── 优雅关闭 ────────────────────────────────────────────────────────────
   async shutdown() {
     console.log('\n  [Fusion-Doc] 正在关闭...');
+
+    // P1-O2: 停自动备份定时器
+    if (this._backupTimer) {
+      clearInterval(this._backupTimer);
+      this._backupTimer = null;
+      console.log('  [✓] 自动备份调度已停止');
+    }
 
     // 杀 officecli 常驻子进程
     try {

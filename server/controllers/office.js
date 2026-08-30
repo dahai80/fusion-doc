@@ -11,6 +11,8 @@ const fs = require('fs');
 const os = require('os');
 const { officeImport, officeExport, getOfficeStatus } = require('../services/office');
 const officecli = require('../integrations/officecli');
+// S4 修复: export/preview 复用页读归属守卫, 杜绝非 owner 读他人私有页内容/产物 (IDOR)
+const { canReadPage } = require('../middleware/authz');
 
 const ALLOWED_COMMANDS = new Set(['create', 'convert', 'preview', 'merge']);
 const SAFE_FILENAME_RE = /[^a-zA-Z0-9一-龥_.-]/g;
@@ -39,6 +41,80 @@ function safePath(app, rawPath, label) {
         return null;
     }
     return resolved;
+}
+
+// F7 修复: 零依赖 multipart 解析 (仅取首个文件 + 简单文本字段), 落盘到 uploadDir。
+// 大小上限沿用 MAX_IMPORT_BYTES 防 OOM; 失败中途清理已写文件。
+const MAX_IMPORT_BYTES = 50 * 1024 * 1024; // 50MB 上限 (Office 文档)
+const SAFE_IMPORT_NAME = /[^a-zA-Z0-9一-龥._-]/g;
+function _saveMultipartUpload(req, boundary, uploadDir) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        let received = 0;
+        let aborted = false;
+        const cleanup = () => {
+            req.removeListener('data', onData);
+            req.removeListener('end', onEnd);
+            req.removeListener('error', onErr);
+        };
+        const onData = (c) => {
+            if (aborted) return;
+            received += c.length;
+            if (received > MAX_IMPORT_BYTES) {
+                aborted = true;
+                cleanup();
+                req.destroy();
+                reject(new Error('上传文件过大 (>50MB)'));
+                return;
+            }
+            chunks.push(c);
+        };
+        const onEnd = () => {
+            if (aborted) return;
+            cleanup();
+            try {
+                const buf = Buffer.concat(chunks);
+                const parts = buf.split(boundary).filter(p => p.length > 4 && !p.equals(Buffer.from('--')));
+                const result = { file: null, fields: {} };
+                for (const part of parts) {
+                    // 去首尾 CRLF
+                    let body = part;
+                    if (body[0] === 0x0d && body[1] === 0x0a) body = body.subarray(2);
+                    if (body[body.length - 2] === 0x0d && body[body.length - 1] === 0x0a) body = body.subarray(0, body.length - 2);
+                    const headerEnd = body.indexOf('\r\n\r\n');
+                    if (headerEnd < 0) continue;
+                    const headerStr = body.subarray(0, headerEnd).toString('utf-8');
+                    const value = body.subarray(headerEnd + 4);
+                    const nameMatch = headerStr.match(/name="([^"]+)"/);
+                    if (!nameMatch) continue;
+                    const fieldName = nameMatch[1];
+                    const fileMatch = headerStr.match(/filename="([^"]+)"/);
+                    if (fileMatch) {
+                        // 安全文件名: 去路径, 仅留白名单字符
+                        const rawName = path.basename(fileMatch[1] || 'upload').replace(SAFE_IMPORT_NAME, '_').slice(0, 128);
+                        const dest = path.join(uploadDir, `${Date.now()}-${rawName}`);
+                        fs.writeFileSync(dest, value);
+                        result.file = dest;
+                        console.log(`[Office] multipart 文件落盘: ${dest} (${(value.length / 1024).toFixed(1)} KB)`);
+                    } else {
+                        result.fields[fieldName] = value.toString('utf-8');
+                    }
+                }
+                resolve(result);
+            } catch (e) {
+                reject(new Error(`multipart 解析失败: ${e.message}`));
+            }
+        };
+        const onErr = (e) => {
+            if (aborted) return;
+            aborted = true;
+            cleanup();
+            reject(e);
+        };
+        req.on('data', onData);
+        req.on('end', onEnd);
+        req.on('error', onErr);
+    });
 }
 
 function register(app) {
@@ -85,6 +161,39 @@ function register(app) {
         }
     });
 
+    // ── 上传并导入 Office 文档 (admin only, multipart) ────────────────
+    // F7 修复: 客户端 OfficePanel 走 multipart/form-data 上传文件, 但 /import 走 parseBody(JSON),
+    // 契约断裂致导入恒失败。新增 multipart 端点: 接收文件 → 落 storage 临时区 → 调 officeImport。
+    app.registerRoute('POST', '/api/office/upload-import', async (req, res) => {
+        if (!requireAdmin(req, res)) return;
+        const contentType = (req.headers['content-type'] || '').toLowerCase();
+        if (!contentType.includes('multipart/form-data')) {
+            return error(res, '仅支持 multipart/form-data', 400);
+        }
+        try {
+            const uploadDir = path.join(app.config.storage.dir, 'office-uploads');
+            fs.mkdirSync(uploadDir, { recursive: true });
+            // 简易 multipart 边界解析 (零依赖, 仅取首个文件 + file_path 字段)
+            const boundaryMatch = contentType.match(/boundary=(.+)$/);
+            if (!boundaryMatch) return error(res, '无效 multipart boundary', 400);
+            const boundary = Buffer.from('--' + boundaryMatch[1].trim().replace(/^"|"$/g, ''));
+            const saved = await _saveMultipartUpload(req, boundary, uploadDir);
+            if (!saved.file) return error(res, '未收到文件', 400);
+            // file_path 字段可选 (优先用文件名); book_id/chapter_id 经 form 字段传
+            const safeFilePath = safePath(app, saved.file, 'upload-import');
+            if (!safeFilePath) return error(res, '保存路径越界', 403);
+            const result = await officeImport(app, {
+                file_path: safeFilePath,
+                book_id: saved.fields.book_id,
+                chapter_id: saved.fields.chapter_id,
+            });
+            json(res, result);
+        } catch (e) {
+            console.error('[Office] upload-import failed:', e.message);
+            error(res, `Upload import failed: ${e.message}`, 500);
+        }
+    });
+
     // ── 导出页面为 Office 格式 ──────────────────────────────────────────
     app.registerRoute('POST', '/api/office/export/:id', async (req, res) => {
         const { id } = req.params;
@@ -93,6 +202,8 @@ function register(app) {
         try {
             const page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : null;
             if (!page) return error(res, 'Page not found', 404);
+            // S4 修复: 导出读页内容, 须校验归属, 否则任意用户导出他人私有页 (IDOR)
+            if (!canReadPage(req, res, page)) return;
             const result = await officeExport(app, { page, format });
             if (result.file_path && fs.existsSync(result.file_path)) {
                 const ext = format === 'xlsx' ? 'xlsx' : format === 'pptx' ? 'pptx' : 'docx';
@@ -101,7 +212,13 @@ function register(app) {
                     'Content-Disposition': safeContentDisposition(page.title, ext),
                     'Content-Length': fs.statSync(result.file_path).size,
                 });
-                fs.createReadStream(result.file_path).pipe(res);
+                // E2 修复: 流式导出须挂 error 句柄, 否则底层 EPIPE/读错误抛 uncaught 杀进程
+                const stream = fs.createReadStream(result.file_path);
+                stream.on('error', (e) => {
+                    console.error(`[Office] 导出流错误: ${e.message}`);
+                    if (!res.writableEnded) res.end();
+                });
+                stream.pipe(res);
                 return;
             }
             json(res, result);
@@ -122,6 +239,10 @@ function register(app) {
 
             if (!officeFile) return error(res, 'Office file not found for this page', 404);
 
+            // S4 修复: 预览读页内容, 须校验归属页读权限, 杜绝任意用户预览他人私有页 (IDOR)
+            const page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : null;
+            if (page && !canReadPage(req, res, page)) return;
+
             // 路径围栏 (P3-32: 纵深防御, 即便 DB 被写脏也拒越界)
             const safePreviewPath = safePath(app, officeFile.file_path, 'preview');
             if (!safePreviewPath) return error(res, 'preview file_path not allowed', 403);
@@ -132,7 +253,13 @@ function register(app) {
                     'Content-Type': 'image/png',
                     'Content-Length': fs.statSync(result.preview_path).size,
                 });
-                fs.createReadStream(result.preview_path).pipe(res);
+                // E2 修复: 预览流须挂 error 句柄, 防 EPIPE 抛 uncaught
+                const stream = fs.createReadStream(result.preview_path);
+                stream.on('error', (e) => {
+                    console.error(`[Office] 预览流错误: ${e.message}`);
+                    if (!res.writableEnded) res.end();
+                });
+                stream.pipe(res);
                 return;
             }
             json(res, result);
