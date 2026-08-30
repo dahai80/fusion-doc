@@ -62,6 +62,7 @@ function runMigrations() {
     { name: '008_rag_chunks', sql: getRagChunksSchema() },
     { name: '009_workflow', sql: getWorkflowSchema() },
     { name: '010_collaboration', sql: getCollaborationSchema() },
+    { name: '011_vocabulary_unique', fn: runVocabularyUniqueMigration },
   ];
 
   for (const migration of migrations) {
@@ -75,7 +76,9 @@ function runMigrations() {
       db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(migration.name);
       console.log(`  [迁移] ${migration.name} ✓`);
     } catch (e) {
+      // 商用级 fail visibly: 迁移失败不可吞, 抛出阻止带病启动 (P2-19)
       console.error(`  [迁移] ${migration.name} ✗ ${e.message}`);
+      throw new Error(`数据库迁移 ${migration.name} 失败: ${e.message}`);
     }
   }
 }
@@ -273,18 +276,37 @@ function getMetadataVocabularySchema() {
 }
 
 // ── JSON 文件降级存储 ────────────────────────────────────────────────────
+// ID 校验: 拒绝含路径分隔符/遍历符的 ID, 防路径穿越 (P3-30)
+function _assertSafeId(id) {
+  if (typeof id !== 'string' || id.length === 0 || id.length > 256) return false;
+  if (id.includes('/') || id.includes('\\') || id.includes('..') || id.includes('\0')) return false;
+  if (id === '.' || id === '..') return false;
+  return true;
+}
+function _assertSafeDir(dir) {
+  if (typeof dir !== 'string' || dir.length === 0 || dir.length > 128) return false;
+  if (dir.includes('/') || dir.includes('\\') || dir.includes('..') || dir.includes('\0')) return false;
+  return true;
+}
+
 function readJSON(dir, id) {
+  if (!_assertSafeDir(dir) || !_assertSafeId(id)) return null;
   const p = path.join(DB_DIR, 'json', dir, `${id}.json`);
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : null;
 }
 
 function writeJSON(dir, id, data) {
+  if (!_assertSafeDir(dir) || !_assertSafeId(id)) {
+    console.warn(`  [DB] writeJSON 拒绝非法 dir/id: dir=${dir} id=${id}`);
+    return;
+  }
   const d = path.join(DB_DIR, 'json', dir);
   fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(d, `${id}.json`), JSON.stringify(data, null, 2));
 }
 
 function listJSON(dir) {
+  if (!_assertSafeDir(dir)) return [];
   const d = path.join(DB_DIR, 'json', dir);
   if (!fs.existsSync(d)) return [];
   return fs.readdirSync(d).filter(f => f.endsWith('.json')).map(f => {
@@ -293,6 +315,7 @@ function listJSON(dir) {
 }
 
 function deleteJSON(dir, id) {
+  if (!_assertSafeDir(dir) || !_assertSafeId(id)) return;
   const p = path.join(DB_DIR, 'json', dir, `${id}.json`);
   if (fs.existsSync(p)) fs.unlinkSync(p);
 }
@@ -304,6 +327,25 @@ function runPageEditorMigration(database) {
   }
   if (!cols.includes('yjs_state')) {
     database.exec("ALTER TABLE pages ADD COLUMN yjs_state BLOB");
+  }
+}
+
+// ── 011: vocabulary.name 加 UNIQUE (P2-21) ────────────────────────────────
+// schema 已声明 UNIQUE, 此迁移处理存量重复行: 保留最早一行, 删去重名行, 再建 UNIQUE 索引兜底
+function runVocabularyUniqueMigration(database) {
+  // 清理存量重名行: 每组 name 仅保留 created_at 最小的一行
+  database.exec(`
+    DELETE FROM vocabulary WHERE id NOT IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY name ORDER BY created_at ASC) AS rn FROM vocabulary
+      ) WHERE rn = 1
+    )
+  `);
+  // 兜底建唯一索引 (若 schema 的 UNIQUE 约束已存在, CREATE UNIQUE INDEX IF NOT EXISTS 跳过)
+  try {
+    database.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_vocabulary_name ON vocabulary(name)');
+  } catch (e) {
+    console.warn('  [迁移] 011_vocabulary_unique 索引跳过:', e.message);
   }
 }
 

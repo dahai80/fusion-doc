@@ -1,12 +1,17 @@
 // =============================================================================
 // Fusion-Doc — AI 控制器（Fusion-MLX 深度集成）
 // 支持聊天、嵌入、RAG、Streaming
+// 商用级: SSE 客户端断开中止上游流, RAG 检索限量防 OOM
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLX, callFusionMLXStream } = require('../integrations/fusion-mlx');
 const { json, error, notFound } = require('../utils/response');
 const { uid } = require('../utils/helpers');
+
+const MAX_RAG_CANDIDATES = 5000;
+const MAX_INDEX_TEXT = 50000;
+const MAX_QUERY_LEN = 2000;
 
 function register(app) {
   const { db } = app;
@@ -23,19 +28,28 @@ function register(app) {
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
       });
+      // 客户端断开时中止上游流, 防 KV/连接泄漏 (P2-22)
+      let aborted = false;
+      const onClose = () => { aborted = true; };
+      req.on('close', onClose);
       try {
         const streamIter = callFusionMLXStream({
           model: body.model || app.config.fusionMlx.chatModel,
           messages: body.messages || [],
         });
         for await (const chunk of streamIter) {
-          res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          if (aborted) break;
+          res.write('data: ' + JSON.stringify(chunk) + '\n\n');
         }
-        res.write(`data: [DONE]\n\n`);
+        if (!aborted) res.write('data: [DONE]\n\n');
         res.end();
       } catch (e) {
-        res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+        if (!aborted) {
+          res.write('data: ' + JSON.stringify({ error: e.message }) + '\n\n');
+        }
         res.end();
+      } finally {
+        req.off('close', onClose);
       }
     } else {
       // 非流式响应
@@ -75,7 +89,7 @@ function register(app) {
     let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(pageId) : null;
     if (!page) return notFound(res, 'Page not found');
 
-    const text = (page.title + '\n\n' + (page.markdown || page.content || '')).slice(0, 50000);
+    const text = (page.title + '\n\n' + (page.markdown || page.content || '')).slice(0, MAX_INDEX_TEXT);
     try {
       // 分块处理
       const chunks = chunkText(text, 1000);
@@ -102,10 +116,10 @@ function register(app) {
     }
   });
 
-  // ── RAG 查询 ─────────────────────────────────────────────────────────
+  // ── RAG 查询 (限量检索防 OOM, P2-22) ────────────────────────────────
   app.registerRoute('POST', '/api/rag/query', async (req, res) => {
     const body = await parseBody(req);
-    const question = body.question || '';
+    const question = (typeof body.question === 'string' ? body.question : '').slice(0, MAX_QUERY_LEN);
     if (!question) { json(res, { error: 'Question required' }, 400); return; }
 
     try {
@@ -117,16 +131,18 @@ function register(app) {
       });
       const queryVector = embData.data[0].embedding;
 
-      // 2. 检索相似文档（带有 LIMIT 的分页向量搜索）
+      // 2. 检索相似文档 (限量候选, 防全表 OOM)
       let contexts = [];
       if (db) {
         const topK = Math.min(parseInt(body.top_k || '5', 10), 20);
-        const allDocs = db.prepare('SELECT * FROM rag_index LIMIT 1000').all();
-        // 简单余弦相似度计算
-        const scored = allDocs.map(doc => ({
-          ...doc,
-          score: cosineSimilarity(queryVector, JSON.parse(doc.vector || '[]')),
-        }));
+        const allDocs = db.prepare('SELECT id, chunk, vector FROM rag_index LIMIT ?').all(MAX_RAG_CANDIDATES);
+        const scored = [];
+        for (const doc of allDocs) {
+          let v;
+          try { v = JSON.parse(doc.vector || '[]'); } catch { continue; }
+          if (!Array.isArray(v)) continue;
+          scored.push({ id: doc.id, chunk: doc.chunk, score: cosineSimilarity(queryVector, v) });
+        }
         scored.sort((a, b) => b.score - a.score);
         contexts = scored.slice(0, topK).map(s => s.chunk);
       }
@@ -169,12 +185,12 @@ function chunkText(text, maxLen) {
 
 // ── 余弦相似度 ────────────────────────────────────────────────────────────
 function cosineSimilarity(a, b) {
-  if (!a.length || !b.length) return 0;
+  if (!a || !b || !a.length || !b.length || a.length !== b.length) return 0;
   let dot = 0, magA = 0, magB = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * (b[i] || 0);
+    dot += a[i] * b[i];
     magA += a[i] * a[i];
-    magB += (b[i] || 0) * (b[i] || 0);
+    magB += b[i] * b[i];
   }
   return dot / (Math.sqrt(magA) * Math.sqrt(magB) || 1);
 }

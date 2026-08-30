@@ -4,6 +4,10 @@
 // =============================================================================
 
 const requestCounts = new Map();
+const MAX_ENTRIES = 10000; // Map 容量上限, 防 XFF 伪造导致无界增长
+
+// 是否信任代理头 (反代场景显式开启)
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 // 清理过期记录（每 60s 执行一次）
 setInterval(() => {
@@ -16,11 +20,14 @@ setInterval(() => {
 }, 60000);
 
 function clientKey(req) {
-  return req.ip
-    || (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    || req.connection?.remoteAddress
-    || req.socket?.remoteAddress
-    || 'unknown';
+  // raw http.createServer 从不设 req.ip, 故 socket.remoteAddress 优先
+  const direct = req.socket?.remoteAddress || req.connection?.remoteAddress;
+  if (direct) return direct;
+  // 仅在显式信任代理时才读 XFF (防客户端伪造绕过限流)
+  if (TRUST_PROXY && req.headers['x-forwarded-for']) {
+    return req.headers['x-forwarded-for'].split(',')[0].trim();
+  }
+  return 'unknown';
 }
 
 // 单规则限流工厂
@@ -33,6 +40,12 @@ function rateLimit(options = {}) {
   return function rateLimitMiddleware(req, res, pipeline) {
     const key = `${tag}:${clientKey(req)}`;
     const now = Date.now();
+
+    // Map 容量上限兜底: 超量时跳过限流记录, 防 DoS 内存膨胀
+    if (!requestCounts.has(key) && requestCounts.size >= MAX_ENTRIES) {
+      console.warn(`  [RateLimit] Map 容量达上限 ${MAX_ENTRIES}, 跳过记录`);
+      return false;
+    }
 
     if (!requestCounts.has(key)) {
       requestCounts.set(key, { count: 1, resetTime: now + windowMs });

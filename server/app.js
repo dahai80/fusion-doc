@@ -27,6 +27,7 @@ class FusionDocApp {
     this._wsRoutes = [];
     this.collabRooms = {};
     this._startTime = null;
+    this._sockets = new Set();
   }
 
   // ── 初始化 ──────────────────────────────────────────────────────────────
@@ -122,10 +123,19 @@ class FusionDocApp {
       // SPA fallback
       serveSPA(res, config.publicDir);
     } catch (err) {
-      console.error(`[Fusion-Doc] 错误: ${err.message}`);
+      const status = err.statusCode || 500;
+      console.error(`[Fusion-Doc] 错误 (${status}): ${err.message}`);
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message, code: 'INTERNAL_ERROR' }));
+        const isProd = process.env.NODE_ENV === 'production';
+        const message = (status >= 500 && isProd)
+          ? 'Internal Server Error'
+          : err.message;
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          error: message,
+          code: err.code || `ERR_${status}`,
+          timestamp: new Date().toISOString(),
+        }));
       }
     }
   }
@@ -176,6 +186,12 @@ class FusionDocApp {
     await this.init();
 
     this.server = http.createServer((req, res) => this._handleRequest(req, res));
+
+    // 跟踪连接以便优雅关闭时强制销毁 keep-alive
+    this.server.on('connection', (socket) => {
+      this._sockets.add(socket);
+      socket.on('close', () => this._sockets.delete(socket));
+    });
 
     // WebSocket 支持
     if (WebSocketServer && this._wsRoutes.length > 0) {
@@ -261,6 +277,18 @@ class FusionDocApp {
   async shutdown() {
     console.log('\n  [Fusion-Doc] 正在关闭...');
 
+    // 杀 officecli 常驻子进程
+    try {
+      const { stopResident } = require('./integrations/officecli');
+      stopResident();
+    } catch (_) { /* officecli 未加载 */ }
+
+    // 杀 trainer 子进程
+    try {
+      const trainer = require('./integrations/fusion-trainer');
+      if (trainer.stopAllJobs) trainer.stopAllJobs();
+    } catch (_) { /* trainer 未加载 */ }
+
     // 插件关闭
     for (const plugin of this.plugins) {
       if (plugin.shutdown) await plugin.shutdown();
@@ -277,13 +305,30 @@ class FusionDocApp {
       this.db.close();
     }
 
-    // 服务器关闭
+    // 服务器关闭: 强制关闭 keep-alive 连接, 加超时兜底
     if (this.server) {
       return new Promise((resolve) => {
+        const forceTimer = setTimeout(() => {
+          console.warn('  [⚠] 关闭超时, 强制结束剩余连接');
+          for (const socket of this._sockets) {
+            try { socket.destroy(); } catch (_) { /* noop */ }
+          }
+          resolve();
+        }, 5000);
+        forceTimer.unref();
+
         this.server.close(() => {
+          clearTimeout(forceTimer);
           console.log('  [Fusion-Doc] 已安全关闭');
           resolve();
         });
+
+        // 立即销毁所有空闲 keep-alive 连接
+        for (const socket of this._sockets) {
+          if (socket.writable && socket.bytesWritten === 0) {
+            try { socket.destroy(); } catch (_) { /* noop */ }
+          }
+        }
       });
     }
   }

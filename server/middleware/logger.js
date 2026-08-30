@@ -5,6 +5,25 @@
 
 const levels = { debug: 0, info: 1, warn: 2, error: 3 };
 
+// P3-38: 日志脱敏 — 抹除 query 中敏感参数值 (token/secret/password/key/auth)
+const SENSITIVE_KEYS = /^(token|secret|password|passwd|key|apikey|api_key|authorization|auth)$/i;
+function redactUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+  const qIdx = rawUrl.indexOf('?');
+  if (qIdx < 0) return rawUrl;
+  const base = rawUrl.slice(0, qIdx);
+  const qs = rawUrl.slice(qIdx + 1);
+  if (!qs) return rawUrl;
+  const parts = qs.split('&').map(kv => {
+    const eq = kv.indexOf('=');
+    if (eq < 0) return kv;
+    const k = kv.slice(0, eq);
+    if (SENSITIVE_KEYS.test(k)) return k + '=***';
+    return kv;
+  });
+  return base + '?' + parts.join('&');
+}
+
 function logger(req, res, pipeline) {
   const start = Date.now();
   const { method, url } = req;
@@ -18,7 +37,7 @@ function logger(req, res, pipeline) {
 
     if (levels[level] >= levels[logLevel]) {
       const timestamp = new Date().toISOString().slice(11, 23);
-      console.log(`  [${timestamp}] ${method} ${url} → ${res.statusCode} (${duration}ms) [${level}]`);
+      console.log(`  [${timestamp}] ${method} ${redactUrl(url)} → ${res.statusCode} (${duration}ms) [${level}]`);
     }
 
     return originalEnd(...args);

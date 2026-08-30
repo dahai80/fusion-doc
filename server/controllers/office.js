@@ -5,6 +5,7 @@
 
 const { parseBody } = require('../middleware/body-parser');
 const { json, error } = require('../utils/response');
+const { requireAdmin } = require('../middleware/require-admin');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -12,6 +13,14 @@ const { officeImport, officeExport, getOfficeStatus } = require('../services/off
 const officecli = require('../integrations/officecli');
 
 const ALLOWED_COMMANDS = new Set(['create', 'convert', 'preview', 'merge']);
+const SAFE_FILENAME_RE = /[^a-zA-Z0-9一-龥_.-]/g;
+
+// Content-Disposition 文件名消毒 (剥 CRLF/引号, RFC 5987 编码)
+function safeContentDisposition(name, ext) {
+    const cleaned = (name || 'export').replace(SAFE_FILENAME_RE, '_').slice(0, 100) || 'export';
+    const encoded = encodeURIComponent(cleaned);
+    return `attachment; filename="${cleaned}.${ext}"; filename*=UTF-8''${encoded}.${ext}`;
+}
 
 function allowedRoots(app) {
     const storageDir = path.resolve(app.config.storage.dir);
@@ -42,22 +51,27 @@ function register(app) {
         json(res, { ...status, resident: cliStatus.resident });
     });
 
-    // ── 创建 Office 文档 ────────────────────────────────────────────────
+    // ── 创建 Office 文档 (admin only) ──────────────────────────────────
     app.registerRoute('POST', '/api/office/create', async (req, res) => {
+        if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);
         const { format, title, content, template } = body;
         if (!format) return error(res, 'format required (docx/xlsx/pptx)', 400);
+        // 模板路径围栏 (P1-12: 杜绝任意文件读作模板)
+        const safeTemplate = template ? safePath(app, template, 'create.template') : null;
+        if (template && !safeTemplate) return error(res, 'template not allowed', 403);
 
         try {
-            const result = await officecli.createDoc(format, { title, content, template });
+            const result = await officecli.createDoc(format, { title, content, template: safeTemplate });
             json(res, result);
         } catch (e) {
             error(res, `Create failed: ${e.message}`, 500);
         }
     });
 
-    // ── 导入 Office 文档 ────────────────────────────────────────────────
+    // ── 导入 Office 文档 (admin only) ──────────────────────────────────
     app.registerRoute('POST', '/api/office/import', async (req, res) => {
+        if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);
         const { file_path, book_id, chapter_id } = body;
         if (!file_path) return error(res, 'file_path required', 400);
@@ -84,7 +98,7 @@ function register(app) {
                 const ext = format === 'xlsx' ? 'xlsx' : format === 'pptx' ? 'pptx' : 'docx';
                 res.writeHead(200, {
                     'Content-Type': 'application/octet-stream',
-                    'Content-Disposition': `attachment; filename="${page.title || 'export'}.${ext}"`,
+                    'Content-Disposition': safeContentDisposition(page.title, ext),
                     'Content-Length': fs.statSync(result.file_path).size,
                 });
                 fs.createReadStream(result.file_path).pipe(res);
@@ -108,7 +122,11 @@ function register(app) {
 
             if (!officeFile) return error(res, 'Office file not found for this page', 404);
 
-            const result = await officecli.previewDoc(officeFile.file_path, { page: body.page || 1 });
+            // 路径围栏 (P3-32: 纵深防御, 即便 DB 被写脏也拒越界)
+            const safePreviewPath = safePath(app, officeFile.file_path, 'preview');
+            if (!safePreviewPath) return error(res, 'preview file_path not allowed', 403);
+
+            const result = await officecli.previewDoc(safePreviewPath, { page: body.page || 1 });
             if (result.success && result.preview_path && fs.existsSync(result.preview_path)) {
                 res.writeHead(200, {
                     'Content-Type': 'image/png',
@@ -123,8 +141,9 @@ function register(app) {
         }
     });
 
-    // ── 模板合并生成 ────────────────────────────────────────────────────
+    // ── 模板合并生成 (admin only) ──────────────────────────────────────
     app.registerRoute('POST', '/api/office/merge', async (req, res) => {
+        if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);
         const { template_path, data, output_path } = body;
         if (!template_path) return error(res, 'template_path required', 400);
@@ -141,8 +160,9 @@ function register(app) {
         }
     });
 
-    // ── 批量导入目录 ────────────────────────────────────────────────────
+    // ── 批量导入目录 (admin only) ──────────────────────────────────────
     app.registerRoute('POST', '/api/office/import-dir', async (req, res) => {
+        if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);
         const { dir_path, book_id } = body;
         if (!dir_path) return error(res, 'dir_path required', 400);
@@ -156,8 +176,9 @@ function register(app) {
         }
     });
 
-    // ── 执行 OfficeCLI 命令 ─────────────────────────────────────────────
+    // ── 执行 OfficeCLI 命令 (admin only, 路径围栏) ─────────────────────
     app.registerRoute('POST', '/api/office/command', async (req, res) => {
+        if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);
         const { command, args } = body;
         if (!command) return error(res, 'command required', 400);
@@ -165,7 +186,22 @@ function register(app) {
             console.warn(`[Office] Rejected disallowed command: ${command}`);
             return error(res, `command not allowed, valid: ${[...ALLOWED_COMMANDS].join(', ')}`, 403);
         }
-        const safeArgs = Array.isArray(args) ? args.filter(a => typeof a === 'string') : [];
+        // 仅保留字符串参数, 且对路径型参数跑 safePath (P0-4: 杜绝任意文件读写)
+        const rawArgs = Array.isArray(args) ? args.filter(a => typeof a === 'string') : [];
+        const safeArgs = [];
+        for (const a of rawArgs) {
+            // --output/--template 及裸路径形参数, 视作路径围栏
+            if (a.includes('/') || a.includes(path.sep) || a === '.' || a === '..' || path.isAbsolute(a)) {
+                const safe = safePath(app, a, `command.${command}.arg`);
+                if (!safe) {
+                    console.warn(`[Office] command ${command} arg blocked: ${a}`);
+                    return error(res, `arg not allowed: ${a}`, 403);
+                }
+                safeArgs.push(safe);
+            } else {
+                safeArgs.push(a);
+            }
+        }
 
         try {
             const result = await officecli.executeCommand(command, safeArgs);

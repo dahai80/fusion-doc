@@ -18,32 +18,48 @@ function verifyToken(token, secret) {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
+    // 校验 header alg 必须为 HS256, 杜绝 alg=none/未来第三方 token
+    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+    if (!header || header.alg !== 'HS256') return null;
     const signature = crypto.createHmac('sha256', secret).update(`${parts[0]}.${parts[1]}`).digest('base64url');
-    if (signature !== parts[2]) return null;
+    // 恒定时间比较, 防时序侧信道
+    const a = Buffer.from(signature, 'utf-8');
+    const b = Buffer.from(parts[2], 'utf-8');
+    if (a.length !== b.length) return null;
+    if (!crypto.timingSafeEqual(a, b)) return null;
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch (_) { return null; }
 }
 
-// 公开路径（无需认证）
+// 公开路径（无需认证）: 默认所有方法公开; METHOD:PATH 仅指定方法公开
 const PUBLIC_PATHS = [
   '/api/health',
   '/api/system/setup',
   '/api/auth/setup',
   '/api/auth/login',
   '/api/branding',
-  '/api/theme',
+  'GET:/api/theme', // theme 仅 GET 公开, POST 须认证 (防未授权写)
 ];
 
+function isPublicPath(method, pathname) {
+  return PUBLIC_PATHS.some(p =>
+    p === pathname || (p.includes(':') && p === `${method}:${pathname}`)
+  );
+}
+
 function auth(req, res, pipeline) {
+  const method = req.method;
+  const pathname = req.url.split('?')[0];
+
   // 公开路径跳过认证
-  if (PUBLIC_PATHS.includes(req.url.split('?')[0])) {
+  if (isPublicPath(method, pathname)) {
     return false;
   }
 
   // 非 API 路径跳过（静态文件 / SPA）
-  if (!req.url.startsWith('/api/')) {
+  if (!pathname.startsWith('/api/')) {
     return false;
   }
 
@@ -66,10 +82,15 @@ function auth(req, res, pipeline) {
     }
   }
 
-  // 开发模式：通过 X-User-Id 头模拟用户（仅 NODE_ENV=development 时生效）
-  if (process.env.NODE_ENV === 'development' && req.headers['x-user-id']) {
-    req.user = { id: req.headers['x-user-id'], role: 'admin' };
-    return false;
+  // 开发旁路: 仅显式 AUTH_DEV_BYPASS=1 且绑定 127.0.0.1 时生效, 杜绝 LAN 越权
+  if (process.env.AUTH_DEV_BYPASS === '1' && req.headers['x-user-id']) {
+    const host = req.ctx?.config?.host;
+    if (host === '127.0.0.1' || host === 'localhost') {
+      req.user = { id: req.headers['x-user-id'], role: 'admin' };
+      console.warn('[Auth] DEV bypass used (AUTH_DEV_BYPASS=1, 127.0.0.1 only)');
+      return false;
+    }
+    console.error('[Auth] X-User-Id bypass rejected: not bound to 127.0.0.1');
   }
 
   // 未认证

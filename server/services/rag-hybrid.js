@@ -10,6 +10,10 @@ const { uid } = require('../utils/helpers');
 const WEIGHTS = { vector: 0.5, fts5: 0.3, bm25: 0.2 };
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 200;
+// 商用级: 限制全表扫描规模, 防 OOM (P2-23)
+const MAX_VECTOR_CANDIDATES = 5000;
+const MAX_BM25_CANDIDATES = 5000;
+const MAX_QUERY_LEN = 2000;
 
 // ── 段落级切分 (按 H1/H2 标题 + 段落边界) ─────────────────────────────────
 function chunkPage(content, pageId) {
@@ -98,7 +102,9 @@ async function reindexPage(app, pageId) {
 
 // ── 混合检索 ────────────────────────────────────────────────────────────────
 async function hybridSearch(app, query, topK) {
-    topK = topK || 10;
+    topK = Math.min(Math.max(parseInt(topK, 10) || 10, 1), 50);
+    if (typeof query !== 'string' || !query.trim()) return [];
+    query = query.slice(0, MAX_QUERY_LEN); // 防 ReDoS / 巨型查询 (P2-23)
     const db = getDB();
     const config = app.config.fusionMlx;
 
@@ -131,29 +137,50 @@ async function vectorSearch(db, config, query, topK) {
             body: { model: config.embeddingModel, input: query }, config,
         });
         queryVec = resp.data?.[0]?.embedding || null;
-    } catch (e) { return []; }
+    } catch (e) {
+        console.warn('[RAG-Hybrid] vectorSearch embedding failed:', e.message);
+        return [];
+    }
     if (!queryVec || !db) return [];
 
-    const rows = db.prepare('SELECT id, page_id, chunk_index, chunk_text, heading, vector FROM rag_chunks WHERE vector IS NOT NULL').all();
+    // 商用级: 限制候选规模, 防全表 OOM (P2-23)
+    const rows = db.prepare('SELECT id, page_id, chunk_index, chunk_text, heading, vector FROM rag_chunks WHERE vector IS NOT NULL LIMIT ?').all(MAX_VECTOR_CANDIDATES);
     return rows
-        .map(r => ({ ...r, score: cosineSimilarity(queryVec, JSON.parse(r.vector)) * WEIGHTS.vector }))
+        .map(r => {
+            let v;
+            try { v = JSON.parse(r.vector); } catch { return null; }
+            if (!Array.isArray(v) || v.length !== queryVec.length) return null;
+            return { id: r.id, page_id: r.page_id, chunk_index: r.chunk_index, chunk_text: r.chunk_text, heading: r.heading, score: cosineSimilarity(queryVec, v) * WEIGHTS.vector };
+        })
+        .filter(Boolean)
         .sort((a, b) => b.score - a.score)
         .slice(0, topK);
 }
 
-// ── FTS5 检索 ───────────────────────────────────────────────────────────────
+// ── FTS5 检索 (修复: 直接用 chunk_text LIKE, 不误联 pages_fts.content) ──────
 function fts5Search(db, query, topK) {
     if (!db) return [];
     try {
+        // chunk_text LIKE 定位候选; pages_fts JOIN 原实现引用了 pages 表 content, 与 chunk 无关, 已移除
         const rows = db.prepare(`
-            SELECT rc.id, rc.page_id, rc.chunk_index, rc.chunk_text, rc.heading,
-                   rank AS score FROM rag_chunks rc
-            JOIN pages_fts ON pages_fts.content LIKE '%' || ? || '%'
-            WHERE rc.chunk_text LIKE ?
+            SELECT id, page_id, chunk_index, chunk_text, heading
+            FROM rag_chunks
+            WHERE chunk_text LIKE ?
             LIMIT ?
-        `).all(query, `%${query}%`, topK);
-        return rows.map(r => ({ ...r, score: (1 / (1 - r.score + 0.001)) * WEIGHTS.fts5 }));
-    } catch (e) { return []; }
+        `).all(`%${query}%`, Math.min(topK * 3, 200));
+        // 伪分数: 按命中位置/长度归一, 给 RRF 提供稳定排序
+        return rows
+            .map(r => {
+                const idx = r.chunk_text.indexOf(query);
+                const posScore = idx < 0 ? 0.1 : 1 / (1 + idx);
+                return { id: r.id, page_id: r.page_id, chunk_index: r.chunk_index, chunk_text: r.chunk_text, heading: r.heading, score: posScore * WEIGHTS.fts5 };
+            })
+            .sort((a, b) => b.score - a.score)
+            .slice(0, topK);
+    } catch (e) {
+        console.warn('[RAG-Hybrid] fts5Search error:', e.message);
+        return [];
+    }
 }
 
 // ── BM25 检索 ───────────────────────────────────────────────────────────────
@@ -161,16 +188,24 @@ function bm25Search(db, query, topK) {
     if (!db) return [];
     try {
         const queryTokens = tokenizeBM25(query);
-        const rows = db.prepare('SELECT id, page_id, chunk_index, chunk_text, heading, bm25_tokens FROM rag_chunks').all();
+        if (!queryTokens.length) return [];
+        // 商用级: 限制候选规模, 防全表 OOM (P2-23)
+        const rows = db.prepare('SELECT id, page_id, chunk_index, chunk_text, heading, bm25_tokens FROM rag_chunks LIMIT ?').all(MAX_BM25_CANDIDATES);
         return rows
             .map(r => {
-                const docTokens = JSON.parse(r.bm25_tokens || '[]');
+                let docTokens;
+                try { docTokens = JSON.parse(r.bm25_tokens || '[]'); } catch { return null; }
+                if (!Array.isArray(docTokens)) return null;
                 const score = bm25Score(queryTokens, docTokens, rows.length) * WEIGHTS.bm25;
-                return { ...r, score };
+                return { id: r.id, page_id: r.page_id, chunk_index: r.chunk_index, chunk_text: r.chunk_text, heading: r.heading, score };
             })
+            .filter(Boolean)
             .sort((a, b) => b.score - a.score)
             .slice(0, topK);
-    } catch (e) { return []; }
+    } catch (e) {
+        console.warn('[RAG-Hybrid] bm25Search error:', e.message);
+        return [];
+    }
 }
 
 // ── 结果融合 (RRF) ──────────────────────────────────────────────────────────

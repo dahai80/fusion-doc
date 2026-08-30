@@ -21,25 +21,32 @@ function cors(req, res, pipeline) {
   const origins = getOrigins(req.ctx?.config);
   const origin = req.headers['origin'];
 
-  // 确定允许的来源
-  let allowOrigin = '*';
-  if (!origins.includes('*')) {
-    if (origin && (origins.includes(origin) || origins.includes('*'))) {
+  // P3-37: 仅在请求来源命中白名单时才回送 ACAO; 未匹配则不设该头 (浏览器跨域请求被拒)
+  // 通配符 '*' 模式下不携带凭据, 安全; 精确匹配模式才回显具体 origin
+  let allowOrigin = null;
+  let wildcard = false;
+  if (origins.includes('*')) {
+    allowOrigin = '*';
+    wildcard = true;
+  } else if (origin) {
+    if (origins.includes(origin)) {
       allowOrigin = origin;
-    } else if (origin && origins.length > 0) {
-      // 检查通配符匹配
+    } else {
+      // 通配符子域匹配: *.example.com
       for (const o of origins) {
         if (o.startsWith('*.')) {
           const suffix = o.slice(1); // .example.com
           if (origin.endsWith(suffix)) { allowOrigin = origin; break; }
         }
       }
-      // 未匹配的来源，使用第一个配置的来源
-      if (allowOrigin === '*') allowOrigin = origins[0];
     }
   }
 
-  res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+  if (allowOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+    // 精确来源匹配 (非 *) 才允许携带凭据
+    if (!wildcard) res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Max-Age', '86400');

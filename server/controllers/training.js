@@ -6,8 +6,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { json, notFound } = require('../utils/response');
+const { json, notFound, error } = require('../utils/response');
+const { parseBody } = require('../middleware/body-parser');
+const { requireAdmin } = require('../middleware/require-admin');
 const trainer = require('../integrations/fusion-trainer');
+
+const MAX_OUTPUT_DIR_LEN = 512;
 
 function _exportDataset(app, { bookId, pageIds }) {
   const { db } = app;
@@ -58,11 +62,12 @@ function _exportDataset(app, { bookId, pageIds }) {
 }
 
 function register(app) {
+  // ── SFT 训练: admin 闸 + 输出目录校验 (P2-24) ───────────────────────
   app.registerRoute('POST', '/api/training/sft', async (req, res) => {
-    const { parseBody } = require('../middleware/body-parser');
+    if (!requireAdmin(req, res)) return;
     const body = await parseBody(req);
     const model = body.model;
-    if (!model) {
+    if (!model || typeof model !== 'string') {
       json(res, { error: 'model 必填' }, 400);
       return;
     }
@@ -73,11 +78,21 @@ function register(app) {
     }
     try {
       const binPath = app.config.fusionTrainer && app.config.fusionTrainer.binPath;
+      // 输出目录: 仅允许相对路径或配置内目录, 防任意写盘
+      let outputDir = undefined;
+      if (typeof body.outputDir === 'string' && body.outputDir.length > 0 && body.outputDir.length <= MAX_OUTPUT_DIR_LEN) {
+        // 拒绝对父目录遍历
+        if (body.outputDir.includes('..')) {
+          json(res, { error: 'outputDir 禁止含 ..' }, 400);
+          return;
+        }
+        outputDir = body.outputDir;
+      }
       const result = trainer.startSft({
         dataset: exportResult.dataset,
         model,
         config: body.config,
-        outputDir: body.outputDir,
+        outputDir,
         binPath,
       });
       json(res, { ...result, dataset: exportResult.dataset, count: exportResult.count });
@@ -87,9 +102,14 @@ function register(app) {
     }
   });
 
+  // ── 训练信息: admin 闸 (P2-24, 暴露 bin 路径/环境) ──────────────────
   app.registerRoute('GET', '/api/training/info', (req, res) => {
+    if (!requireAdmin(req, res)) return;
     const binPath = app.config.fusionTrainer && app.config.fusionTrainer.binPath;
-    trainer.info(binPath).then((infoResult) => json(res, infoResult));
+    trainer.info(binPath).then((infoResult) => json(res, infoResult)).catch((e) => {
+      console.error('[training] info failed:', e.message);
+      json(res, { error: e.message }, 500);
+    });
   });
 
   app.registerRoute('GET', '/api/training/:jobId/status', (req, res) => {

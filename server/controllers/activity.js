@@ -10,7 +10,10 @@ function register(app) {
   const { db } = app;
 
   app.registerRoute('GET', '/api/activity', (req, res) => {
-    const limit = parseInt(req.ctx.url.searchParams.get('limit') || '50', 10);
+    // 夹取 limit 到 [1,200], 杜绝 -1 无限全量泄漏审计日志
+    let limit = parseInt(req.ctx.url.searchParams.get('limit') || '50', 10);
+    if (!Number.isFinite(limit) || limit < 1) limit = 50;
+    if (limit > 200) limit = 200;
     const data = db ? db.prepare('SELECT * FROM activity ORDER BY created_at DESC LIMIT ?').all(limit) : [];
     list(res, data);
   });

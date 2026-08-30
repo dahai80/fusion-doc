@@ -65,27 +65,57 @@ async function executeCommand(command, args) {
     }
 }
 
+// ── 路径围栏: 拒绝绝对路径与遍历 (纵深防御, 调用者应已 safePath) ──────────
+function isSafeTemplate(p) {
+    if (!p) return true;
+    if (typeof p !== 'string') return false;
+    if (path.isAbsolute(p)) return false;
+    if (p.includes('..')) return false;
+    if (/[<>|:"\0]/.test(p)) return false;
+    return true;
+}
+
 // ── 创建文档 ────────────────────────────────────────────────────────────
 async function createDoc(format, opts) {
     const ext = format || 'docx';
-    const fileName = (opts.title || 'Untitled').replace(/[^a-zA-Z0-9一-龥_.-]/g, '_');
+    const fileName = safeFileName(opts.title, 'Untitled');
     const outputPath = path.join(WORK_DIR, `${fileName}.${ext}`);
     const templatePath = opts.template || null;
+    let contentPath = null;
+
+    if (!isSafeTemplate(templatePath)) {
+        return { success: false, error: 'Invalid template path' };
+    }
 
     const args = ['create', '--format', ext, '--output', outputPath];
     if (templatePath) args.push('--template', templatePath);
     if (opts.content) {
-        const contentPath = path.join(WORK_DIR, `${fileName}-content.html`);
+        contentPath = path.join(WORK_DIR, `${fileName}-content.html`);
         fs.writeFileSync(contentPath, opts.content);
         args.push('--content', contentPath);
     }
 
     const result = await executeCommand('create', args.slice(1));
+    if (contentPath) safeUnlink(contentPath);
+
     if (result.success) {
         console.log(`[OfficeCLI] Created: ${outputPath}`);
         return { success: true, file_path: outputPath, format: ext };
     }
+    safeUnlink(outputPath);
     return result;
+}
+
+// ── 安全文件名 (剥离路径分隔符与遍历字符) ────────────────────────────────
+function safeFileName(name, fallback) {
+    const cleaned = (name || '').replace(/[^a-zA-Z0-9一-龥_.-]/g, '_');
+    if (!cleaned || cleaned === '.' || cleaned === '..') return fallback || 'untitled';
+    return cleaned.slice(0, 100);
+}
+
+// ── 临时文件清理 (失败路径也清) ──────────────────────────────────────────
+function safeUnlink(p) {
+    try { fs.unlinkSync(p); } catch (_) { /* 文件可能不存在 */ }
 }
 
 // ── 导入文档 ────────────────────────────────────────────────────────────
@@ -95,34 +125,40 @@ async function importDoc(filePath, opts) {
         throw new Error(`Unsupported format: ${ext}`);
     }
 
-    const outputPath = path.join(WORK_DIR, `${path.basename(filePath, ext)}.html`);
+    const outputPath = path.join(WORK_DIR, `${safeFileName(path.basename(filePath, ext), 'import')}.html`);
     const result = await executeCommand('convert', [filePath, outputPath, '--to', 'html']);
+    if (!result.success) {
+        safeUnlink(outputPath);
+        return result;
+    }
 
-    if (!result.success) return result;
-
-    const html = fs.readFileSync(outputPath, 'utf-8');
-    try { fs.unlinkSync(outputPath); } catch (_) { /* cleanup optional */ }
-
-    console.log(`[OfficeCLI] Imported: ${filePath}`);
-    return { success: true, html, title: path.basename(filePath, ext) };
+    try {
+        const html = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
+        console.log(`[OfficeCLI] Imported: ${filePath}`);
+        return { success: true, html, title: path.basename(filePath, ext) };
+    } finally {
+        safeUnlink(outputPath);
+    }
 }
 
 // ── 导出文档 ────────────────────────────────────────────────────────────
 async function exportDoc(htmlContent, format, title) {
     const ext = format || 'docx';
-    const safeName = (title || 'export').replace(/[^a-zA-Z0-9一-龥_.-]/g, '_');
+    const safeName = safeFileName(title, 'export');
     const htmlPath = path.join(WORK_DIR, `${safeName}-input.html`);
     const outputPath = path.join(WORK_DIR, `${safeName}.${ext}`);
 
     fs.writeFileSync(htmlPath, htmlContent);
     const result = await executeCommand('convert', [htmlPath, outputPath, '--to', ext]);
 
-    try { fs.unlinkSync(htmlPath); } catch (_) { /* cleanup optional */ }
+    // 始终清输入 html; 输出文件交调用者处理
+    safeUnlink(htmlPath);
 
     if (result.success) {
         console.log(`[OfficeCLI] Exported: ${outputPath}`);
         return { success: true, file_path: outputPath, format: ext };
     }
+    safeUnlink(outputPath);
     return result;
 }
 
@@ -159,13 +195,13 @@ async function mergeTemplate(templatePath, data, outputPath) {
     fs.writeFileSync(dataPath, JSON.stringify(data));
 
     const result = await executeCommand('merge', [templatePath, dataPath, '--output', outputPath]);
-
-    try { fs.unlinkSync(dataPath); } catch (_) { /* cleanup optional */ }
+    safeUnlink(dataPath);
 
     if (result.success) {
         console.log(`[OfficeCLI] Merged: ${outputPath}`);
         return { success: true, file_path: outputPath };
     }
+    safeUnlink(outputPath);
     return result;
 }
 

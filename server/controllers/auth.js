@@ -28,7 +28,24 @@ function register(app) {
       : require('../db').listJSON('users').length;
     if (userCount > 0) return errorResponse(res, 409, '系统已安装，拒绝重复 setup', 'ALREADY_SETUP');
     const body = await parseBody(req);
-    const result = authService.register(body.email, body.name || 'Admin', body.password || 'admin', 'admin');
+    // 强制密码必填且满足最小长度, 杜绝默认弱口令 'admin'
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (password.length < 8) {
+      return errorResponse(res, 400, '初始密码至少 8 位', 'WEAK_PASSWORD');
+    }
+    if (!body.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
+      return errorResponse(res, 400, 'email 格式非法', 'INVALID_EMAIL');
+    }
+    let result;
+    try {
+      result = authService.register(body.email, body.name || 'Admin', password, 'admin');
+    } catch (e) {
+      // 并发 setup TOCTOU 防护: email UNIQUE 冲突即视为已安装
+      if (String(e.message).includes('UNIQUE')) {
+        return errorResponse(res, 409, '系统已安装，拒绝重复 setup', 'ALREADY_SETUP');
+      }
+      throw e;
+    }
     // 注册时自动创建默认工作空间（幂等：slug 已存在则复用，避免 UNIQUE 冲突）
     const DEFAULT_SLUG = 'my-workspace';
     if (db) {
@@ -54,10 +71,16 @@ function register(app) {
     successResponse(res, result);
   });
 
-  // ── 当前用户 ──────────────────────────────────────────────────────────
+  // ── 当前用户: 返回真实认证身份, 不再硬编码 admin ─────────────────────
   app.registerRoute('POST', '/api/users/me', (req, res) => {
-    const { successResponse } = require('../middleware/error-handler');
-    successResponse(res, { id: 'local', email: 'admin@fusion.local', name: 'Admin', role: 'admin' });
+    const { successResponse, errorResponse } = require('../middleware/error-handler');
+    if (!req.user) return errorResponse(res, 401, '未认证', 'UNAUTHORIZED');
+    successResponse(res, {
+      id: req.user.id,
+      email: req.user.email || '',
+      name: req.user.name || '',
+      role: req.user.role || 'user',
+    });
   });
 }
 

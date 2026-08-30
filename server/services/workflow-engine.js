@@ -377,7 +377,15 @@ function executeTransform(step, context) {
         case 'join': return Array.isArray(input) ? input.join(step.separator || '\n') : input;
         case 'extract':
             try {
-                const re = new RegExp(step.pattern || '(.+)');
+                // 防 ReDoS: 用户模式须受限 (P2-25). 拒绝嵌套量词/回溯陷阱; 强制超时不可用, 故用模式复杂度上限
+                const pat = String(step.pattern || '(.+)');
+                if (pat.length > 200) return input;
+                // 检测典型回溯灾难: 量词紧随量词 (如 (a+)+ ) 或 .+ 在分组内重复
+                if (/(\\.|[\w)\]])\?*\+\+|\(.*[+*].*[+*].*\)/.test(pat)) {
+                    console.warn('[WorkflowEngine] extract pattern 疑似 ReDoS, 拒绝:', pat);
+                    return input;
+                }
+                const re = new RegExp(pat);
                 const match = String(input).match(re);
                 return match ? match[1] || match[0] : null;
             } catch { return input; }
