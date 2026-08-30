@@ -63,10 +63,28 @@ function runMigrations() {
     { name: '009_workflow', sql: getWorkflowSchema() },
     { name: '010_collaboration', sql: getCollaborationSchema() },
     { name: '011_vocabulary_unique', fn: runVocabularyUniqueMigration },
+    // A2 修复: append-only 更新日志表。替代 yjs_docs 单行 state 的 read-modify-write,
+    // 消除多客户端并发 SELECT 旧 state 各自 concat UPDATE 的 lost update。
+    { name: '012_yjs_updates', sql: getYjsUpdatesSchema() },
+    { name: '013_yjs_state_seq', fn: runYjsStateSeqMigration },
+    // A7 修复: pages_fts 从 external-content(rowid) 改自包含(page_id UNINDEXED)。
+    // 重建 FTS 表 + 触发器, 用 pages 现有数据回填, 消除 rowid 错配风险。
+    { name: '014_fts_decouple_rowid', fn: runFtsDecoupleMigration },
+    // A7 修复补充: 014 的 pages_ad/pages_au 触发器误用 'delete' 特殊命令,
+    // 自包含 FTS 表上致 pages DELETE/UPDATE 报 "SQL logic error"。重建为按 page_id 直接删除。
+    { name: '015_fts_trigger_fix', fn: runFtsTriggerFixMigration },
+    // A8 修复: 三路 RAG 合一。ai.js 内联 + rag.js 用 rag_index 表, rag-hybrid 用 rag_chunks 表,
+    // 数据分叉、重索引成本翻倍。统一到 rag_chunks, rag_index 废弃 (down 迁移归档)。
+    // 仅迁移已应用计数, 实际合并由 rag 服务层统一写 rag_chunks, 此条无 DDL (幂等占位)。
+    { name: '016_rag_unify', fn: runRagUnifyMigration },
   ];
 
   for (const migration of migrations) {
     if (applied.has(migration.name)) continue;
+    // E3 修复: 单迁移 SAVEPOINT 原子化。DDL 在 SQLite 可事务 (CREATE/DROP/ALTER 均可回滚),
+    // 失败时 RELEASE 前抛错 → ROLLBACK 回退本迁移已执行的部分语句, 不留半套 schema。
+    // _migrations 记录与 DDL 同事务, 全成功才记 applied, 中途崩溃重启不会误判已迁移。
+    db.exec('SAVEPOINT fd_migration');
     try {
       if (migration.fn) {
         migration.fn(db);
@@ -74,12 +92,41 @@ function runMigrations() {
         db.exec(migration.sql);
       }
       db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(migration.name);
+      db.exec('RELEASE fd_migration');
       console.log(`  [迁移] ${migration.name} ✓`);
     } catch (e) {
       // 商用级 fail visibly: 迁移失败不可吞, 抛出阻止带病启动 (P2-19)
+      // E3 修复: 回滚本迁移的部分 DDL, 保持库一致, 再抛出。
+      db.exec('ROLLBACK TO fd_migration');
+      db.exec('RELEASE fd_migration');
       console.error(`  [迁移] ${migration.name} ✗ ${e.message}`);
       throw new Error(`数据库迁移 ${migration.name} 失败: ${e.message}`);
     }
+  }
+}
+
+// E3 修复: down-migration。按名回滚单条迁移 (尽力 DROP, 不恢复业务数据)。
+// 供运维误迁移后回退 schema 用, 调用方: 控制台脚本 / 未来 admin 端点。不随 initDB 自动跑。
+// eslint-disable-next-line no-unused-vars
+function migrateDown(name) {
+  if (!db) throw new Error('DB not available');
+  const downMap = {
+    '008_rag_chunks': 'DROP TABLE IF EXISTS rag_chunks;',
+    '010_collaboration': 'DROP TABLE IF EXISTS yjs_docs;',
+    '012_yjs_updates': 'DROP TABLE IF EXISTS yjs_updates;',
+  };
+  const sql = downMap[name];
+  if (!sql) throw new Error(`无 down-migration: ${name}`);
+  db.exec('SAVEPOINT fd_down');
+  try {
+    db.exec(sql);
+    db.prepare('DELETE FROM _migrations WHERE name = ?').run(name);
+    db.exec('RELEASE fd_down');
+    console.log(`  [迁移] 回滚 ${name} ✓`);
+  } catch (e) {
+    db.exec('ROLLBACK TO fd_down');
+    db.exec('RELEASE fd_down');
+    throw new Error(`回滚 ${name} 失败: ${e.message}`);
   }
 }
 
@@ -199,25 +246,29 @@ function getInitialSchema() {
       key TEXT PRIMARY KEY, value TEXT NOT NULL
     );
 
-    -- 全文搜索索引（SQLite FTS5）
+    -- 全文搜索索引（SQLite FTS5, A7 修复: 解耦 rowid)
+    -- pages 主键为 TEXT(id), implicit rowid 在 VACUUM/ALTER 重建后会重排,
+    -- external-content(content_rowid=rowid) 会指向错行 → 搜索返回错页。
+    -- 改为自包含 FTS, 以 page_id(UNINDEXED) 显式关联, 不依赖 rowid。
     CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
-      title, content, markdown, content=pages, content_rowid=rowid
+      page_id UNINDEXED, title, content, markdown, tokenize = 'unicode61'
     );
 
-    -- FTS 触发器
+    -- FTS 触发器 (按 page_id 同步, 与 rowid 无关)
+    -- 注意: 自包含 FTS (无 content= 外部表) 不可用 'delete' 特殊命令
+    -- (仅 external-content 表支持, 自包含表会报 SQL logic error)。
+    -- delete/update 触发器直接按 page_id 删除再插入。
     CREATE TRIGGER IF NOT EXISTS pages_ai AFTER INSERT ON pages BEGIN
-      INSERT INTO pages_fts(rowid, title, content, markdown)
-      VALUES (new.rowid, new.title, new.content, new.markdown);
+      INSERT INTO pages_fts(page_id, title, content, markdown)
+      VALUES (new.id, new.title, new.content, new.markdown);
     END;
     CREATE TRIGGER IF NOT EXISTS pages_ad AFTER DELETE ON pages BEGIN
-      INSERT INTO pages_fts(pages_fts, rowid, title, content, markdown)
-      VALUES ('delete', old.rowid, old.title, old.content, old.markdown);
+      DELETE FROM pages_fts WHERE page_id = old.id;
     END;
     CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE ON pages BEGIN
-      INSERT INTO pages_fts(pages_fts, rowid, title, content, markdown)
-      VALUES ('delete', old.rowid, old.title, old.content, old.markdown);
-      INSERT INTO pages_fts(rowid, title, content, markdown)
-      VALUES (new.rowid, new.title, new.content, new.markdown);
+      DELETE FROM pages_fts WHERE page_id = old.id;
+      INSERT INTO pages_fts(page_id, title, content, markdown)
+      VALUES (new.id, new.title, new.content, new.markdown);
     END;
 
     -- 索引
@@ -302,7 +353,11 @@ function writeJSON(dir, id, data) {
   }
   const d = path.join(DB_DIR, 'json', dir);
   fs.mkdirSync(d, { recursive: true });
-  fs.writeFileSync(path.join(d, `${id}.json`), JSON.stringify(data, null, 2));
+  // R7 修复: 原子写 (写临时文件 + rename), 崩溃不留截断 JSON; 原 writeFileSync 中途崩溃数据损坏
+  const finalPath = path.join(d, `${id}.json`);
+  const tmpPath = path.join(d, `.${id}.${process.pid}.tmp`);
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  fs.renameSync(tmpPath, finalPath);
 }
 
 function listJSON(dir) {
@@ -382,7 +437,7 @@ function getTemplatesSchema() {
   `;
 }
 
-module.exports = { initDB, getDB, db, readJSON, writeJSON, listJSON, deleteJSON, backupDB };
+module.exports = { initDB, getDB, db, readJSON, writeJSON, listJSON, deleteJSON, backupDB, migrateDown };
 
 function getOfficeFilesSchema() {
   return `
@@ -463,4 +518,132 @@ function getCollaborationSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_yjs_docs_page ON yjs_docs(page_id);
   `;
+}
+
+// A2 修复: Yjs append-only 更新日志。
+// 每条 update 单独 INSERT (原子写, 无 read-modify-write), 按自增 seq 顺序回放。
+// Yjs updates 交换律 + 幂等, 故按 seq 回放即合法 CRDT state, 无 lost update。
+// compaction_flag 标记已压缩进 yjs_docs.state 的旧行, 便于清理。
+function getYjsUpdatesSchema() {
+  return `
+    CREATE TABLE IF NOT EXISTS yjs_updates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      page_id TEXT NOT NULL,
+      "update" BLOB NOT NULL,
+      compaction_flag INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (page_id) REFERENCES pages(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_yjs_updates_page ON yjs_updates(page_id, id);
+  `;
+}
+
+// A2 配套: 给 yjs_docs 加 state_seq 列, 记录压缩快照覆盖到的最大 update seq。
+// SQLite 11+ 支持 ADD COLUMN, 老库 ALTER TABLE IF NOT EXISTS 不支持故用 PRAGMA 探测。
+function runYjsStateSeqMigration(db) {
+  const cols = db.prepare("PRAGMA table_info(yjs_docs)").all().map(c => c.name);
+  if (!cols.includes('state_seq')) {
+    db.exec('ALTER TABLE yjs_docs ADD COLUMN state_seq INTEGER DEFAULT 0');
+    console.log('  [迁移] yjs_docs.state_seq 列已添加');
+  }
+}
+
+// A7 修复: pages_fts 解耦 rowid。旧表用 external-content(content_rowid=rowid),
+// pages 主键为 TEXT, implicit rowid 在 VACUUM/ALTER 重建后重排 → 搜索错页。
+// 重建为自包含 FTS(page_id UNINDEXED), 重建触发器, 回填现有 pages 数据。
+function runFtsDecoupleMigration(db) {
+  // 1. 丢弃旧 FTS 表与旧触发器 (IF EXISTS 容错首次安装)
+  db.exec(`DROP TABLE IF EXISTS pages_fts;`);
+  db.exec(`DROP TRIGGER IF EXISTS pages_ai;`);
+  db.exec(`DROP TRIGGER IF EXISTS pages_ad;`);
+  db.exec(`DROP TRIGGER IF EXISTS pages_au;`);
+  // 2. 建自包含 FTS (page_id 不参与全文索引, 仅作关联键)
+  db.exec(`CREATE VIRTUAL TABLE pages_fts USING fts5(
+    page_id UNINDEXED, title, content, markdown, tokenize = 'unicode61'
+  );`);
+  // 3. 回填现有 pages 数据
+  db.exec(`INSERT INTO pages_fts(page_id, title, content, markdown)
+    SELECT id, title, content, markdown FROM pages;`);
+  // 4. 重建触发器 (与 getInitialSchema 同步, 按 page_id 维护)
+  // 注意: 自包含 FTS 不可用 'delete' 特殊命令, 直接按 page_id DELETE/INSERT。
+  db.exec(`CREATE TRIGGER pages_ai AFTER INSERT ON pages BEGIN
+    INSERT INTO pages_fts(page_id, title, content, markdown)
+    VALUES (new.id, new.title, new.content, new.markdown);
+  END;`);
+  db.exec(`CREATE TRIGGER pages_ad AFTER DELETE ON pages BEGIN
+    DELETE FROM pages_fts WHERE page_id = old.id;
+  END;`);
+  db.exec(`CREATE TRIGGER pages_au AFTER UPDATE ON pages BEGIN
+    DELETE FROM pages_fts WHERE page_id = old.id;
+    INSERT INTO pages_fts(page_id, title, content, markdown)
+    VALUES (new.id, new.title, new.content, new.markdown);
+  END;`);
+  console.log('  [迁移] pages_fts 已解耦 rowid, 改用 page_id UNINDEXED 关联');
+}
+
+// A7 修复补充: 014 建的 pages_ad/pages_au 触发器误用 FTS5 'delete' 特殊命令,
+// 自包含表上会致 DELETE/UPDATE pages 报 "SQL logic error"。本迁移重建为按 page_id 直接删除。
+function runFtsTriggerFixMigration(db) {
+  db.exec(`DROP TRIGGER IF EXISTS pages_ai;`);
+  db.exec(`DROP TRIGGER IF EXISTS pages_ad;`);
+  db.exec(`DROP TRIGGER IF EXISTS pages_au;`);
+  db.exec(`CREATE TRIGGER pages_ai AFTER INSERT ON pages BEGIN
+    INSERT INTO pages_fts(page_id, title, content, markdown)
+    VALUES (new.id, new.title, new.content, new.markdown);
+  END;`);
+  db.exec(`CREATE TRIGGER pages_ad AFTER DELETE ON pages BEGIN
+    DELETE FROM pages_fts WHERE page_id = old.id;
+  END;`);
+  db.exec(`CREATE TRIGGER pages_au AFTER UPDATE ON pages BEGIN
+    DELETE FROM pages_fts WHERE page_id = old.id;
+    INSERT INTO pages_fts(page_id, title, content, markdown)
+    VALUES (new.id, new.title, new.content, new.markdown);
+  END;`);
+  // 自包含 FTS 在 014 回填后可能存在孤立/重复行, 重建一次保证一致
+  db.exec(`DELETE FROM pages_fts;`);
+  db.exec(`INSERT INTO pages_fts(page_id, title, content, markdown)
+    SELECT id, title, content, markdown FROM pages;`);
+  console.log('  [迁移] pages_fts 触发器修正: 自包含表改用 page_id 直接删除 (修复 DELETE 报错)');
+}
+
+// A8 修复: 三路 RAG 合一。ai.js 内联索引 + rag.js 写 rag_index 表, rag-hybrid 写 rag_chunks 表,
+// 同一页面被双表各索引一遍, 数据分叉、检索路径不一致 (rag_index 无 BM25/FTS 融合)。
+// 本迁移将 rag_index 存量数据归并进 rag_chunks (统一存储), 再保留 rag_index 表兼容旧读 (渐进迁移)。
+// 新写入一律走 rag_chunks (rag 服务层统一), rag_index 不再写入。幂等: 重复跑不重复归并。
+function runRagUnifyMigration(db) {
+  // 归并 rag_index → rag_chunks (仅搬未在 rag_chunks 出现的 page, 防重复)
+  // rag_index 列: (id, page_id, chunk_index, chunk, vector, created_at)
+  // rag_chunks 列: (id, page_id, chunk_index, chunk_text, chunk_type, heading, vector, bm25_tokens, created_at)
+  try {
+    const existing = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='rag_index'").get();
+    if (!existing) {
+      console.log('  [迁移] rag_unify: rag_index 不存在, 跳过归并');
+      return;
+    }
+    const orphan = db.prepare(`
+      SELECT ri.id, ri.page_id, ri.chunk_index, ri.chunk, ri.vector, ri.created_at
+      FROM rag_index ri
+      WHERE NOT EXISTS (
+        SELECT 1 FROM rag_chunks rc WHERE rc.page_id = ri.page_id AND rc.chunk_index = ri.chunk_index
+      )
+    `).all();
+    if (!orphan.length) {
+      console.log('  [迁移] rag_unify: rag_index 已全部归并进 rag_chunks, 无孤儿行');
+      return;
+    }
+    const insert = db.prepare(`
+      INSERT INTO rag_chunks (id, page_id, chunk_index, chunk_text, chunk_type, heading, vector, bm25_tokens, created_at)
+      VALUES (?, ?, ?, ?, 'paragraph', NULL, ?, '[]', ?)
+    `);
+    const tx = db.transaction((rows) => {
+      for (const r of rows) {
+        insert.run(r.id, r.page_id, r.chunk_index, r.chunk, r.vector, r.created_at);
+      }
+    });
+    tx(orphan);
+    console.log(`  [迁移] rag_unify: 归并 ${orphan.length} 行 rag_index → rag_chunks (统一存储)`);
+  } catch (e) {
+    // 归并失败不阻断启动 (rag_index 表结构可能已被旧版 ai.js 改动), 仅告警
+    console.warn(`  [迁移] rag_unify 归并跳过: ${e.message}`);
+  }
 }

@@ -13,6 +13,10 @@ const BASE_PATH = '/v1';
 const httpFetch = globalThis.fetch;
 const AbortCtrl = globalThis.AbortController;
 
+// R6 修复: 非流式调用超时上限 (原设计无 timeout, 引擎 stall 即 hang 全站 AI)
+const CALL_TIMEOUT_MS = parseInt(process.env.FUSION_MLX_TIMEOUT_MS || '60000', 10);
+const CALL_MAX_RETRIES = parseInt(process.env.FUSION_MLX_RETRIES || '1', 10);
+
 // ── 通用请求 ──────────────────────────────────────────────────────────────
 async function callFusionMLX({ method, path, body, config }) {
   // §2.2: key 未设置时 fail visibly, 禁止静默放行 (字面量亦禁止)
@@ -25,22 +29,40 @@ async function callFusionMLX({ method, path, body, config }) {
     'Authorization': `Bearer ${config.apiKey}`,
   };
 
-  const response = await httpFetch(url, {
-    method: method || 'POST',
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`Fusion-MLX API 错误 (${response.status}): ${text.slice(0, 200)}`);
+  // R6 修复: timeout + 重试, 对比 healthCheck 有 3s timeout, 主路径此前缺失
+  let lastErr = null;
+  for (let attempt = 0; attempt <= CALL_MAX_RETRIES; attempt++) {
+    const controller = new AbortCtrl();
+    const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+    try {
+      const response = await httpFetch(url, {
+        method: method || 'POST',
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Fusion-MLX API 错误 (${response.status}): ${text.slice(0, 200)}`);
+      }
+      return await response.json();
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      // 仅对超时/连接错误重试, 4xx 不重试
+      const isAbort = err.name === 'AbortError';
+      const isTransient = isAbort || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED';
+      if (!isTransient || attempt === CALL_MAX_RETRIES) break;
+      console.warn(`[Fusion-MLX] callFusionMLX 重试 ${attempt + 1}/${CALL_MAX_RETRIES}: ${err.message}`);
+    }
   }
-
-  return await response.json();
+  throw lastErr || new Error('Fusion-MLX 调用失败');
 }
 
 // ── 流式请求（SSE） ───────────────────────────────────────────────────────
-async function* callFusionMLXStream({ model, messages, config, timeoutMs = 120000 }) {
+// R7 修复: 接受外部 abortSignal, 客户端断开时真正中断上游 fetch (原设计 controller 闭包私有)
+async function* callFusionMLXStream({ model, messages, config, timeoutMs = 120000, abortSignal }) {
   // §2.2: key 未设置时 fail visibly, 禁止静默放行
   if (!config.apiKey) {
     throw new Error('Fusion-MLX 流式调用被拒绝: FUSION_MLX_API_KEY 未设置 (请在部署 env 注入)');
@@ -53,6 +75,12 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
 
   const controller = new AbortCtrl();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // R7 修复: 外部 abortSignal 联动内部 controller
+  const onExternalAbort = () => controller.abort();
+  if (abortSignal) {
+    if (abortSignal.aborted) { clearTimeout(timer); controller.abort(); }
+    else abortSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
 
   const response = await httpFetch(url, {
     method: 'POST',
@@ -67,6 +95,7 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
 
   if (!response.ok) {
     clearTimeout(timer);
+    if (abortSignal) abortSignal.removeEventListener('abort', onExternalAbort);
     const text = await response.text().catch(() => '');
     throw new Error(`Fusion-MLX 流式请求错误 (${response.status}): ${text.slice(0, 200)}`);
   }
@@ -96,6 +125,9 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
     }
   } finally {
     clearTimeout(timer);
+    if (abortSignal) abortSignal.removeEventListener('abort', onExternalAbort);
+    // R7 修复: cancel reader 释放上游 HTTP 响应体 (原仅 releaseLock, 连接不归还致 EMFILE)
+    try { await reader.cancel(); } catch (_) { /* noop */ }
     reader.releaseLock();
   }
 }

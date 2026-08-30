@@ -2,6 +2,7 @@
 // 协作光标显示
 // =============================================================================
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { hashCode } from '../../lib/hash';
 
 const CURSOR_COLORS = ['#f87171', '#fb923c', '#facc15', '#4ade80', '#60a5fa', '#a78bfa', '#f472b6'];
 
@@ -78,13 +79,4 @@ export default function CollabCursors({ pageId }) {
             ))}
         </>
     );
-}
-
-function hashCode(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        hash = ((hash << 5) - hash) + str.charCodeAt(i);
-        hash |= 0;
-    }
-    return hash;
 }

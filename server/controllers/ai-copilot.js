@@ -2,6 +2,7 @@
 // Fusion-Doc — AI Copilot 控制器
 // 编辑器内嵌 AI 操作：续写、改写、翻译、摘要、命令面板
 // =============================================================================
+/* global AbortController */
 
 const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLXStream } = require('../integrations/fusion-mlx');
@@ -88,11 +89,17 @@ async function streamCopilotResponse(app, res, context, action, extra) {
         { role: 'user', content: context },
     ];
 
+    // R7 修复: 客户端断开时真正 abort 上游 MLX 流 (原设计零 close 监听, 连接泄漏致 EMFILE)
+    let aborted = false;
+    const abortController = new AbortController();
+    const onClose = () => { aborted = true; abortController.abort(); };
+    res.on('close', onClose);
     try {
         const streamIter = callFusionMLXStream({
             model: app.config.fusionMlx.chatModel,
             messages,
             config: app.config.fusionMlx,
+            abortSignal: abortController.signal,
         });
         for await (const chunk of streamIter) {
             res.write(`data: ${JSON.stringify(chunk)}\n\n`);
@@ -101,8 +108,12 @@ async function streamCopilotResponse(app, res, context, action, extra) {
         res.end();
     } catch (e) {
         console.error('[AI Copilot] Stream error:', e.message);
-        res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
-        res.end();
+        if (!aborted && !res.writableEnded) {
+            res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+            res.end();
+        }
+    } finally {
+        res.off('close', onClose);
     }
 }
 

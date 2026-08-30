@@ -22,6 +22,16 @@ function register(app) {
     const content = typeof body.content === 'string' ? body.content.slice(0, MAX_CONTENT) : '';
     if (!content) return error(res, 'content 不能为空', 400);
     if (!body.page_id) return error(res, 'page_id 必填', 400);
+    // R13 修复: 校验页面存在 + 私有页读隔离, 杜绝对他人私有页灌评论
+    if (db) {
+      const page = db.prepare('SELECT created_by, is_published FROM pages WHERE id = ?').get(body.page_id);
+      if (!page) return error(res, '页面不存在', 404, 'NOT_FOUND');
+      const isOwner = page.created_by === (req.user?.id || 'local');
+      const isPublished = page.is_published === 1 || page.is_published === '1';
+      if (req.user?.role !== 'admin' && !isOwner && page.created_by && !isPublished) {
+        return error(res, '无权对他人私有页面评论', 403, 'FORBIDDEN');
+      }
+    }
     const comment = { id: uid(), page_id: body.page_id, user_id: req.user?.id || 'local', content, parent_id: body.parent_id || null, created_at: now() };
     if (db) { db.prepare('INSERT INTO comments (id, page_id, user_id, content, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(comment.id, comment.page_id, comment.user_id, comment.content, comment.parent_id, comment.created_at); }
     json(res, comment, 201);

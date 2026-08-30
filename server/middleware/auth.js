@@ -77,20 +77,41 @@ function auth(req, res, pipeline) {
     }
     const payload = verifyToken(token, secret);
     if (payload) {
-      req.user = payload;
+      // R3 修复: 不信任 token 自报 role/id, 回查 users 表取权威 role; 失败则拒绝。
+      // 原设计直接 req.user = payload, JWT_SECRET 泄漏后伪造 {role:'admin'} 即获管理员。
+      const db = req.ctx?.db;
+      let verified = payload;
+      if (db && payload.id) {
+        try {
+          const row = db.prepare('SELECT id, role FROM users WHERE id = ?').get(payload.id);
+          if (!row) {
+            console.warn(`[Auth] token 用户不存在, 拒绝: ${payload.id}`);
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Unauthorized: user not found', code: 'AUTH_USER_INVALID' }));
+            return true;
+          }
+          verified = { ...payload, role: row.role };
+        } catch (e) {
+          console.warn(`[Auth] 用户回查失败, 降级用 token role: ${e.message}`);
+        }
+      }
+      req.user = verified;
       return false; // 认证通过，继续管道
     }
   }
 
-  // 开发旁路: 仅显式 AUTH_DEV_BYPASS=1 且绑定 127.0.0.1 时生效, 杜绝 LAN 越权
-  if (process.env.AUTH_DEV_BYPASS === '1' && req.headers['x-user-id']) {
-    const host = req.ctx?.config?.host;
-    if (host === '127.0.0.1' || host === 'localhost') {
+  // 开发旁路: 需同时 AUTH_DEV_BYPASS=1 且 NODE_ENV=development, 且请求来自本机回环。
+  // R19 修复: 原仅查 config 绑定地址 (反代场景 config.host=127.0.0.1 但服务对外暴露即绕过);
+  // 改查请求实际来源 remoteAddress, 与 CLAUDE.md "仅 NODE_ENV=development 生效" 文档对齐。
+  if (process.env.AUTH_DEV_BYPASS === '1' && process.env.NODE_ENV === 'development' && req.headers['x-user-id']) {
+    const remote = req.socket?.remoteAddress || '';
+    const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+    if (isLoopback) {
       req.user = { id: req.headers['x-user-id'], role: 'admin' };
-      console.warn('[Auth] DEV bypass used (AUTH_DEV_BYPASS=1, 127.0.0.1 only)');
+      console.warn('[Auth] DEV bypass used (AUTH_DEV_BYPASS=1 + NODE_ENV=development + loopback only)');
       return false;
     }
-    console.error('[Auth] X-User-Id bypass rejected: not bound to 127.0.0.1');
+    console.error(`[Auth] X-User-Id bypass rejected: 请求非回环来源 (${remote})`);
   }
 
   // 未认证

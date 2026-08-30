@@ -32,11 +32,19 @@ function cors(req, res, pipeline) {
     if (origins.includes(origin)) {
       allowOrigin = origin;
     } else {
-      // 通配符子域匹配: *.example.com
+      // 通配符子域匹配: *.example.com → 仅匹配 example.com 的子域, 不匹配 evilexample.com
       for (const o of origins) {
         if (o.startsWith('*.')) {
           const suffix = o.slice(1); // .example.com
-          if (origin.endsWith(suffix)) { allowOrigin = origin; break; }
+          // R20 修复: 精确点分锚点。origin 去掉端口的 hostname 必须满足:
+          //   (a) hostname === suffix 根域自身, 或
+          //   (b) hostname 以 ".example.com" 结尾 (子域前有点分界),
+          // 杜绝 evil-example.com endsWith('.example.com') 的绕过。
+          let host = origin;
+          try { host = new URL(origin).hostname; } catch (_) { continue; }
+          if (host === suffix.slice(1) || host.endsWith(suffix)) {
+            allowOrigin = origin; break;
+          }
         }
       }
     }

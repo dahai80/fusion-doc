@@ -28,6 +28,8 @@ jobs:
       - run: npm test
 
   # 安全审计: 依赖漏洞扫描 (high/critical 即失败,商用级安全闸)
+  # E9 修复: 客户端审计原 continue-on-error: true 致 high/critical 漏洞 CI 仍绿,
+  # 与服务端阻断策略矛盾, 供应链风险静默进发布产物。改为阻断, 与服务端一致。
   audit:
     runs-on: ubuntu-latest
     steps:
@@ -39,7 +41,6 @@ jobs:
       - run: npm audit --audit-level=high --omit=dev
       - name: 客户端依赖审计
         run: cd client && npm ci && npm audit --audit-level=high --omit=dev
-        continue-on-error: true # 客户端依赖单独跟踪,不阻塞服务端发版
 
   build-client:
     runs-on: ubuntu-latest

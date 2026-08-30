@@ -42,7 +42,13 @@ async function loadPlugins(app) {
         const indexJsPath = path.join(pluginPath, 'index.js');
         if (fs.existsSync(pkgPath)) {
           const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-          const mainPath = path.join(pluginPath, pkg.main || 'index.js');
+          // A6 修复: main 字段路径围栏。path.join 不约束边界, pkg.main="../../server/app.js"
+          // 可穿越到任意 .js 以服务权限执行 (RCE)。解析后必须落在 pluginPath 内。
+          const mainPath = path.resolve(pluginPath, pkg.main || 'index.js');
+          if (mainPath !== pluginPath && !mainPath.startsWith(pluginPath + path.sep)) {
+            console.error(`  [插件] ✗ ${entry.name}: main 字段越界 (${pkg.main}), 拒绝加载`);
+            continue;
+          }
           if (fs.existsSync(mainPath)) {
             plugin = require(mainPath);
           }

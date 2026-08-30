@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 
+// E21 修复: pages 数组无上限, 大库长期运行 (createPage 累积) 会无限增长致前端 OOM。
+// 设硬上限, 超出按 FIFO 丢弃最旧项。
+const MAX_PAGES = 2000;
+function capPages(arr) {
+    return arr.length > MAX_PAGES ? arr.slice(arr.length - MAX_PAGES) : arr;
+}
+
 export const usePageStore = create((set, get) => ({
     pages: [],
     currentPage: null,
@@ -12,7 +19,8 @@ export const usePageStore = create((set, get) => ({
         try {
             const path = bookId ? `/pages?book_id=${bookId}` : '/pages';
             const data = await api('GET', path);
-            set({ pages: data.data || data, loading: false });
+            const arr = data.data || data;
+            set({ pages: capPages(Array.isArray(arr) ? arr : []), loading: false });
         } catch (e) {
             set({ error: e.message, loading: false });
         }
@@ -32,7 +40,7 @@ export const usePageStore = create((set, get) => ({
         try {
             const data = await api('POST', '/pages', pageData);
             const newPage = data.data || data;
-            set((s) => ({ pages: [...s.pages, newPage] }));
+            set((s) => ({ pages: capPages([...s.pages, newPage]) }));
             return newPage;
         } catch (e) {
             set({ error: e.message });

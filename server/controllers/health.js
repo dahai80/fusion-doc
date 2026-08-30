@@ -19,12 +19,12 @@ function register(app) {
         versions: '页面历史版本（DocMost）',
         export: 'PDF/HTML/Markdown/Office 导出（BookStack + LibreOffice）',
         ai: 'Fusion-MLX 本地 AI 推理',
-        ocr: '文档 OCR（Teedy）',
+        // E18 修复: 移除 ocr 谎报 — OCR/LibreOffice 桥接已删除, 未接入; office 转换走 officecli
         native: 'macOS 原生优化（MacDown）',
       },
       integrations: {
+        // E18 修复: 移除 fusionCoder 'available' 谎报 — 该桥接已删除, 从未接入。
         fusionMlx: app.config.fusionMlx.url,
-        fusionCoder: 'available',
         fusionKb: app.config.fusionKb.url,
         fusionCowork: app.config.fusionCowork.url,
         fusionModelHub: app.config.fusionModelHub.url,

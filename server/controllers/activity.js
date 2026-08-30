@@ -21,7 +21,9 @@ function register(app) {
   app.registerRoute('POST', '/api/activity', async (req, res) => {
     const body = await parseBody(req);
     if (db) {
-      db.prepare('INSERT INTO activity (id, user_id, action, target_type, target_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), body.user_id || 'local', body.action, body.target_type || '', body.target_id || '', JSON.stringify(body.metadata || {}), now());
+      // R12 修复: user_id 取服务端权威 req.user.id, 拒绝 body 自报 (原设计可伪造审计归因他人)。
+      const userId = req.user?.id || 'local';
+      db.prepare('INSERT INTO activity (id, user_id, action, target_type, target_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), userId, body.action, body.target_type || '', body.target_id || '', JSON.stringify(body.metadata || {}), now());
     }
     json(res, { logged: true }, 201);
   });

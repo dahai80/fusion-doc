@@ -68,7 +68,6 @@ class FusionDocApp {
   _registerBuiltinMiddleware() {
     const { cors } = require('./middleware/cors');
     const { logger } = require('./middleware/logger');
-    const { errorHandler } = require('./middleware/error-handler');
     const { auth } = require('./middleware/auth');
     const { globalRateLimit } = require('./middleware/rate-limit');
 
@@ -76,7 +75,10 @@ class FusionDocApp {
     this.middleware.use('logger', logger, 10);
     this.middleware.use('rateLimit', globalRateLimit, 15); // 认证前限流, 防爆破
     this.middleware.use('auth', auth, 20);
-    this.middleware.use('error', errorHandler, 100); // 最后执行
+    // E11 修复: 原 errorHandler 中间件恒返回 false (no-op), 注册却永不拦截 —
+    // 既不在路由错误路径上 (管道在 _matchRoute 之前结束), 又给读者"有兜底"的错觉。
+    // 实际兜底在两处: pipeline.run 的 catch (中间件异常) + _handleRequest 的 catch (路由异常)。
+    // 故移除该死注册, 保留 error-handler.js 仅供 errorResponse/successResponse 工具函数。
   }
 
   // ── 注册路由 ────────────────────────────────────────────────────────────
@@ -117,7 +119,15 @@ class FusionDocApp {
       // 静态文件
       const assetPaths = ['/assets/', '/icons/', '/manifest.json', '/vite.svg', '/locales/', '/branding/'];
       if (assetPaths.some(p => pathname.startsWith(p))) {
-        return serveStatic(res, path.join(config.publicDir, pathname));
+        // R1 修复: 解码后剔除 .. 段, 再交由 serveStatic 二次沙箱校验 (双重防护)
+        let cleanPath = pathname;
+        try { cleanPath = decodeURIComponent(pathname); } catch (_) { cleanPath = ''; }
+        if (cleanPath.includes('..') || cleanPath.includes('\0')) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
+        return serveStatic(res, path.join(config.publicDir, cleanPath), config.publicDir);
       }
 
       // SPA fallback
@@ -196,9 +206,19 @@ class FusionDocApp {
     // WebSocket 支持
     if (WebSocketServer && this._wsRoutes.length > 0) {
       this.wsServer = new WebSocketServer({ noServer: true });
+      // R1 修复: handler 抛错隔离为单连接关闭, 不杀全进程 (全员断连丢稿)
       this.wsServer.on('connection', (ws, req) => {
-        const route = req._wsRoute;
-        if (route) route.handler(ws, req);
+        try {
+          const route = req._wsRoute;
+          if (route) route.handler(ws, req);
+        } catch (err) {
+          console.error(`[WS] connection handler error: ${err.message}`);
+          try { ws.close(1011, 'internal error'); } catch (_) { /* noop */ }
+        }
+      });
+      // R1 修复: 全局 WS error 兜底, 防未捕获 error 事件杀进程
+      this.wsServer.on('error', (err) => {
+        console.error('[WS] server error:', err.message);
       });
 
       this.server.on('upgrade', (req, socket, head) => {
@@ -283,10 +303,10 @@ class FusionDocApp {
       stopResident();
     } catch (_) { /* officecli 未加载 */ }
 
-    // 杀 trainer 子进程
+    // 杀 trainer 子进程 (R15: 等待退出 + SIGKILL 兜底, 防 GPU 孤儿)
     try {
       const trainer = require('./integrations/fusion-trainer');
-      if (trainer.stopAllJobs) trainer.stopAllJobs();
+      if (trainer.stopAllJobs) await trainer.stopAllJobs();
     } catch (_) { /* trainer 未加载 */ }
 
     // 插件关闭

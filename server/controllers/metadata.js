@@ -29,6 +29,16 @@ function register(app) {
     if (!key) return error(res, 'key 不能为空', 400);
     const value = typeof body.value === 'string' ? body.value.slice(0, MAX_VALUE) : '';
     if (db) {
+      // R13 修复: 元数据绑定到页面时校验所属权, 杜绝跨用户写他人页面元数据
+      if (body.page_id) {
+        const page = db.prepare('SELECT created_by, is_published FROM pages WHERE id = ?').get(body.page_id);
+        if (!page) return error(res, '页面不存在', 404, 'NOT_FOUND');
+        const isOwner = page.created_by === (req.user?.id || 'local');
+        const isPublished = page.is_published === 1 || page.is_published === '1';
+        if (req.user?.role !== 'admin' && !isOwner && page.created_by) {
+          if (!isPublished) return error(res, '无权为他人私有页面添加元数据', 403, 'FORBIDDEN');
+        }
+      }
       db.prepare('INSERT INTO metadata (id, page_id, key, value, type, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(uid(), body.page_id || null, key, value, body.type || 'text', now());
     }
     json(res, { created: true }, 201);

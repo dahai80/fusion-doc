@@ -9,7 +9,7 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const { parseBody } = require('../middleware/body-parser');
 const { uid, now } = require('../utils/helpers');
-const { json, list, notFound } = require('../utils/response');
+const { json, list, notFound, error } = require('../utils/response');
 
 const ALLOWED_EXTS = new Set([
     '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
@@ -136,28 +136,36 @@ function register(app) {
     if (!filePath || !fs.existsSync(filePath)) {
       return notFound(res, 'File not found on disk');
     }
-    const data = fs.readFileSync(filePath);
-    // P3-34: 下载也按白名单 mime (库内 mime 可能是旧脏数据, 按后缀复算)
+    // E15 修复: 流式下载替代 readFileSync 整载, 防大文件并发 OOM。
+    const stat = fs.statSync(filePath);
     const ext = sanitizeExt(file.name || file.path).toLowerCase();
     const mime = EXT_MIME[ext] || file.mime || 'application/octet-stream';
     res.writeHead(200, {
       'Content-Type': mime,
       'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`,
-      'Content-Length': data.length,
+      'Content-Length': stat.size,
     });
-    res.end(data);
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', (e) => {
+      console.error(`[File] 下载流错误: ${e.message}`);
+      if (!res.writableEnded) res.end();
+    });
+    stream.pipe(res);
   });
 
-  // ── 文件删除 (P3-35: 路径校验) ───────────────────────────────────────
+  // ── 文件删除 (P3-35: 路径校验, R13: 所有权隔离) ───────────────────────
   app.registerRoute('DELETE', '/api/files/:id', (req, res) => {
     const { id } = req.params;
     let file = db ? db.prepare('SELECT * FROM files WHERE id = ?').get(id) : require('../db').readJSON('files', id);
-    if (file) {
-      const fp = safeStoragePath(storageDir, file.path);
-      if (fp && fs.existsSync(fp)) fs.unlinkSync(fp);
-      else if (file.path) console.warn(`[File] 删除时路径越界或不存在: ${file.path}`);
-      db ? db.prepare('DELETE FROM files WHERE id = ?').run(id) : require('../db').deleteJSON('files', id);
+    if (!file) return notFound(res, 'File not found');
+    // R13 修复: 仅 owner/admin 可删, 杜绝跨用户删除他人附件
+    if (req.user?.role !== 'admin' && file.created_by && file.created_by !== (req.user?.id || 'local')) {
+      return error(res, '无权删除他人文件', 403, 'FORBIDDEN');
     }
+    const fp = safeStoragePath(storageDir, file.path);
+    if (fp && fs.existsSync(fp)) fs.unlinkSync(fp);
+    else if (file.path) console.warn(`[File] 删除时路径越界或不存在: ${file.path}`);
+    db ? db.prepare('DELETE FROM files WHERE id = ?').run(id) : require('../db').deleteJSON('files', id);
     json(res, { deleted: true });
   });
 }

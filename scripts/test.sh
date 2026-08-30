@@ -75,6 +75,21 @@ echo "=========================================="
 echo "  结果: ${PASS} 通过, ${FAIL} 失败"
 echo "=========================================="
 
+# 7.5. 行为测试 (E8 修复: node:test 单元测试, 零外部依赖)
+echo ""
+echo "[行为测试 node:test]"
+# node --test 需显式文件 glob; 传 "tests/unit/" (带斜杠) 会被当模块路径解析报 MODULE_NOT_FOUND。
+if node --test tests/unit/*.js > /tmp/fd-unittest.log 2>&1; then
+  # node --test 报告行: TAP "ok <n>" 或 reporter "✔"; 两者都计。
+  PASS_CNT=$(grep -cE '^(ok |✔)' /tmp/fd-unittest.log || echo 0)
+  test_pass "行为测试 ${PASS_CNT} 条全部通过"
+else
+  test_fail "行为测试存在失败用例"
+  cat /tmp/fd-unittest.log
+fi
+echo ""
+echo "  结果: ${PASS} 通过, ${FAIL} 失败"
+
 # 只有在服务器运行时才测试 API
 if curl -sf "${BASE}/api/health" > /dev/null 2>&1; then
   echo ""

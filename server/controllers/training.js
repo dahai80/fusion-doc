@@ -98,7 +98,8 @@ function register(app) {
       json(res, { ...result, dataset: exportResult.dataset, count: exportResult.count });
     } catch (err) {
       console.error('[training] startSft failed:', err.message);
-      json(res, { error: err.message }, 500);
+      // R21 修复: 走 error() 统一 5xx 屏蔽, 生产环境不回显 err.message (含 bin 路径/命令片段)
+      error(res, '训练任务启动失败', 500);
     }
   });
 
@@ -108,11 +109,14 @@ function register(app) {
     const binPath = app.config.fusionTrainer && app.config.fusionTrainer.binPath;
     trainer.info(binPath).then((infoResult) => json(res, infoResult)).catch((e) => {
       console.error('[training] info failed:', e.message);
-      json(res, { error: e.message }, 500);
+      // R21 修复: 走 error() 统一 5xx 屏蔽, 生产环境不回显 e.message
+      error(res, '训练信息获取失败', 500);
     });
   });
 
   app.registerRoute('GET', '/api/training/:jobId/status', (req, res) => {
+    // R14 修复: 暴露 stdout/stderr 含数据集路径/模型 ID, 与 info 同加 admin 闸防 IDOR 读他人日志。
+    if (!requireAdmin(req, res)) return;
     const { jobId } = req.params;
     const status = trainer.getJobStatus(jobId);
     if (!status) {

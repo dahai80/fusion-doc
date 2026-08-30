@@ -33,6 +33,14 @@ async function startResident() {
             residentProcess = null;
         });
         residentProcess.on('exit', () => { residentProcess = null; });
+        // R16 修复: 消费 stdio 防背压死锁。常驻进程写满 ~64KB pipe 缓冲即阻塞 stall,
+        // 必须持续 drain stdout/stderr, 否则 startResident 返回 true 但进程已卡死。
+        residentProcess.stdout.on('data', (d) => {
+            if (process.env.NODE_ENV !== 'production') console.log('[OfficeCLI:resident]', d.toString().trim());
+        });
+        residentProcess.stderr.on('data', (d) => {
+            console.warn('[OfficeCLI:resident:err]', d.toString().trim());
+        });
         console.log('[OfficeCLI] Resident mode started');
         return true;
     } catch (e) {

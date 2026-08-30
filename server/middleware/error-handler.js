@@ -1,13 +1,10 @@
 // =============================================================================
-// Fusion-Doc — 错误处理中间件
-// 统一错误响应格式
+// Fusion-Doc — 错误处理工具
+// 仅导出 errorResponse / successResponse 工具函数 (供控制器/中间件使用)。
+// E11 修复: 原 errorHandler 中间件恒返回 false 为 no-op, 已从 app.js 移除注册。
+// 实际错误兜底: middleware/pipeline.js 的 catch (中间件异常) +
+// app.js _handleRequest 的 catch (路由异常), 两处均已在生产屏蔽 5xx 细节。
 // =============================================================================
-
-function errorHandler(req, res, pipeline) {
-  // 这个中间件只作为兜底，不主动拦截请求
-  // 实际的错误处理由路由中的 try-catch 完成
-  return false;
-}
 
 // 创建统一错误响应
 function errorResponse(res, statusCode, message, code = null) {
@@ -27,4 +24,4 @@ function successResponse(res, data, statusCode = 200) {
   res.end(JSON.stringify(data));
 }
 
-module.exports = { errorHandler, errorResponse, successResponse };
+module.exports = { errorResponse, successResponse };

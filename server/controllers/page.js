@@ -24,6 +24,18 @@ function canModifyPage(req, res, page) {
     return false;
 }
 
+// R13 修复: 读隔离。admin 放行; 已发布页 (is_published=1) 任何人可读;
+// 私有页仅 owner/admin 可读。杜绝跨用户遍历 id 读取他人私有页面。
+function canReadPage(req, res, page) {
+    if (req.user?.role === 'admin') return true;
+    if (page.is_published === 1 || page.is_published === '1') return true;
+    const owner = page.created_by;
+    if (!owner) return true; // 历史数据兼容
+    if (owner === (req.user?.id || 'local')) return true;
+    errorResponse(res, 403, '无权读取他人私有页面', 'FORBIDDEN');
+    return false;
+}
+
 // 取页面对象 (DB/JSON), 不存在返 null
 function getPage(app, id) {
     const { db } = app;
@@ -37,15 +49,32 @@ function register(app) {
   app.registerRoute('GET', '/api/pages', (req, res) => {
     const bookId = req.ctx.url.searchParams.get('bookId');
     const chapterId = req.ctx.url.searchParams.get('chapterId');
-    let data;
+    // E16 修复: 无 bookId/chapterId 全表查询加 LIMIT/OFFSET 分页, 防万页级库一次拉全表 OOM/慢响应
+    // 指定 bookId/chapterId 时为结构化子集, 保留全量 (受 book 规模约束)
+    const pageRaw = parseInt(req.ctx.url.searchParams.get('page'), 10);
+    const sizeRaw = parseInt(req.ctx.url.searchParams.get('size'), 10);
+    const size = Number.isFinite(sizeRaw) && sizeRaw > 0 && sizeRaw <= 200 ? sizeRaw : 50;
+    const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+    const offset = (page - 1) * size;
+    let data, total;
     if (db) {
-      if (chapterId) data = db.prepare('SELECT * FROM pages WHERE chapter_id = ? ORDER BY sort_order').all(chapterId);
-      else if (bookId) data = db.prepare('SELECT * FROM pages WHERE book_id = ? ORDER BY sort_order').all(bookId);
-      else data = db.prepare('SELECT * FROM pages ORDER BY updated_at DESC').all();
+      if (chapterId) {
+        data = db.prepare('SELECT * FROM pages WHERE chapter_id = ? ORDER BY sort_order').all(chapterId);
+        total = data.length;
+      } else if (bookId) {
+        data = db.prepare('SELECT * FROM pages WHERE book_id = ? ORDER BY sort_order').all(bookId);
+        total = data.length;
+      } else {
+        total = db.prepare('SELECT COUNT(*) as c FROM pages').get().c;
+        data = db.prepare('SELECT * FROM pages ORDER BY updated_at DESC LIMIT ? OFFSET ?').all(size, offset);
+      }
     } else {
       data = require('../db').listJSON('pages').filter(p => (!bookId || p.book_id === bookId) && (!chapterId || p.chapter_id === chapterId));
+      total = data.length;
     }
-    list(res, data);
+    // E16 修复: 返回 { data, total, page, size } 结构。客户端 pageStore 取 data.data || data,
+    // 既能拿到数组又能读分页元信息; 不破坏既有 list(res, items) => {data: items} 约定。
+    json(res, { data, total, page, size });
   });
 
   // ── 创建页面 ──────────────────────────────────────────────────────────
@@ -83,6 +112,8 @@ function register(app) {
     const { id } = req.params;
     let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : require('../db').readJSON('pages', id);
     if (!page) return notFound(res, '页面不存在');
+    // R13 修复: 私有页读隔离 (admin/owner/已发布放行)
+    if (!canReadPage(req, res, page)) return;
     // 关联数据
     if (db) {
       page.tags = db.prepare('SELECT t.* FROM tags t JOIN page_tags pt ON t.id = pt.tag_id WHERE pt.page_id = ?').all(id);
@@ -102,8 +133,15 @@ function register(app) {
     const title = typeof body.title === 'string' ? body.title.slice(0, MAX_TITLE) : page.title;
     const content = typeof body.content === 'string' ? body.content.slice(0, MAX_CONTENT) : page.content;
     const markdown = typeof body.markdown === 'string' ? body.markdown.slice(0, MAX_CONTENT) : page.markdown;
-    if (db) { db.prepare('UPDATE pages SET title = ?, content = ?, markdown = ?, updated_at = ? WHERE id = ?').run(title, content, markdown, now(), id); }
-    else { Object.assign(page, { title, content, markdown, updated_at: now() }); require('../db').writeJSON('pages', id, page); }
+    // R6 修复: 覆盖前先建版本快照 (事务包裹, R8 同源), 原 PUT 直接覆盖丢历史无法回滚。
+    if (db) {
+      const tx = db.transaction(() => {
+        const maxVer = db.prepare('SELECT MAX(version) as m FROM page_versions WHERE page_id = ?').get(id)?.m || 0;
+        db.prepare('INSERT INTO page_versions (id, page_id, title, content, version, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), id, page.title, page.content, maxVer + 1, req.user?.id || 'local', now());
+        db.prepare('UPDATE pages SET title = ?, content = ?, markdown = ?, updated_at = ? WHERE id = ?').run(title, content, markdown, now(), id);
+      });
+      tx();
+    } else { Object.assign(page, { title, content, markdown, updated_at: now() }); require('../db').writeJSON('pages', id, page); }
     json(res, { updated: true });
   });
 
@@ -112,7 +150,27 @@ function register(app) {
     const page = getPage(app, id);
     if (!page) return notFound(res, '页面不存在');
     if (!canModifyPage(req, res, page)) return;
-    if (db) { db.prepare('DELETE FROM pages WHERE id = ?').run(id); } else { require('../db').deleteJSON('pages', id); }
+    // R5 修复: FK 强制下需先级联子表 (事务包裹), 原 DELETE 直接删 pages 触发 FK constraint failed。
+    if (db) {
+      const tx = db.transaction(() => {
+        db.prepare('DELETE FROM page_versions WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM page_links WHERE source_page_id = ? OR target_page_id = ?').run(id, id);
+        db.prepare('DELETE FROM page_tags WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM comments WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM favorites WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM metadata WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM files WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM rag_chunks WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM office_files WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM yjs_docs WHERE page_id = ?').run(id);
+        db.prepare('DELETE FROM pages WHERE id = ?').run(id);
+      });
+      try { tx(); }
+      catch (e) {
+        console.error(`[Page] DELETE 级联失败 ${id}: ${e.message}`);
+        return error(res, `删除失败: ${e.message}`, 500);
+      }
+    } else { require('../db').deleteJSON('pages', id); }
     json(res, { deleted: true });
   });
 
@@ -169,8 +227,11 @@ function register(app) {
     if (!ver) return notFound(res, '版本不存在');
     const maxVer = db.prepare('SELECT MAX(version) as m FROM page_versions WHERE page_id = ?').get(id)?.m || 0;
     const snapshot = { id: uid(), page_id: id, title: ver.title, content: ver.content, version: maxVer + 1, created_at: now() };
-    db.prepare('INSERT INTO page_versions (id, page_id, title, content, version, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(snapshot.id, snapshot.page_id, snapshot.title, snapshot.content, snapshot.version, snapshot.created_at);
-    db.prepare('UPDATE pages SET title = ?, content = ?, updated_at = ? WHERE id = ?').run(ver.title, ver.content, now(), id);
+    // R8 修复: 快照写入 + 页面正文回滚须原子, 否则中途崩溃致快照已记但正文仍旧值 (状态不一致)
+    db.transaction(() => {
+      db.prepare('INSERT INTO page_versions (id, page_id, title, content, version, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(snapshot.id, snapshot.page_id, snapshot.title, snapshot.content, snapshot.version, snapshot.created_at);
+      db.prepare('UPDATE pages SET title = ?, content = ?, updated_at = ? WHERE id = ?').run(ver.title, ver.content, now(), id);
+    })();
     console.log(`[Page] Restored page ${id} to version ${ver.version} (snapshot v${snapshot.version})`);
     json(res, { restored: true, page_id: id, restored_version: ver.version, new_snapshot_version: snapshot.version });
   });
@@ -190,7 +251,8 @@ function register(app) {
     const { id } = req.params;
     const body = await parseBody(req);
     const link = { id: uid(), source_page_id: id, target_page_id: body.target_page_id, link_type: body.link_type || 'reference', created_at: now() };
-    if (db) { db.prepare('INSERT INTO page_links (id, source_page_id, target_page_id, link_type, created_at) VALUES (?, ?, ?, ?, ?)').run(...Object.values(link)); }
+    // E30 修复: 不用 Object.values(link) 依赖键序与列序对齐 (脆弱, 重排键即静默错列)。显式传参。
+    if (db) { db.prepare('INSERT INTO page_links (id, source_page_id, target_page_id, link_type, created_at) VALUES (?, ?, ?, ?, ?)').run(link.id, link.source_page_id, link.target_page_id, link.link_type, link.created_at); }
     created(res, link);
   });
 

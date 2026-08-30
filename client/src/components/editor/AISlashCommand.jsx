@@ -121,13 +121,13 @@ async function handleSlashAction(editor, item) {
     const textAfter = editor.state.doc.textBetween(to || from, editor.state.doc.content.size, '\n');
     const pageId = editor.storage.pageId || '';
 
-    let endpoint = `/api/copilot/${item.command}`;
+    let endpoint = `/copilot/${item.command}`;
     let body = { page_id: pageId, text_before: textBefore, selected_text: selectedText, text_after: textAfter };
     if (item.language) body.language = item.language;
     if (item.command === 'custom') {
         const prompt = window.prompt('输入 AI 指令:');
         if (!prompt) return;
-        endpoint = '/api/copilot/command';
+        endpoint = '/copilot/command';
         body = { ...body, command: 'custom', prompt };
     }
 

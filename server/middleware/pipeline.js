@@ -36,8 +36,13 @@ class MiddlewarePipeline {
       } catch (err) {
         console.error(`[Middleware:${mw.name}] 错误: ${err.message}`);
         if (!res.writableEnded) {
+          // R21 修复: 生产环境屏蔽内部错误细节, 仅回通用信息
+          const isProd = process.env.NODE_ENV === 'production';
           res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: `Middleware error: ${err.message}`, code: 'MIDDLEWARE_ERROR' }));
+          res.end(JSON.stringify({
+            error: isProd ? 'Internal Server Error' : `Middleware error: ${err.message}`,
+            code: 'MIDDLEWARE_ERROR',
+          }));
         }
         return true;
       }

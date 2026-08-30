@@ -10,6 +10,7 @@ const MAX_ENTRIES = 10000; // Map 容量上限, 防 XFF 伪造导致无界增长
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 // 清理过期记录（每 60s 执行一次）
+// unref: 不阻止进程退出 (否则 node --test 等 CLI 会因定时器挂起)
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of requestCounts) {
@@ -17,7 +18,7 @@ setInterval(() => {
       requestCounts.delete(key);
     }
   }
-}, 60000);
+}, 60000).unref();
 
 function clientKey(req) {
   // raw http.createServer 从不设 req.ip, 故 socket.remoteAddress 优先
@@ -41,10 +42,17 @@ function rateLimit(options = {}) {
     const key = `${tag}:${clientKey(req)}`;
     const now = Date.now();
 
-    // Map 容量上限兜底: 超量时跳过限流记录, 防 DoS 内存膨胀
+    // R9 修复: Map 满时淘汰最早到期条目 (LRU) 而非永久拒绝新 key。
+    // 原设计满载后对所有新 key 永久 429, 攻击者伪造 10000 IP 填满后正常用户在 60s 窗口内全部被拒。
     if (!requestCounts.has(key) && requestCounts.size >= MAX_ENTRIES) {
-      console.warn(`  [RateLimit] Map 容量达上限 ${MAX_ENTRIES}, 跳过记录`);
-      return false;
+      let oldestKey = null, oldestReset = Infinity;
+      for (const [k, e] of requestCounts) {
+        if (e.resetTime < oldestReset) { oldestReset = e.resetTime; oldestKey = k; }
+      }
+      if (oldestKey) {
+        requestCounts.delete(oldestKey);
+        console.warn(`  [RateLimit] Map 容量达上限 ${MAX_ENTRIES}, 淘汰最早到期条目以接纳新 key`);
+      }
     }
 
     if (!requestCounts.has(key)) {

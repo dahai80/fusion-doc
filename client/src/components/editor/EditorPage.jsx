@@ -31,34 +31,48 @@ export default function EditorPage() {
     const saveTimerRef = useRef(null);
     const lastContentRef = useRef('');
     const [collabEnabled, setCollabEnabled] = useState(false);
+    // R28 修复: useEditor 的 onUpdate/handleKeyDown 闭包在 editor 创建时冻结,
+    // currentPage 变化后旧闭包仍指向旧 page, 保存写入旧 page。
+    // 用 ref 始终读最新 currentPage, 闭包只读 ref 不捕获 page。
+    const currentPageRef = useRef(currentPage);
+    useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
+    // R23 修复: setContent 节流标志。远端更新触发 onUpdate 回写时不重入 setContent。
+    const applyingRemoteRef = useRef(false);
 
     useEffect(() => {
         if (id) fetchPage(id);
     }, [id]);
 
+    // R24 修复: 卸载时只销毁本页连接, 不清全部 (多 tab 编辑其他页不应被波及)
     useEffect(() => {
-        return () => { destroyYjsConnection(); };
-    }, []);
+        return () => { if (id) destroyYjsConnection(id); };
+    }, [id]);
 
     const handleContentChange = useCallback((html) => {
-        if (!currentPage) return;
+        // R28: 读 ref 而非闭包 currentPage
+        const page = currentPageRef.current;
+        if (!page) return;
+        // R23: 若是远端 setContent 回触发的 onUpdate, 不回写服务端 (避免来回抖动)
+        if (applyingRemoteRef.current) return;
         lastContentRef.current = html;
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
-            updatePage(currentPage.id, { content: html });
+            updatePage(page.id, { content: html });
         }, 2000);
-    }, [currentPage]);
+    }, []);
 
     const handleTitleChange = useCallback((title) => {
-        if (!currentPage) return;
-        updatePage(currentPage.id, { title });
-    }, [currentPage]);
+        const page = currentPageRef.current;
+        if (!page) return;
+        updatePage(page.id, { title });
+    }, []);
 
     const handleSave = useCallback(() => {
-        if (!currentPage) return;
+        const page = currentPageRef.current;
+        if (!page) return;
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        updatePage(currentPage.id, { content: lastContentRef.current });
-    }, [currentPage]);
+        updatePage(page.id, { content: lastContentRef.current });
+    }, []);
 
     const editor = useEditor({
         extensions: [
@@ -113,11 +127,26 @@ export default function EditorPage() {
         }
     }, [editor, currentPage?.id]);
 
+    // R23 修复: setContent 与 Yjs CRDT 冲突。原实现字符串比较 HTML 恒触发 setContent 抖动循环,
+    // 协同模式下覆盖远端 update。改为: 仅在切换页面 (id 变化) 时初始化一次内容,
+    // 用 applyingRemoteRef 标记防止 onUpdate 回写服务端; 协作开启时交由 Yjs sync, 不 setContent。
     useEffect(() => {
-        if (editor && currentPage && currentPage.content !== editor.getHTML()) {
-            editor.commands.setContent(currentPage.content || '');
+        if (!editor || !currentPage) return;
+        // 协作模式由 Yjs provider 同步内容, setContent 会破坏 CRDT, 跳过
+        if (collabEnabled) return;
+        applyingRemoteRef.current = true;
+        try {
+            const current = editor.getHTML();
+            // 仅当内容实质不同 (非空白归一后) 才 setContent, 避免格式差异恒触发
+            const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+            if (norm(current) !== norm(currentPage.content || '')) {
+                editor.commands.setContent(currentPage.content || '', false);
+            }
+        } finally {
+            // 下个 tick 解除标记, 让后续用户输入正常回写
+            setTimeout(() => { applyingRemoteRef.current = false; }, 0);
         }
-    }, [currentPage?.id]);
+    }, [currentPage?.id, currentPage?.content, collabEnabled, editor]);
 
     if (!currentPage) {
         return (

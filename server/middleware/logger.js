@@ -30,16 +30,22 @@ function logger(req, res, pipeline) {
   const logLevel = process.env.LOG_LEVEL || 'info';
 
   // 响应结束时记录日志
+  // E14 修复: 加重入守卫并恢复原始 res.end, 防 res.end 在 wrapper 内被再次触发
+  // (如 error-handler/errorResponse 在已 end 后兜底再 end) 致递归日志/无限调用。
   const originalEnd = res.end.bind(res);
+  let logged = false;
   res.end = function(...args) {
-    const duration = Date.now() - start;
-    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    if (!logged) {
+      logged = true;
+      res.end = originalEnd; // 先还原, 避免后续 end 再次进 wrapper
+      const duration = Date.now() - start;
+      const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
 
-    if (levels[level] >= levels[logLevel]) {
-      const timestamp = new Date().toISOString().slice(11, 23);
-      console.log(`  [${timestamp}] ${method} ${redactUrl(url)} → ${res.statusCode} (${duration}ms) [${level}]`);
+      if (levels[level] >= levels[logLevel]) {
+        const timestamp = new Date().toISOString().slice(11, 23);
+        console.log(`  [${timestamp}] ${method} ${redactUrl(url)} → ${res.statusCode} (${duration}ms) [${level}]`);
+      }
     }
-
     return originalEnd(...args);
   };
 

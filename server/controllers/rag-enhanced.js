@@ -5,6 +5,7 @@
 
 const { json, error } = require('../utils/response');
 const { hybridSearch, reindexPage, getPageChunks } = require('../services/rag-hybrid');
+const { requireAdmin } = require('../middleware/require-admin');
 
 function register(app) {
     // ── 混合检索 ────────────────────────────────────────────────────────
@@ -24,6 +25,8 @@ function register(app) {
 
     // ── 增量索引单个页面 ─────────────────────────────────────────────────
     app.registerRoute('POST', '/api/rag/reindex/:id', async (req, res) => {
+        // R10 修复: 单页重索引也调用 embedding 占 GPU, 加 admin 闸与全库一致。
+        if (!requireAdmin(req, res)) return;
         try {
             const result = await reindexPage(app, req.params.id);
             json(res, result);
@@ -41,6 +44,8 @@ function register(app) {
 
     // ── 批量索引所有页面 ─────────────────────────────────────────────────
     app.registerRoute('POST', '/api/rag/reindex-all', async (req, res) => {
+        // R10 修复: 全库串行 embedding 独占 GPU, 必须 admin 闸防任意用户 DoS。
+        if (!requireAdmin(req, res)) return;
         const { getDB } = require('../db');
         const db = getDB();
         if (!db) return error(res, 'DB not available', 500);

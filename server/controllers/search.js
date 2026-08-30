@@ -19,7 +19,7 @@ function register(app) {
 
     let results;
     if (db) {
-      results = db.prepare(`SELECT p.*, rank FROM pages_fts f JOIN pages p ON f.rowid = p.rowid WHERE pages_fts MATCH ? ORDER BY rank LIMIT 50`).all(q.replace(/[^\w\u4e00-\u9fff]/g, '') + '*');
+      results = db.prepare(`SELECT p.*, rank FROM pages_fts f JOIN pages p ON f.page_id = p.id WHERE pages_fts MATCH ? ORDER BY rank LIMIT 50`).all(q.replace(/[^\w\u4e00-\u9fff]/g, '') + '*');
     } else {
       const pages = require('../db').listJSON('pages');
       results = pages.filter(p => (p.title || '').toLowerCase().includes(q.toLowerCase()) || (p.content || '').toLowerCase().includes(q.toLowerCase()));
@@ -48,7 +48,7 @@ function register(app) {
       const params = [];
       const wheres = [];
       if (q) {
-        sql += ' JOIN pages_fts f ON f.rowid = p.rowid';
+        sql += ' JOIN pages_fts f ON f.page_id = p.id';
         wheres.push('pages_fts MATCH ?');
         params.push(q.replace(/[^\w\u4e00-\u9fff]/g, '') + '*');
       }
