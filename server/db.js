@@ -18,12 +18,14 @@ function initDB() {
     const Database = require('better-sqlite3');
     fs.mkdirSync(DB_DIR, { recursive: true });
     db = new Database(path.join(DB_DIR, 'fusion-doc.db'));
+    // 多进程加固: busy_timeout 必须最先设, 此后所有 pragma/写操作遇锁才排队而非立即 BUSY。
+    // 默认 5000ms 在多进程并发启动 (迁移抢锁) 时易 SQLITE_BUSY 致误降级 JSON, 提到 10000ms。
+    db.pragma('busy_timeout = 10000');
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.pragma('cache_size = -64000'); // 64MB cache
-    db.pragma('busy_timeout = 5000');
 
-    // 执行 Schema 迁移
+    // 执行 Schema 迁移 (多进程并发安全: BEGIN IMMEDIATE 抢写锁, busy_retry 排队)
     runMigrations();
 
     console.log('  [DB] SQLite 初始化成功');
@@ -36,6 +38,28 @@ function initDB() {
 }
 
 // ── 迁移系统 ──────────────────────────────────────────────────────────────
+// 多进程加固: 抢写锁 (BEGIN IMMEDIATE) 串行化并发迁移。
+// 多个进程同时启动 → 仅一个能拿到写锁跑迁移, 其余 BUSY 重试排队 (busy_timeout 兜底)。
+// 抢锁失败超 busy_timeout 仍报错 (fail visibly), 不静默带旧 schema 接客。
+function _acquireMigrateLock() {
+  const maxRetry = 60; // 最多重试 60 次 × 200ms = 12s (覆盖 busy_timeout 10s)
+  for (let i = 0; i < maxRetry; i++) {
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      return true;
+    } catch (e) {
+      if (e.code === 'SQLITE_BUSY' || /database is locked/.test(e.message)) {
+        // 等待 200ms 再试, 让持锁进程完成迁移
+        const slept = Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+        void slept;
+        continue;
+      }
+      throw e; // 非忙锁错误, 上抛
+    }
+  }
+  return false;
+}
+
 function runMigrations() {
   if (!db) return;
 
@@ -46,62 +70,77 @@ function runMigrations() {
     applied_at TEXT DEFAULT (datetime('now'))
   )`);
 
-  // 按顺序执行迁移
-  const applied = new Set(
-    db.prepare('SELECT name FROM _migrations').all().map(r => r.name)
-  );
+  // 多进程: 抢写锁跑迁移 (持锁期间其他进程排队)
+  if (!_acquireMigrateLock()) {
+    throw new Error('数据库迁移锁获取超时 (多进程并发启动, busy_timeout 内未拿到写锁)');
+  }
 
-  const migrations = [
-    { name: '001_initial_schema', sql: getInitialSchema() },
-    { name: '002_rag_index', sql: getRagIndexSchema() },
-    { name: '003_activity_webhook', sql: getActivityWebhookSchema() },
-    { name: '004_metadata_vocabulary', sql: getMetadataVocabularySchema() },
-    { name: '005_page_editor', fn: runPageEditorMigration },
-    { name: '006_templates', sql: getTemplatesSchema() },
-    { name: '007_office_files', sql: getOfficeFilesSchema() },
-    { name: '008_rag_chunks', sql: getRagChunksSchema() },
-    { name: '009_workflow', sql: getWorkflowSchema() },
-    { name: '010_collaboration', sql: getCollaborationSchema() },
-    { name: '011_vocabulary_unique', fn: runVocabularyUniqueMigration },
-    // A2 修复: append-only 更新日志表。替代 yjs_docs 单行 state 的 read-modify-write,
-    // 消除多客户端并发 SELECT 旧 state 各自 concat UPDATE 的 lost update。
-    { name: '012_yjs_updates', sql: getYjsUpdatesSchema() },
-    { name: '013_yjs_state_seq', fn: runYjsStateSeqMigration },
-    // A7 修复: pages_fts 从 external-content(rowid) 改自包含(page_id UNINDEXED)。
-    // 重建 FTS 表 + 触发器, 用 pages 现有数据回填, 消除 rowid 错配风险。
-    { name: '014_fts_decouple_rowid', fn: runFtsDecoupleMigration },
-    // A7 修复补充: 014 的 pages_ad/pages_au 触发器误用 'delete' 特殊命令,
-    // 自包含 FTS 表上致 pages DELETE/UPDATE 报 "SQL logic error"。重建为按 page_id 直接删除。
-    { name: '015_fts_trigger_fix', fn: runFtsTriggerFixMigration },
-    // A8 修复: 三路 RAG 合一。ai.js 内联 + rag.js 用 rag_index 表, rag-hybrid 用 rag_chunks 表,
-    // 数据分叉、重索引成本翻倍。统一到 rag_chunks, rag_index 废弃 (down 迁移归档)。
-    // 仅迁移已应用计数, 实际合并由 rag 服务层统一写 rag_chunks, 此条无 DDL (幂等占位)。
-    { name: '016_rag_unify', fn: runRagUnifyMigration },
-  ];
+  try {
+    // 按顺序执行迁移
+    const applied = new Set(
+      db.prepare('SELECT name FROM _migrations').all().map(r => r.name)
+    );
 
-  for (const migration of migrations) {
-    if (applied.has(migration.name)) continue;
-    // E3 修复: 单迁移 SAVEPOINT 原子化。DDL 在 SQLite 可事务 (CREATE/DROP/ALTER 均可回滚),
-    // 失败时 RELEASE 前抛错 → ROLLBACK 回退本迁移已执行的部分语句, 不留半套 schema。
-    // _migrations 记录与 DDL 同事务, 全成功才记 applied, 中途崩溃重启不会误判已迁移。
-    db.exec('SAVEPOINT fd_migration');
-    try {
-      if (migration.fn) {
-        migration.fn(db);
-      } else {
-        db.exec(migration.sql);
+    const migrations = [
+      { name: '001_initial_schema', sql: getInitialSchema() },
+      { name: '002_rag_index', sql: getRagIndexSchema() },
+      { name: '003_activity_webhook', sql: getActivityWebhookSchema() },
+      { name: '004_metadata_vocabulary', sql: getMetadataVocabularySchema() },
+      { name: '005_page_editor', fn: runPageEditorMigration },
+      { name: '006_templates', sql: getTemplatesSchema() },
+      { name: '007_office_files', sql: getOfficeFilesSchema() },
+      { name: '008_rag_chunks', sql: getRagChunksSchema() },
+      { name: '009_workflow', sql: getWorkflowSchema() },
+      { name: '010_collaboration', sql: getCollaborationSchema() },
+      { name: '011_vocabulary_unique', fn: runVocabularyUniqueMigration },
+      // A2 修复: append-only 更新日志表。替代 yjs_docs 单行 state 的 read-modify-write,
+      // 消除多客户端并发 SELECT 旧 state 各自 concat UPDATE 的 lost update。
+      { name: '012_yjs_updates', sql: getYjsUpdatesSchema() },
+      { name: '013_yjs_state_seq', fn: runYjsStateSeqMigration },
+      // A7 修复: pages_fts 从 external-content(rowid) 改自包含(page_id UNINDEXED)。
+      // 重建 FTS 表 + 触发器, 用 pages 现有数据回填, 消除 rowid 错配风险。
+      { name: '014_fts_decouple_rowid', fn: runFtsDecoupleMigration },
+      // A7 修复补充: 014 的 pages_ad/pages_au 触发器误用 'delete' 特殊命令,
+      // 自包含 FTS 表上致 pages DELETE/UPDATE 报 "SQL logic error"。重建为按 page_id 直接删除。
+      { name: '015_fts_trigger_fix', fn: runFtsTriggerFixMigration },
+      // A8 修复: 三路 RAG 合一。ai.js 内联 + rag.js 用 rag_index 表, rag-hybrid 用 rag_chunks 表,
+      // 数据分叉、重索引成本翻倍。统一到 rag_chunks, rag_index 废弃 (down 迁移归档)。
+      // 仅迁移已应用计数, 实际合并由 rag 服务层统一写 rag_chunks, 此条无 DDL (幂等占位)。
+      { name: '016_rag_unify', fn: runRagUnifyMigration },
+      // 海量 KB 修复: sqlite-vec ANN 向量索引。rag_chunks.id 为 TEXT, vec0 需整数主键,
+      // 故建 rag_chunks_vec (vec0, 自增 rowid) + rag_vec_map (rowid↔chunk_id TEXT) 双表。
+      // 向量写入双写 (rag_chunks.vector 兼容降级 + rag_chunks_vec ANN 检索)。
+      // 扩展缺失时跳过 (降级回线性扫, 兼容 zero-dep 环境)。
+      { name: '017_rag_vec_index', fn: runRagVecIndexMigration },
+    ];
+
+    for (const migration of migrations) {
+      if (applied.has(migration.name)) continue;
+      // E3 修复: 单迁移 SAVEPOINT 原子化。DDL 在 SQLite 可事务 (CREATE/DROP/ALTER 均可回滚),
+      // 失败时 RELEASE 前抛错 → ROLLBACK 回退本迁移已执行的部分语句, 不留半套 schema。
+      // _migrations 记录与 DDL 同事务, 全成功才记 applied, 中途崩溃重启不会误判已迁移。
+      db.exec('SAVEPOINT fd_migration');
+      try {
+        if (migration.fn) {
+          migration.fn(db);
+        } else {
+          db.exec(migration.sql);
+        }
+        db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(migration.name);
+        db.exec('RELEASE fd_migration');
+        console.log(`  [迁移] ${migration.name} ✓`);
+      } catch (e) {
+        // 商用级 fail visibly: 迁移失败不可吞, 抛出阻止带病启动 (P2-19)
+        // E3 修复: 回滚本迁移的部分 DDL, 保持库一致, 再抛出。
+        db.exec('ROLLBACK TO fd_migration');
+        db.exec('RELEASE fd_migration');
+        console.error(`  [迁移] ${migration.name} ✗ ${e.message}`);
+        throw new Error(`数据库迁移 ${migration.name} 失败: ${e.message}`);
       }
-      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(migration.name);
-      db.exec('RELEASE fd_migration');
-      console.log(`  [迁移] ${migration.name} ✓`);
-    } catch (e) {
-      // 商用级 fail visibly: 迁移失败不可吞, 抛出阻止带病启动 (P2-19)
-      // E3 修复: 回滚本迁移的部分 DDL, 保持库一致, 再抛出。
-      db.exec('ROLLBACK TO fd_migration');
-      db.exec('RELEASE fd_migration');
-      console.error(`  [迁移] ${migration.name} ✗ ${e.message}`);
-      throw new Error(`数据库迁移 ${migration.name} 失败: ${e.message}`);
     }
+  } finally {
+    // 释放写锁 (无论迁移成功与否)
+    try { db.exec('COMMIT'); } catch (_) { /* 已回滚或无活动事务 */ }
   }
 }
 
@@ -406,6 +445,26 @@ function runVocabularyUniqueMigration(database) {
 
 function getDB() { return db; }
 
+// ── sqlite-vec ANN 扩展加载 (海量 KB 修复) ────────────────────────────────
+// vec0 虚拟表提供近似最近邻 (KNN), 解向量线性扫规模上限。扩展缺失则降级回线性扫 (兼容)。
+// 加载状态缓存供 rag-hybrid 检索路径判断是否走 ANN。
+let _vecLoaded = false;
+function isVecLoaded() { return _vecLoaded; }
+function loadVecExtension(database) {
+  if (_vecLoaded) return true;
+  try {
+    const sqliteVec = require('sqlite-vec');
+    sqliteVec.load(database);
+    _vecLoaded = true;
+    console.log('  [DB] sqlite-vec 扩展已加载 (ANN 向量索引可用)');
+    return true;
+  } catch (e) {
+    console.warn(`  [DB] sqlite-vec 扩展不可用, RAG 向量检索降级线性扫: ${e.message}`);
+    _vecLoaded = false;
+    return false;
+  }
+}
+
 // 数据备份: 使用 better-sqlite3 原生 .backup() 在线热备 (WAL 安全, 不阻塞写入)
 // 异步返回备份文件绝对路径; 失败抛错 (商用级 fail visibly)
 async function backupDB(destDir) {
@@ -437,7 +496,7 @@ function getTemplatesSchema() {
   `;
 }
 
-module.exports = { initDB, getDB, db, readJSON, writeJSON, listJSON, deleteJSON, backupDB, migrateDown };
+module.exports = { initDB, getDB, db, readJSON, writeJSON, listJSON, deleteJSON, backupDB, migrateDown, loadVecExtension, isVecLoaded };
 
 function getOfficeFilesSchema() {
   return `
@@ -646,4 +705,49 @@ function runRagUnifyMigration(db) {
     // 归并失败不阻断启动 (rag_index 表结构可能已被旧版 ai.js 改动), 仅告警
     console.warn(`  [迁移] rag_unify 归并跳过: ${e.message}`);
   }
+}
+
+// ── 017: sqlite-vec ANN 向量索引 (海量 KB 修复) ──────────────────────────
+// rag_chunks.id 为 TEXT, vec0 仅接受整数 rowid 主键 → 建 rag_chunks_vec (vec0, 自增 rowid)
+// + rag_vec_map (vec_rowid INTEGER ↔ chunk_id TEXT) 映射回 rag_chunks。
+// 维度从 env AI_EMBEDDING_DIM 读 (默认 384, bge-small-en-v1.5)。存量 vector 回填进 vec 表。
+// 扩展加载失败则跳过建表 (降级线性扫), 不阻断启动 — _vecLoaded=false, rag-hybrid 走旧路径。
+function runRagVecIndexMigration(database) {
+  const loaded = loadVecExtension(database);
+  if (!loaded) {
+    console.log('  [迁移] 017_rag_vec_index 跳过: sqlite-vec 扩展不可用 (降级线性扫)');
+    return;
+  }
+  const dim = parseInt(process.env.AI_EMBEDDING_DIM || '384', 10);
+  if (!Number.isFinite(dim) || dim <= 0) {
+    throw new Error(`AI_EMBEDDING_DIM 非法: ${dim}`);
+  }
+  // vec0 虚拟表 (整数 rowid 主键 + embedding float[dim])
+  database.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks_vec USING vec0(embedding float[${dim}]);`);
+  // 映射表: vec_rowid (rag_chunks_vec.rowid) ↔ chunk_id (rag_chunks.id TEXT)
+  database.exec(`CREATE TABLE IF NOT EXISTS rag_vec_map (
+    vec_rowid INTEGER PRIMARY KEY,
+    chunk_id TEXT NOT NULL UNIQUE
+  );`);
+  // 回填存量向量 (rag_chunks.vector JSON → rag_chunks_vec + rag_vec_map)
+  const existing = database.prepare("SELECT id, vector FROM rag_chunks WHERE vector IS NOT NULL").all();
+  if (existing.length === 0) {
+    console.log(`  [迁移] 017_rag_vec_index: vec0 表已建 (dim=${dim}), 无存量向量待回填`);
+    return;
+  }
+  const insVec = database.prepare("INSERT INTO rag_chunks_vec(embedding) VALUES (?)");
+  const insMap = database.prepare("INSERT OR IGNORE INTO rag_vec_map(vec_rowid, chunk_id) VALUES (?, ?)");
+  let filled = 0, skipped = 0;
+  const tx = database.transaction(() => {
+    for (const r of existing) {
+      let v;
+      try { v = JSON.parse(r.vector); } catch { skipped++; continue; }
+      if (!Array.isArray(v) || v.length !== dim) { skipped++; continue; }
+      const info = insVec.run(new Float32Array(v));
+      insMap.run(info.lastInsertRowid, r.id);
+      filled++;
+    }
+  });
+  tx();
+  console.log(`  [迁移] 017_rag_vec_index: vec0 表已建 (dim=${dim}), 回填 ${filled} 向量 (${skipped} 跳过: 维度不符/解析失败)`);
 }

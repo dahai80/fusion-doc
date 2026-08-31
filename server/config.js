@@ -117,6 +117,16 @@ const config = {
     sessionExpiry: parseInt(process.env.SESSION_EXPIRY || '86400', 10), // 24h
   },
 
+  // TLS (内置 HTTPS, 解裸暴露; Node 原生 tls, 零新依赖)
+  // 任一证书路径配置即启用 HTTPS; 两者须同时提供。商用建议真实证书 (letsencrypt/自签 CA)。
+  // 缺其一或文件不存在 → 启动 fail visibly (不静默降级回 HTTP 暴露明文)。
+  tls: {
+    certPath: process.env.FUSION_DOC_TLS_CERT || '',
+    keyPath: process.env.FUSION_DOC_TLS_KEY || '',
+    caPath: process.env.FUSION_DOC_TLS_CA || '',   // 可选: 客户端证书 CA (mTLS)
+    redirectHttp: process.env.FUSION_DOC_TLS_REDIRECT !== '0', // HTTP→HTTPS 跳转 (默认开)
+  },
+
   // 插件目录
   pluginsDir: path.resolve(process.env.FUSION_PLUGINS_DIR || path.join(__dirname, 'plugins')),
 

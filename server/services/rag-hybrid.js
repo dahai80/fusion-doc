@@ -4,10 +4,18 @@
 // =============================================================================
 
 const { callFusionMLX } = require('../integrations/fusion-mlx');
-const { getDB } = require('../db');
+const { getDB, isVecLoaded } = require('../db');
 const { uid } = require('../utils/helpers');
 
 const WEIGHTS = { vector: 0.5, fts5: 0.3, bm25: 0.2 };
+
+// ── 海量 KB 修复: sqlite-vec ANN 维度 ──────────────────────────────────────
+// vec0 表建表时锁定维度 (迁移 017 按 env AI_EMBEDDING_DIM, 默认 384 = bge-small-en-v1.5)。
+// 检索/写入路径据此判断向量是否兼容 ANN; 维度不符则降级线性扫 (兼容模型切换)。
+const VEC_DIM = parseInt(process.env.AI_EMBEDDING_DIM || '384', 10);
+// ANN KNN 过采样倍数: KNN 取 topK × 此倍数, 再按 accessiblePageIds 过滤, 取满 topK。
+// 权限过滤可能淘汰部分近邻, 过采样保证过滤后仍有足够候选。无权限限制 (admin) 时不浪费。
+const KNN_OVERSAMPLE = 4;
 
 // ── P0-P1/P0-P2 修复: 向量扫描 offload 到 worker_thread ──────────────────
 // 原 JSON.parse+余弦 ×候选行 跑主线程阻塞事件循环, 串行化全部请求。移至 worker,
@@ -129,10 +137,38 @@ function chunkPage(content, pageId) {
     return chunks;
 }
 
+// ── 海量 KB: vec 索引写入/删除辅助 ──────────────────────────────────────────
+// vec0 表用自增 rowid, rag_chunks.id 为 TEXT → rag_vec_map 双向映射。
+// 删页 chunk 时: 先按 chunk_id 查 vec_rowid, 删 vec 表行 + 映射行 (双表一致)。
+function _vecDeleteByChunkIds(db, chunkIds) {
+    if (!isVecLoaded() || !chunkIds.length) return;
+    const rows = db.prepare(`SELECT vec_rowid FROM rag_vec_map WHERE chunk_id IN (${chunkIds.map(() => '?').join(',')})`).all(...chunkIds);
+    if (!rows.length) return;
+    const vecRowids = rows.map(r => r.vec_rowid);
+    // vec0 删 rowid: DELETE FROM <vec_table> WHERE rowid = ?
+    const delVec = db.prepare('DELETE FROM rag_chunks_vec WHERE rowid = ?');
+    for (const vr of vecRowids) delVec.run(vr);
+    db.prepare(`DELETE FROM rag_vec_map WHERE vec_rowid IN (${vecRowids.map(() => '?').join(',')})`).run(...vecRowids);
+}
+
+// 写入单向量: 插入 vec0 表拿 rowid, 再建映射。向量维度须匹配 VEC_DIM, 否则跳过 (降级)。
+function _vecInsertChunk(db, chunkId, vector) {
+    if (!isVecLoaded() || !Array.isArray(vector) || vector.length !== VEC_DIM) return false;
+    try {
+        const info = db.prepare('INSERT INTO rag_chunks_vec(embedding) VALUES (?)').run(new Float32Array(vector));
+        db.prepare('INSERT OR IGNORE INTO rag_vec_map(vec_rowid, chunk_id) VALUES (?, ?)').run(info.lastInsertRowid, chunkId);
+        return true;
+    } catch (e) {
+        console.warn(`[RAG-Hybrid] vec 插入失败 chunk=${chunkId} (降级线性扫): ${e.message}`);
+        return false;
+    }
+}
+
 // ── 增量索引页面 ────────────────────────────────────────────────────────────
 // R8 修复: 原 DELETE + 逐 chunk INSERT 无事务, 中途崩溃致旧块已删新块半写 (数据不一致)。
 // better-sqlite3 transaction 同步不可含 await, 故先异步采集全部 embedding,
 // 再以单个同步事务原子完成 DELETE + 批量 INSERT (全成功或全回滚)。
+// 海量 KB 修复: 向量同步双写 rag_chunks_vec (ANN) + rag_chunks.vector (JSON 降级备份)。
 async function reindexPage(app, pageId) {
     const db = getDB();
     if (!db) throw new Error('DB not available');
@@ -144,6 +180,7 @@ async function reindexPage(app, pageId) {
 
     // 1. 异步采集 embedding (网络 IO, 不在事务内)
     const rows = [];
+    const vectors = []; // 平行存原始向量数组供 vec 表写入 (JSON.stringify 前的 Float[])
     for (const chunk of chunks) {
         let vector = null;
         try {
@@ -163,6 +200,7 @@ async function reindexPage(app, pageId) {
             vector ? JSON.stringify(vector) : null,
             JSON.stringify(bm25Tokens), Date.now(),
         ]);
+        vectors.push({ chunkId: chunk.id, vector });
     }
 
     // 2. 原子写: DELETE + 批量 INSERT 单事务, 失败回滚保旧块完整
@@ -171,8 +209,15 @@ async function reindexPage(app, pageId) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const reindexTxn = db.transaction(() => {
+        // 先删旧 chunk 的 vec 索引行 (按即将删除的 chunk_id 集合)
+        const oldChunkIds = db.prepare('SELECT id FROM rag_chunks WHERE page_id = ?').all(pageId).map(r => r.id);
+        _vecDeleteByChunkIds(db, oldChunkIds);
         db.prepare('DELETE FROM rag_chunks WHERE page_id = ?').run(pageId);
         for (const r of rows) insertStmt.run(...r);
+        // 双写 vec 表 (ANN); 维度不匹配/扩展缺失自动跳过 (rag_chunks.vector JSON 兜底)
+        for (const v of vectors) {
+            if (v.vector) _vecInsertChunk(db, v.chunkId, v.vector);
+        }
     });
     reindexTxn();
 
@@ -227,6 +272,9 @@ function pageIdFilter(accessiblePageIds) {
 }
 
 // ── 向量检索 ────────────────────────────────────────────────────────────────
+// 海量 KB 修复: 优先走 sqlite-vec ANN KNN (O(logN)), 解线性扫规模上限。
+// 路径选择: vec 已加载 + queryVec 维度==VEC_DIM → KNN; 否则降级原线性扫 (worker offload)。
+// 权限过滤: KNN 过采样 topK×KNN_OVERSAMPLE, JOIN rag_chunks 取 page_id 后按 accessiblePageIds 过滤。
 async function vectorSearch(db, config, query, topK, accessiblePageIds) {
     let queryVec = null;
     try {
@@ -241,6 +289,16 @@ async function vectorSearch(db, config, query, topK, accessiblePageIds) {
     }
     if (!queryVec || !db) return [];
 
+    // ANN 路径: vec 已加载 + 维度匹配 → KNN 查询
+    if (isVecLoaded() && Array.isArray(queryVec) && queryVec.length === VEC_DIM) {
+        try {
+            return _knnVectorSearch(db, queryVec, topK, accessiblePageIds);
+        } catch (e) {
+            console.warn('[RAG-Hybrid] KNN 查询失败, 降级线性扫:', e.message);
+        }
+    }
+
+    // 降级路径: 原线性扫 (vec 扩展缺失 / 维度不符 / KNN 异常)
     // S1: 按 accessiblePageIds 过滤候选; admin (null) 无限制
     const pf = pageIdFilter(accessiblePageIds);
     // 商用级: 限制候选规模, 防全表 OOM (P2-23)
@@ -261,6 +319,48 @@ async function vectorSearch(db, config, query, topK, accessiblePageIds) {
             .sort((a, b) => b.score - a.score)
             .slice(0, topK);
     }
+}
+
+// ── KNN 向量检索 (sqlite-vec ANN) ──────────────────────────────────────────
+// 过采样 topK×KNN_OVERSAMPLE 个近邻 (vec0 KNN 不支持 JOIN 过滤), 经 rag_vec_map→rag_chunks
+// 取 chunk_text/page_id, 按 accessiblePageIds 过滤后取 topK。admin (null) 不过滤。
+// distance 为 sqlite-vec 返回的 L2 距离 (越小越近), 归一化为相似度分数 (1/(1+distance))。
+function _knnVectorSearch(db, queryVec, topK, accessiblePageIds) {
+    const knnK = Math.max(topK * KNN_OVERSAMPLE, topK);
+    const q = new Float32Array(queryVec);
+    const knnRows = db.prepare(
+        'SELECT rowid, distance FROM rag_chunks_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance'
+    ).all(new Uint8Array(q.buffer), knnK);
+    if (!knnRows.length) return [];
+
+    // JOIN rag_vec_map → rag_chunks 取 chunk 明细
+    const vecRowids = knnRows.map(r => r.rowid);
+    const distMap = new Map(knnRows.map(r => [r.rowid, r.distance]));
+    const placeholders = vecRowids.map(() => '?').join(',');
+    const chunks = db.prepare(
+        `SELECT m.vec_rowid, c.id, c.page_id, c.chunk_index, c.chunk_text, c.heading
+         FROM rag_vec_map m JOIN rag_chunks c ON c.id = m.chunk_id
+         WHERE m.vec_rowid IN (${placeholders})`
+    ).all(...vecRowids);
+
+    let filtered = chunks;
+    // S1 权限过滤: accessiblePageIds 非 null → 仅留可见页 chunk
+    if (accessiblePageIds !== null && accessiblePageIds !== undefined) {
+        const allowed = new Set(Array.isArray(accessiblePageIds) ? accessiblePageIds : []);
+        filtered = chunks.filter(c => allowed.has(c.page_id));
+    }
+
+    return filtered
+        .map(c => ({
+            id: c.id,
+            page_id: c.page_id,
+            chunk_index: c.chunk_index,
+            chunk_text: c.chunk_text,
+            heading: c.heading,
+            score: (1 / (1 + (distMap.get(c.vec_rowid) || 0))) * WEIGHTS.vector,
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK);
 }
 
 // ── FTS5 检索 (修复: 直接用 chunk_text LIKE, 不误联 pages_fts.content) ──────
