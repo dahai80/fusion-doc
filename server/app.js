@@ -4,6 +4,8 @@
 // =============================================================================
 
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const { version: APP_VERSION } = require('../package.json');
@@ -45,9 +47,16 @@ class FusionDocApp {
     if (this.db) seedTemplates(this.db);
     console.log(`  [✓] 数据库: ${this.db ? 'SQLite' : 'JSON 文件存储'}`);
 
+    // 多实例加固: 角色 (primary|replica, 默认 primary)。
+    // replica 只接请求, 跳过单实例职责 (E8 僵尸清扫、自动备份), 防多进程重复执行 / 惊群。
+    // primary 担运维单点; 数据共享靠 SQLite WAL (同机多进程)。
+    this._role = (process.env.FUSION_DOC_ROLE || 'primary').toLowerCase();
+    console.log(`  [i] 实例角色: ${this._role}${this._role === 'replica' ? ' (跳过 E8 清扫/自动备份)' : ''}`);
+
     // E8 修复: 上次进程崩溃 (SIGKILL/掉电) 会留下 status='running' 的僵尸工作流运行,
     // 永不结算, 用户侧表现为"卡死无法再跑"。启动时清扫: running → failed (标记为崩溃中断)。
-    if (this.db && typeof this.db.prepare === 'function') {
+    // 多实例: 仅 primary 清扫, 避免多进程并发 UPDATE 同行 (replica 不动, primary 独担)。
+    if (this._role === 'primary' && this.db && typeof this.db.prepare === 'function') {
         try {
             const swept = this.db.prepare(
                 "UPDATE workflow_runs SET status = 'failed', error = ?, completed_at = ? WHERE status = 'running'"
@@ -77,8 +86,9 @@ class FusionDocApp {
 
     // P1-O2 修复: 自动定时备份 (原仅手动备份无调度)。间隔由 env AUTO_BACKUP_HOURS 控制 (默认 24, <=0 关闭)。
     // 单实例内存定时器, 触发 backupDB(); 失败仅记日志不中断服务。退出时清理。
+    // 多实例加固: 仅 primary 跑备份 (replica 跳过, 避免多进程并发 .backup() 抢同一目标文件)。
     this._backupIntervalHours = Number(process.env.AUTO_BACKUP_HOURS ?? 24);
-    if (this._backupIntervalHours > 0) {
+    if (this._role === 'primary' && this._backupIntervalHours > 0) {
         const { backupDB } = require('./db');
         const runBackup = async () => {
             try {
@@ -226,11 +236,51 @@ class FusionDocApp {
     return false;
   }
 
+  // ── 构建 TLS 配置 (内置 HTTPS, 解裸暴露) ────────────────────────────────
+  // certPath/keyPath 任一设 → 启用 HTTPS; 两者须同时提供且文件存在, 否则 fail visibly。
+  // 不静默降级回 HTTP (会暴露明文凭证)。caPath 可选 (mTLS 双向认证)。
+  _buildTlsOptions() {
+    const { certPath, keyPath, caPath } = config.tls;
+    if (!certPath && !keyPath) return null;
+    if (!certPath || !keyPath) {
+      console.error('  [✗] TLS 半配置: FUSION_DOC_TLS_CERT 与 FUSION_DOC_TLS_KEY 须同时提供');
+      process.exit(1);
+    }
+    const readCert = (p, label) => {
+      try { return fs.readFileSync(p); }
+      catch (e) {
+        console.error(`  [✗] TLS ${label} 文件不可读: ${p} (${e.message})`);
+        process.exit(1);
+      }
+    };
+    const opts = { cert: readCert(certPath, 'cert'), key: readCert(keyPath, 'key') };
+    if (caPath) opts.ca = readCert(caPath, 'ca');
+    // 启用现代安全默认: 拒绝旧 TLS 版本, 优先服务端 cipher 顺序
+    opts.minVersion = 'TLSv1.2';
+    opts.honorCipherOrder = true;
+    this._tlsEnabled = true;
+    console.log(`  [✓] TLS 已启用: cert=${path.basename(certPath)}`);
+    return opts;
+  }
+
   // ── 启动 ────────────────────────────────────────────────────────────────
   async start() {
     await this.init();
 
-    this.server = http.createServer((req, res) => this._handleRequest(req, res));
+    const tlsOpts = this._buildTlsOptions();
+    const requestHandler = (req, res) => {
+      // HTTPS 模式: 注入 HSTS 强制后续连接走 TLS (防降级)
+      if (this._tlsEnabled) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      }
+      this._handleRequest(req, res);
+    };
+    this.server = tlsOpts
+      ? https.createServer(tlsOpts, requestHandler)
+      : http.createServer(requestHandler);
+
+    // TLS 已启用但绑 0.0.0.0: 可直接对外 (无需反代终结 TLS), 裸暴露问题已解
+    // TLS 关闭且绑 0.0.0.0: 仍需前置反代 + TLS (保留原有告警)
 
     // 跟踪连接以便优雅关闭时强制销毁 keep-alive
     this.server.on('connection', (socket) => {
@@ -304,10 +354,13 @@ class FusionDocApp {
       this.server.listen(config.port, config.host, () => {
         const elapsed = ((Date.now() - this._startTime) / 1000).toFixed(1);
         const displayHost = config.host === '0.0.0.0' ? 'localhost' : config.host;
+        const scheme = this._tlsEnabled ? 'https' : 'http';
         console.log(`  ─────────────────────────────────────────`);
-        console.log(`  📍  http://${displayHost}:${config.port}  (绑定 ${config.host})`);
-        if (config.host === '0.0.0.0') {
-          console.warn('  [⚠] 监听 0.0.0.0: 已暴露到所有网卡, 商用部署须前置反向代理 + TLS');
+        console.log(`  📍  ${scheme}://${displayHost}:${config.port}  (绑定 ${config.host}${this._tlsEnabled ? ', TLS' : ''})`);
+        if (!this._tlsEnabled && config.host === '0.0.0.0') {
+          console.warn('  [⚠] 监听 0.0.0.0 + 未启 TLS: 明文暴露, 须前置反向代理 + TLS 或配置 FUSION_DOC_TLS_CERT/KEY');
+        } else if (this._tlsEnabled) {
+          console.log('  [✓] 内置 TLS: 裸暴露问题已解, 可直接对外 (无需反代终结 TLS)');
         }
         console.log(`  🧠  AI: ${config.fusionMlx.url}`);
         console.log(`  💾  存储: ${this.db ? 'SQLite' : 'JSON'}`);
@@ -325,6 +378,25 @@ class FusionDocApp {
         console.log(`  ✅ Fusion-Coder → AI 编码辅助`);
         console.log(`  ─────────────────────────────────────────`);
         resolve(this);
+
+        // TLS 模式下的 HTTP→HTTPS 跳转 (防用户误用 http:// 访问致明文凭证暴露)
+        // 仅当 TLS 启用 + redirectHttp 开启时起。独立端口 (env FUSION_DOC_HTTP_PORT, 默认 11448)。
+        // 置于 listen 回调内, 确保主 HTTPS 先就绪再起跳转, 且不被 return 提前短路。
+        if (this._tlsEnabled && config.tls.redirectHttp) {
+          const httpPort = parseInt(process.env.FUSION_DOC_HTTP_PORT || '11448', 10);
+          this._redirectServer = http.createServer((req, res) => {
+            const host = req.headers.host || `localhost:${httpPort}`;
+            const target = `https://${host.split(':')[0]}:${config.port}${req.url}`;
+            res.writeHead(301, { Location: target, 'Content-Type': 'text/plain' });
+            res.end(`Redirecting to ${target}`);
+          });
+          this._redirectServer.on('error', (err) => {
+            console.warn(`  [⚠] HTTP→HTTPS 跳转端口 ${httpPort} 不可用 (忽略, 主 HTTPS 不受影响): ${err.message}`);
+          });
+          this._redirectServer.listen(httpPort, config.host, () => {
+            console.log(`  [✓] HTTP→HTTPS 跳转: :${httpPort} → https://:${config.port}`);
+          });
+        }
       });
     });
   }
@@ -369,6 +441,11 @@ class FusionDocApp {
     }
 
     // 服务器关闭: 强制关闭 keep-alive 连接, 加超时兜底
+    if (this._redirectServer) {
+      try { this._redirectServer.close(); } catch (_) { /* noop */ }
+      this._redirectServer = null;
+      console.log('  [✓] HTTP→HTTPS 跳转服务已关闭');
+    }
     if (this.server) {
       return new Promise((resolve) => {
         const forceTimer = setTimeout(() => {

@@ -226,6 +226,53 @@ export AUTO_BACKUP_HOURS="24"
 export LOG_FORMAT="json"
 ```
 
+### 内置 TLS (解裸暴露)
+
+Node 原生 `tls` 实现 HTTPS, 零新依赖。配置证书路径即启用, 无需前置反代终结 TLS 即可直接对外。
+
+```bash
+# 提供证书 + 私钥 → 启用 HTTPS (任一缺失/文件不可读 → 启动 fail visibly, 不静默降级回 HTTP)
+export FUSION_DOC_TLS_CERT="/etc/letsencrypt/live/your-domain.com/fullchain.pem"
+export FUSION_DOC_TLS_KEY="/etc/letsencrypt/live/your-domain.com/privkey.pem"
+# 可选: 客户端证书 CA (mTLS 双向认证)
+export FUSION_DOC_TLS_CA="/etc/fusion-doc/ca.pem"
+# HTTP→HTTPS 跳转 (默认开; 独立端口 FUSION_DOC_HTTP_PORT 默认 11448, 关闭设 0)
+export FUSION_DOC_TLS_REDIRECT="1"
+export FUSION_DOC_HTTP_PORT="11448"
+
+# 自签证书快速生成 (内网/测试)
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/key.pem -out /tmp/cert.pem -days 365 -subj "/CN=localhost"
+```
+
+启用后: HSTS 头强制后续连接走 TLS; `:11449` 走 HTTPS, `:11448` 收 HTTP 301 跳转。未启用 TLS 且绑 `0.0.0.0` 仍告警须前置反代。
+
+### 多实例水平扩展 (同机多进程)
+
+SQLite WAL 模式支持多进程并发读写同库 (单机内水平扩展)。`FUSION_DOC_ROLE` 区分职责, 避免多进程重复执行运维单点 (惊群):
+
+```bash
+# primary (默认): 担 E8 僵尸工作流清扫 + 自动备份
+FUSION_DOC_ROLE="primary" FUSION_DOC_PORT="11449" bash start.sh start
+
+# replica: 只接请求, 跳过单实例职责 (防多进程并发 UPDATE 同行 / 抢同一备份文件)
+FUSION_DOC_ROLE="replica" FUSION_DOC_PORT="11450" bash start.sh start
+```
+
+迁移系统用 `BEGIN IMMEDIATE` + busy_retry 串行化并发启动 (多进程同时 boot 仅一个跑迁移, 其余排队), `busy_timeout=10000ms` 兜底。跨机/云规模扩展需引入外部队列与共享存储, 不在本机范围。
+
+### 海量知识库 (sqlite-vec ANN)
+
+向量检索默认线性扫 (零依赖兼容)。规模超万级 chunk 时启用 sqlite-vec 扩展走 ANN KNN (`O(logN)`):
+
+```bash
+npm install sqlite-vec         # 已列入依赖 (v1.0.6+)
+
+# 向量维度须与 embedding 模型一致 (默认 384 = bge-small-en-v1.5)
+export AI_EMBEDDING_DIM="384"
+```
+
+设计: `rag_chunks_vec` (vec0, 整数 rowid) + `rag_vec_map` (rowid↔chunk_id TEXT) 双表桥接 TEXT 主键; 写入双写 (rag_chunks.vector JSON 兜底 + vec 表 ANN)。扩展缺失/维度不符 → 自动降级线性扫 (零回归)。检索过采样 `topK×4` 补偿权限过滤淘汰。
+
 ### 容器/进程托管
 
 ```bash
@@ -252,7 +299,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fusion-doc
 - `GET /api/system/backup-schedule` — 自动备份调度状态 (admin)
 - `/settings` · `/admin` — SPA 设置页与管理后台 (备份/恢复 UI)
 
-安全特性: scrypt 密码哈希 · 认证端点限流 · JWT 强制密钥 · 默认本机绑定 · 在线热备 · SQL 参数化 · 请求体大小上限 · Webhook SSRF 防护 · 数据端点所有权校验 · 文件路径穿越防护 · MIME 白名单 · CORS 来源白名单 · 日志脱敏。
+安全特性: scrypt 密码哈希 · 认证端点限流 · JWT 强制密钥 · 默认本机绑定 · 在线热备 · SQL 参数化 · 请求体大小上限 · Webhook SSRF 防护 · 数据端点所有权校验 · 文件路径穿越防护 · MIME 白名单 · CORS 来源白名单 · 日志脱敏 · 内置 TLS · HSTS · HTTP→HTTPS 跳转。
 变更历史见 [CHANGELOG.md](./CHANGELOG.md)。完整对抗性安全审计见 [../audit/fusion-doc-audit-0830.md](../audit/fusion-doc-audit-0830.md)。
 
 ## License

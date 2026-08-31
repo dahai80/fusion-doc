@@ -1,6 +1,6 @@
 {
   "name": "fusion-doc",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
+    "sqlite-vec": "^0.1.9",
     "ws": "^8.21.1"
   },
   "devDependencies": {

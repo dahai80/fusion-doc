@@ -65,6 +65,22 @@ LOG_LEVEL=info
 # 认证
 JWT_SECRET=fusion-doc-$(date +%s)$(uuidgen 2>/dev/null || echo 'random-secret')
 SESSION_EXPIRY=86400
+
+# 内置 TLS (解裸暴露; 任一证书路径配置即启用 HTTPS, 两者须同时提供)
+# FUSION_DOC_TLS_CERT=
+# FUSION_DOC_TLS_KEY=
+# FUSION_DOC_TLS_CA=              # 可选: mTLS 客户端证书 CA
+# FUSION_DOC_TLS_REDIRECT=1       # HTTP→HTTPS 跳转 (默认开)
+# FUSION_DOC_HTTP_PORT=11448      # 跳转监听端口
+
+# 多实例角色 (同机多进程; primary 担 E8 清扫+自动备份, replica 只接请求)
+# FUSION_DOC_ROLE=primary
+
+# 海量知识库 (sqlite-vec ANN; 维度须与 embedding 模型一致, 默认 384 = bge-small-en-v1.5)
+# AI_EMBEDDING_DIM=384
+
+# 自动备份 (进程内调度, <=0 关闭)
+# AUTO_BACKUP_HOURS=24
 ENVEOF
   echo "  [✓] .env 配置文件已创建"
 else
