@@ -281,6 +281,8 @@ docker build -f deploy/Dockerfile -t fusion-doc .
 docker run -d -p 11449:11449 \
     -e JWT_SECRET="$(openssl rand -hex 32)" \
     -e FUSION_MLX_API_KEY="..." \
+    -e FUSION_MLX_URL="http://host.docker.internal:11434" \
+    --add-host=host.docker.internal:host-gateway \
     -v fusion-doc-data:/app/data fusion-doc
 
 # systemd (进程自动拉起 + 日志接管)

@@ -2,6 +2,15 @@
 
 本格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Fixed — 容器化交付 (issue #41)
+- **Dockerfile 构建阶段补客户端依赖**: `deploy/Dockerfile` 原构建阶段仅装根依赖, 缺 `client/` 的 vite (devDependencies), 导致 `npm run build` 无法构建客户端。改为分步装根 + 客户端依赖后再构建
+- **native 编译工具链**: `node:20-slim` (linux/arm64) 无 `better-sqlite3` 预编译二进制, 须 `python3 make g++` 源码编译。工具链仅装于 build 阶段, runtime 阶段直接拷已编译 `node_modules` (无工具链, 瘦镜像)
+- **`node_modules` 瘦身**: 删 native 编译中间产物 (`obj/`/`obj.target/`/`sqlite3.a`/`test_extension.node`/`*.gyp`) + 安装期工具 (`prebuild-install`/`node-gyp`), runtime 仅留 `better_sqlite3.node` (~2MB) + 运行时依赖
+- **新增 `.dockerignore`**: 防 `COPY . .` 把 `node_modules`/`data/`/`.env`/`.git`/`.venv`/旧构建产物拷进镜像层 (防密钥泄漏 + 减构建上下文)
+- **`FUSION_MLX_URL` 容器寻址**: 容器内连宿主 MLX 走 `http://host.docker.internal:11434` (+ `--add-host=host.docker.internal:host-gateway`), README 补注
+
 ## [1.0.6-rc.1] — 2026-08-31
 
 > 候选发布版 (Release Candidate)。修复三项阻塞企业级商用的架构天花板: 多实例水平扩展 / 海量知识库 / 裸暴露 (无内置 TLS)。GA 前最后验证窗口。

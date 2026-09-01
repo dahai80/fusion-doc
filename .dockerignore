@@ -1,0 +1,38 @@
+# =============================================================================
+# Docker 构建上下文排除 (issue #41)
+# 防止 COPY . . 把 node_modules / 运行数据 / 密钥 / .git 拷进镜像层。
+# =============================================================================
+# 依赖 (构建阶段自行 npm ci 重建, 不复用宿主 node_modules)
+node_modules
+client/node_modules
+
+# 运行数据 + 日志 (挂卷, 不进镜像)
+data
+logs
+*.log
+.fusion-doc.pid*
+
+# 密钥 (绝不进镜像层)
+.env
+.env.*
+
+# 版本控制 + 虚拟环境
+.git
+.gitignore
+.venv
+
+# 构建产物 (构建阶段重新生成, 不拷宿主旧产物)
+gateway/public
+client/dist
+
+# 测试 + 文档 + 审计 (运行时不需要)
+tests
+docs
+audit
+*.md
+
+# 工具/记忆索引
+.codegraph
+.remember
+.fusion-doc.pid
+.DS_Store
