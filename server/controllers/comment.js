@@ -30,7 +30,7 @@ function register(app) {
       if (!page) return error(res, '页面不存在', 404, 'NOT_FOUND');
       const isOwner = page.created_by === (req.user?.id || 'local');
       const isPublished = page.is_published === 1 || page.is_published === '1';
-      if (req.user?.role !== 'admin' && !isOwner && page.created_by && !isPublished) {
+      if (req.user?.role !== 'admin' && req.user?.role !== 'tenant_admin' && !isOwner && page.created_by && !isPublished) {
         return error(res, '无权对他人私有页面评论', 403, 'FORBIDDEN');
       }
     }
@@ -45,7 +45,7 @@ function register(app) {
     if (!db) return json(res, { deleted: true });
     const c = db.prepare('SELECT user_id FROM comments WHERE id = ?').get(id);
     if (!c) return notFound(res, '评论不存在');
-    if (req.user?.role !== 'admin' && c.user_id !== (req.user?.id || 'local')) {
+    if (req.user?.role !== 'admin' && req.user?.role !== 'tenant_admin' && c.user_id !== (req.user?.id || 'local')) {
       return error(res, '无权删除他人评论', 403);
     }
     db.prepare('DELETE FROM comments WHERE id = ?').run(id);

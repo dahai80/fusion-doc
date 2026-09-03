@@ -2,6 +2,7 @@
 // Fusion-Doc — 授权守卫 (共享中间件)
 // 页面读/写归属校验, 复用 page.js R13 读隔离 + R12 写隔离逻辑。
 // 多控制器 (file/office/copilot/rag/graph) 共用, 杜绝各自实现 IDOR 漏洞。
+// issue #45: 增租户隔离守卫 — 跨租户访问一律拒绝 (红线2), 即使已发布页亦然。
 // =============================================================================
 
 const { errorResponse } = require('./error-handler');
@@ -13,7 +14,13 @@ function canReadPage(req, res, page) {
         errorResponse(res, 404, '页面不存在', 'NOT_FOUND');
         return false;
     }
-    if (req.user?.role === 'admin') return true;
+    // issue #45: 租户边界 (跨租户拒绝, 含已发布页)
+    const tid = req.user?.tid;
+    if (tid && page.tenant_id && page.tenant_id !== tid) {
+        errorResponse(res, 404, '页面不存在', 'NOT_FOUND');
+        return false;
+    }
+    if (req.user?.role === 'tenant_admin' || req.user?.role === 'admin') return true;
     if (page.is_published === 1 || page.is_published === '1') return true;
     const owner = page.created_by;
     if (!owner) return true;
@@ -28,7 +35,13 @@ function canModifyPage(req, res, page) {
         errorResponse(res, 404, '页面不存在', 'NOT_FOUND');
         return false;
     }
-    if (req.user?.role === 'admin') return true;
+    // issue #45: 租户边界 (跨租户拒绝)
+    const tid = req.user?.tid;
+    if (tid && page.tenant_id && page.tenant_id !== tid) {
+        errorResponse(res, 404, '页面不存在', 'NOT_FOUND');
+        return false;
+    }
+    if (req.user?.role === 'tenant_admin' || req.user?.role === 'admin') return true;
     const owner = page.created_by;
     if (!owner) return true;
     if (owner === (req.user?.id || 'local')) return true;

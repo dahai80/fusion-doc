@@ -1,11 +1,15 @@
 // =============================================================================
-// Fusion-Doc — 认证中间件
-// 参考 DocMost + Wiki.js 多认证设计
+// Fusion-Doc — 认证中间件 (issue #45: 消费 fusion-identity, 不再自签)
+// 唯一 JWT 签发方 = fusion-identity; 本中间件调 verify 校验 + 注入租户上下文。
+// 三条红线: (1) fail-closed (无默认租户降级), (2) 跨租户拒绝 (tid↔X-Tenant-Id),
+//           (3) 数据隔离分层 (medium: tenant_id 列 + 守卫, 见 authz.js/各控制器)。
+// 本地旁路 FUSION_DOC_LOCAL_AUTH=1: 保留原 HS256 自签 + users 表 (单用户开发; 生产禁)。
 // =============================================================================
 
 const crypto = require('crypto');
+const identity = require('../integrations/fusion-identity');
 
-// 简单 JWT 实现（无外部依赖）
+// ── 本地旁路用 HS256 (仅 FUSION_DOC_LOCAL_AUTH=1; 保留向后兼容) ──────────
 function createToken(payload, secret, expiry = 86400) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
@@ -18,11 +22,9 @@ function verifyToken(token, secret) {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-    // 校验 header alg 必须为 HS256, 杜绝 alg=none/未来第三方 token
     const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
     if (!header || header.alg !== 'HS256') return null;
     const signature = crypto.createHmac('sha256', secret).update(`${parts[0]}.${parts[1]}`).digest('base64url');
-    // 恒定时间比较, 防时序侧信道
     const a = Buffer.from(signature, 'utf-8');
     const b = Buffer.from(parts[2], 'utf-8');
     if (a.length !== b.length) return null;
@@ -33,16 +35,16 @@ function verifyToken(token, secret) {
   } catch (_) { return null; }
 }
 
-// 公开路径（无需认证）: 默认所有方法公开; METHOD:PATH 仅指定方法公开
+// 公开路径 (无需认证): 默认所有方法公开; METHOD:PATH 仅指定方法公开
 const PUBLIC_PATHS = [
   '/api/health',
   '/api/health/live',
-  '/api/metrics', // P2-O5: 指标端点公开读 (仅计数, 无敏感数据), 便 Prometheus 抓取
+  '/api/metrics',
   '/api/system/setup',
   '/api/auth/setup',
   '/api/auth/login',
   '/api/branding',
-  'GET:/api/theme', // theme 仅 GET 公开, POST 须认证 (防未授权写)
+  'GET:/api/theme',
 ];
 
 function isPublicPath(method, pathname) {
@@ -51,75 +53,125 @@ function isPublicPath(method, pathname) {
   );
 }
 
-function auth(req, res, pipeline) {
+// ── 本地旁路: 从 users 表回查权威 role (保留 R3 修复) ────────────────────
+function _localVerify(token, req, res) {
+  const secret = req.ctx?.config?.auth?.jwtSecret;
+  if (!secret) {
+    console.error('[Auth] JWT secret not configured — rejecting all token auth');
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Server misconfiguration: JWT secret not set', code: 'AUTH_CONFIG_ERROR' }));
+    return null; // null = 未处理 (调用方续判); 但此处已响应 → 返回 sentinel
+  }
+  const payload = verifyToken(token, secret);
+  if (!payload) return false; // false = 校验失败
+  const db = req.ctx?.db;
+  let verified = payload;
+  if (db && payload.id) {
+    try {
+      const row = db.prepare('SELECT id, role FROM users WHERE id = ?').get(payload.id);
+      if (!row) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized: user not found', code: 'AUTH_USER_INVALID' }));
+        return null;
+      }
+      verified = { ...payload, role: row.role };
+    } catch (e) {
+      console.warn(`[Auth] 用户回查失败, 降级用 token role: ${e.message}`);
+    }
+  }
+  // 本地旁路无真实租户; 用 workspace id 作伪 tid 兼容旧单用户场景
+  verified.tid = verified.tid || verified.workspace_id || 'local-tenant';
+  return verified;
+}
+
+// ── role 映射: 4 统一角色; 兼容 legacy admin/user ─────────────────────────
+function _normalizeRole(role) {
+  if (!role) return 'member';
+  if (role === 'admin') return 'tenant_admin';
+  if (role === 'user') return 'member';
+  return role; // tenant_admin/operator/member/viewer 原样
+}
+
+// ── 主认证 ────────────────────────────────────────────────────────────────
+async function auth(req, res, pipeline) {
   const method = req.method;
   const pathname = req.url.split('?')[0];
+  const cfg = req.ctx?.config;
 
-  // 公开路径跳过认证
-  if (isPublicPath(method, pathname)) {
-    return false;
-  }
+  if (isPublicPath(method, pathname)) return false;
+  if (!pathname.startsWith('/api/')) return false;
 
-  // 非 API 路径跳过（静态文件 / SPA）
-  if (!pathname.startsWith('/api/')) {
-    return false;
-  }
-
-  // 从请求头获取 token
+  // ── 提取 Bearer token ──
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
-  if (token) {
-    const secret = req.ctx?.config?.auth?.jwtSecret;
-    if (!secret) {
-      console.error('[Auth] JWT secret not configured — rejecting all token auth');
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Server misconfiguration: JWT secret not set', code: 'AUTH_CONFIG_ERROR' }));
-      return true;
-    }
-    const payload = verifyToken(token, secret);
-    if (payload) {
-      // R3 修复: 不信任 token 自报 role/id, 回查 users 表取权威 role; 失败则拒绝。
-      // 原设计直接 req.user = payload, JWT_SECRET 泄漏后伪造 {role:'admin'} 即获管理员。
-      const db = req.ctx?.db;
-      let verified = payload;
-      if (db && payload.id) {
-        try {
-          const row = db.prepare('SELECT id, role FROM users WHERE id = ?').get(payload.id);
-          if (!row) {
-            console.warn(`[Auth] token 用户不存在, 拒绝: ${payload.id}`);
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Unauthorized: user not found', code: 'AUTH_USER_INVALID' }));
-            return true;
-          }
-          verified = { ...payload, role: row.role };
-        } catch (e) {
-          console.warn(`[Auth] 用户回查失败, 降级用 token role: ${e.message}`);
-        }
+  // ── 本地认证旁路 (FUSION_DOC_LOCAL_AUTH=1) ──
+  if (cfg?.localAuth) {
+    if (token) {
+      const r = _localVerify(token, req, res);
+      if (r === null) return true; // 已响应 (配置错误/用户不存在)
+      if (r) {
+        req.user = { id: r.id, tid: r.tid, role: _normalizeRole(r.role), scopes: r.scope || [] };
+        return false;
       }
-      req.user = verified;
-      return false; // 认证通过，继续管道
     }
+    // 本地旁路的 dev X-User-Id 兜底 (仅 dev + loopback)
+    if (process.env.NODE_ENV === 'development' && req.headers['x-user-id']) {
+      const remote = req.socket?.remoteAddress || '';
+      const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+      if (isLoopback) {
+        req.user = { id: req.headers['x-user-id'], tid: 'local-tenant', role: 'tenant_admin', scopes: [] };
+        console.warn('[Auth] LOCAL bypass: X-User-Id (dev loopback only)');
+        return false;
+      }
+    }
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+    return true;
   }
 
-  // 开发旁路: 需同时 AUTH_DEV_BYPASS=1 且 NODE_ENV=development, 且请求来自本机回环。
-  // R19 修复: 原仅查 config 绑定地址 (反代场景 config.host=127.0.0.1 但服务对外暴露即绕过);
-  // 改查请求实际来源 remoteAddress, 与 CLAUDE.md "仅 NODE_ENV=development 生效" 文档对齐。
-  if (process.env.AUTH_DEV_BYPASS === '1' && process.env.NODE_ENV === 'development' && req.headers['x-user-id']) {
-    const remote = req.socket?.remoteAddress || '';
-    const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
-    if (isLoopback) {
-      req.user = { id: req.headers['x-user-id'], role: 'admin' };
-      console.warn('[Auth] DEV bypass used (AUTH_DEV_BYPASS=1 + NODE_ENV=development + loopback only)');
-      return false;
-    }
-    console.error(`[Auth] X-User-Id bypass rejected: 请求非回环来源 (${remote})`);
+  // ── 生产/默认: fusion-identity verify (fail-closed) ──
+  if (!token) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized: token required', code: 'AUTH_REQUIRED' }));
+    return true;
   }
 
-  // 未认证
-  res.writeHead(401, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
-  return true; // 管道停止
+  // X-Tenant-Id 必填 (红线1: fail-closed, 无默认租户降级)
+  const xTenantId = req.headers['x-tenant-id'] || '';
+  if (!xTenantId) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized: X-Tenant-Id header required', code: 'AUTH_TENANT_REQUIRED' }));
+    return true;
+  }
+
+  let claims;
+  try {
+    claims = await identity.verify({ token, config: cfg.fusionIdentity });
+  } catch (e) {
+    console.warn(`[Auth] identity verify 拒绝: ${e.message}`);
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized: token invalid', code: 'AUTH_TOKEN_INVALID' }));
+    return true;
+  }
+
+  // 红线2: 跨租户拒绝 — JWT tid 必须匹配 X-Tenant-Id
+  if (claims.tid !== xTenantId) {
+    console.warn(`[Auth] 跨租户拒绝: token tid=${claims.tid} ≠ X-Tenant-Id=${xTenantId}`);
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized: tenant mismatch', code: 'AUTH_TENANT_MISMATCH' }));
+    return true;
+  }
+
+  // 注入租户上下文 (role 来自 identity 权威回查, 非 token 自报)
+  req.user = {
+    id: claims.sub || claims.tid,
+    tid: claims.tid,
+    role: _normalizeRole(claims.role),
+    scopes: claims.scopes || [],
+    quota: claims.quota || {},
+  };
+  return false;
 }
 
 module.exports = { auth, createToken, verifyToken };

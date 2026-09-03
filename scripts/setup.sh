@@ -66,6 +66,13 @@ LOG_LEVEL=info
 JWT_SECRET=fusion-doc-$(date +%s)$(uuidgen 2>/dev/null || echo 'random-secret')
 SESSION_EXPIRY=86400
 
+# Fusion-Identity (issue #45): 唯一 JWT 签发方 + 租户注册中心 (默认 :11470)
+# 生产环境必须注入 service token, 否则启动 fail-closed (全站 token 校验不可用)
+FUSION_IDENTITY_URL=http://127.0.0.1:11470
+FUSION_IDENTITY_SERVICE_TOKEN=
+# 本地单用户开发旁路 (跳过 identity, 用内置 HS256 自签 + users 表); 生产禁用
+# FUSION_DOC_LOCAL_AUTH=1
+
 # 内置 TLS (解裸暴露; 任一证书路径配置即启用 HTTPS, 两者须同时提供)
 # FUSION_DOC_TLS_CERT=
 # FUSION_DOC_TLS_KEY=

@@ -26,8 +26,9 @@ Please include: impact scope, reproduction steps, suggested fix direction. We wi
 
 ### Access control
 - **Rate limiting**: auth endpoints `/api/auth/*` 10/min, other API 120/min (in-memory counter, anti brute-force)
-- **Admin privileges**: system-admin endpoints (backup etc.) enforce `role === 'admin'`
+- **Admin privileges**: system-admin endpoints (backup etc.) enforce `role === 'admin'` or `role === 'tenant_admin'`
 - **Dev-mode bypass**: `NODE_ENV=development` + `X-User-Id` header works only in dev, inert in production
+- **Tenant isolation (issue #45)**: `fusion-identity` is the sole JWT issuer + tenant registry. Auth middleware verifies every Bearer token against `/api/v1/auth/verify` (fail-closed — verify failure = 401, no default-tenant degradation). `X-Tenant-Id` header required on all non-public routes; JWT `tid` must match the header. Data plane (workspaces/pages/books/chapters) filtered by `tenant_id` from request context; cross-tenant access returns `404` (no existence leakage). Local self-signed JWT issuer + `users` table disabled by default, only enabled behind explicit `FUSION_DOC_LOCAL_AUTH=1`
 
 ### Network
 - **Bind address**: production defaults to `127.0.0.1` (localhost only); explicit `FUSION_DOC_HOST=0.0.0.0` required to expose
@@ -49,6 +50,8 @@ Please include: impact scope, reproduction steps, suggested fix direction. We wi
 # 1. Required env vars
 export JWT_SECRET="$(openssl rand -hex 32)"      # JWT signing secret (required)
 export FUSION_MLX_API_KEY="..."                  # Fusion-MLX API key (required)
+export FUSION_IDENTITY_SERVICE_TOKEN="..."       # fusion-identity service token (required; fail-closed if missing)
+export FUSION_IDENTITY_URL="http://127.0.0.1:11470"  # fusion-identity base URL
 export NODE_ENV="production"                     # production mode
 export FUSION_DOC_HOST="127.0.0.1"               # localhost only (default; use 0.0.0.0 behind a reverse proxy)
 
@@ -71,4 +74,5 @@ your-domain.com {
 ## Known limitations
 
 - Rate limiting is in-memory (single-instance); multi-instance deployment needs a Redis backend
-- No SSO integration, local account system only
+- No SSO integration, local account system only (issue #45: local account system is now opt-in via `FUSION_DOC_LOCAL_AUTH=1`; production uses `fusion-identity` for auth + tenancy)
+- Tenant isolation is application-layer (medium tier: `tenant_id` column + query guards), not Postgres RLS; relies on every data path going through the filtered controllers

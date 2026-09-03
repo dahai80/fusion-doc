@@ -4,7 +4,7 @@
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
-const { uid, now, slugify } = require('../utils/helpers');
+const { uid, now, slugify, tenantId } = require('../utils/helpers');
 const { json, list, created, notFound, error } = require('../utils/response');
 // 授权守卫统一走共享 middleware/authz (R13 读隔离 + R12 写隔离), 杜绝各控制器重复实现 IDOR
 const { canReadPage, canModifyPage, getPage } = require('../middleware/authz');
@@ -29,19 +29,20 @@ function register(app) {
     const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
     const offset = (page - 1) * size;
     let data, total;
+    const tid = tenantId(req); // issue #45: 租户隔离 (medium tier)
     if (db) {
       if (chapterId) {
-        data = db.prepare('SELECT * FROM pages WHERE chapter_id = ? ORDER BY sort_order').all(chapterId);
+        data = db.prepare('SELECT * FROM pages WHERE tenant_id = ? AND chapter_id = ? ORDER BY sort_order').all(tid, chapterId);
         total = data.length;
       } else if (bookId) {
-        data = db.prepare('SELECT * FROM pages WHERE book_id = ? ORDER BY sort_order').all(bookId);
+        data = db.prepare('SELECT * FROM pages WHERE tenant_id = ? AND book_id = ? ORDER BY sort_order').all(tid, bookId);
         total = data.length;
       } else {
-        total = db.prepare('SELECT COUNT(*) as c FROM pages').get().c;
-        data = db.prepare('SELECT * FROM pages ORDER BY updated_at DESC LIMIT ? OFFSET ?').all(size, offset);
+        total = db.prepare('SELECT COUNT(*) as c FROM pages WHERE tenant_id = ?').get(tid).c;
+        data = db.prepare('SELECT * FROM pages WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?').all(tid, size, offset);
       }
     } else {
-      data = require('../db').listJSON('pages').filter(p => (!bookId || p.book_id === bookId) && (!chapterId || p.chapter_id === chapterId));
+      data = require('../db').listJSON('pages').filter(p => p.tenant_id === tid && (!bookId || p.book_id === bookId) && (!chapterId || p.chapter_id === chapterId));
       total = data.length;
     }
     // E16 修复: 返回 { data, total, page, size } 结构。客户端 pageStore 取 data.data || data,
@@ -59,7 +60,7 @@ function register(app) {
     const editor_mode = EDITOR_MODES.has(body.editor_mode) ? body.editor_mode : 'rich-text';
     const sort_order = Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0;
     const page = {
-      id: uid(), workspace_id: body.workspace_id || null, book_id: body.book_id || null, chapter_id: body.chapter_id || null,
+      id: uid(), tenant_id: tenantId(req), workspace_id: body.workspace_id || null, book_id: body.book_id || null, chapter_id: body.chapter_id || null,
       title,
       slug: slugify(title || 'untitled') + '-' + Math.random().toString(36).slice(2, 6),
       content, markdown,
@@ -70,7 +71,7 @@ function register(app) {
     };
     try {
       if (db) {
-        db.prepare('INSERT INTO pages (id, workspace_id, book_id, chapter_id, title, slug, content, markdown, editor_mode, parent_id, sort_order, is_published, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(page.id, page.workspace_id, page.book_id, page.chapter_id, page.title, page.slug, page.content, page.markdown, page.editor_mode, page.parent_id, page.sort_order, page.is_published, page.created_by, page.created_at, page.updated_at);
+        db.prepare('INSERT INTO pages (id, tenant_id, workspace_id, book_id, chapter_id, title, slug, content, markdown, editor_mode, parent_id, sort_order, is_published, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(page.id, page.tenant_id, page.workspace_id, page.book_id, page.chapter_id, page.title, page.slug, page.content, page.markdown, page.editor_mode, page.parent_id, page.sort_order, page.is_published, page.created_by, page.created_at, page.updated_at);
       } else { require('../db').writeJSON('pages', page.id, page); }
     } catch (e) {
       if (String(e.message).includes('FOREIGN KEY')) return error(res, '指定的 book/chapter/workspace 不存在', 400);

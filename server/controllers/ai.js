@@ -12,17 +12,38 @@ const { json, error, notFound } = require('../utils/response');
 const ragHybrid = require('../services/rag-hybrid');
 // S3 修复: 索引重建为重操作 (全页 embedding 调用), 仅 admin 可触发, 杜绝普通用户消耗算力
 const { requireAdmin } = require('../middleware/require-admin');
+// issue #45: AI token 用量上报 fusion-identity (fire-and-forget, 永不阻塞响应)
+const identity = require('../integrations/fusion-identity');
+
+// issue #45: 归一化 mlx usage → identity 上报体。mlx 返回 {prompt_tokens,completion_tokens,total_tokens}
+function _normalizeUsage(u) {
+  if (!u || typeof u !== 'object') return null;
+  const tokens = Number(u.total_tokens) || 0;
+  if (!tokens) return null;
+  return { tokens, prompt_tokens: Number(u.prompt_tokens) || 0, completion_tokens: Number(u.completion_tokens) || 0 };
+}
+
+// fire-and-forget 上报 (tid 缺失静默跳过, local-auth 旁路不上报)
+function _reportUsage(req, app, usage) {
+  const tid = req.user?.tid;
+  if (!tid || tid === 'local-tenant') return;
+  const norm = _normalizeUsage(usage);
+  if (!norm) return;
+  identity.reportUsage({ tid, usage: norm, config: app.config.fusionIdentity }).catch(() => {});
+}
 
 // S1 修复: 计算当前用户可见 page_id 集合。
 // admin → null (无限制); 普通用户 → 已发布页 OR 自己创建的页。传给 hybridSearch 做 IDOR 过滤。
 // 修复: 原实现引用模块级未定义的 db (register 内的 const { db } 闭包不可见), 非管理员 RAG 查询必抛 ReferenceError。
 // 改从 app.db 取 (注入于 req.ctx), 失败时降级为空数组 (fail-closed: 无可见页 → 返回空, 不泄露)。
 function accessiblePageIdsFor(req) {
-    if (req.user?.role === 'admin') return null;
+    if (req.user?.role === 'admin' || req.user?.role === 'tenant_admin') return null;
     const db = req.ctx?.app?.db || req.ctx?.db;
     if (!db) return [];
     const uid = req.user?.id || 'local';
-    const rows = db.prepare('SELECT id FROM pages WHERE is_published = 1 OR created_by = ?').all(uid);
+    const tid = req.user?.tid || 'local-tenant';
+    // issue #45: 限本租户内可见页 (已发布 OR 自己创建), 杜绝跨租户 RAG 泄露
+    const rows = db.prepare('SELECT id FROM pages WHERE tenant_id = ? AND (is_published = 1 OR created_by = ?)').all(tid, uid);
     return rows.map(r => r.id);
 }
 
@@ -46,6 +67,7 @@ function register(app) {
       // 客户端断开时中止上游流, 防 KV/连接泄漏 (P2-22 + R7 修复: 真正 abort 上游)
       // E23 修复: 监听 res close (流式响应客户端断开优先触发 res close), 与 ai-copilot.js 统一
       let aborted = false;
+      let lastUsage = null;
       const abortController = new AbortController();
       const onClose = () => { aborted = true; abortController.abort(); };
       res.on('close', onClose);
@@ -57,10 +79,12 @@ function register(app) {
         });
         for await (const chunk of streamIter) {
           if (aborted) break;
+          if (chunk?.usage) lastUsage = chunk.usage;
           res.write('data: ' + JSON.stringify(chunk) + '\n\n');
         }
         if (!aborted) res.write('data: [DONE]\n\n');
         res.end();
+        _reportUsage(req, app, lastUsage);
       } catch (e) {
         if (!aborted) {
           res.write('data: ' + JSON.stringify({ error: e.message }) + '\n\n');
@@ -78,6 +102,7 @@ function register(app) {
           body: { model: body.model || app.config.fusionMlx.chatModel, messages: body.messages || [], stream: false },
           config: app.config.fusionMlx,
         });
+        _reportUsage(req, app, data?.usage);
         json(res, { choices: [{ message: { content: data.choices?.[0]?.message?.content || '' } }] });
       } catch (e) {
         error(res, `AI chat failed: ${e.message}`, 500);
@@ -94,6 +119,7 @@ function register(app) {
         body: { model: app.config.fusionMlx.embeddingModel, input: body.input || [] },
         config: app.config.fusionMlx,
       });
+      _reportUsage(req, app, data?.usage);
       json(res, data);
     } catch (e) {
       error(res, `Embedding failed: ${e.message}`, 500);
@@ -144,6 +170,7 @@ function register(app) {
         body: { model: body.model || app.config.fusionMlx.chatModel, messages, stream: false },
         config: app.config.fusionMlx,
       });
+      _reportUsage(req, app, data?.usage);
       json(res, { answer: data.choices?.[0]?.message?.content || '', sources: contexts });
     } catch (e) {
       error(res, `RAG query failed: ${e.message}`, 500);

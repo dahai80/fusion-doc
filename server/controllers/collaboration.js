@@ -19,8 +19,11 @@ function register(app) {
         return;
     }
     // 协作未发布: 拒绝一切连接 (410 Gone)
+    // issue #45: 即便未来启用, 亦须先校验 verified tid — 无租户上下文一律拒连 (红线2)
     app.ws('/ws/collab/:pageId', (ws, req) => {
-        console.warn(`[Collaboration] 拒连未发布协作路由 page=${req.params.pageId} (410 Gone)`);
+        const tid = req.user?.tid;
+        const tidNote = tid ? `tid=${tid}` : '无租户上下文 (未验证 token)';
+        console.warn(`[Collaboration] 拒连未发布协作路由 page=${req.params.pageId} ${tidNote} (410 Gone)`);
         try { ws.close(4011, 'collaboration is an unreleased feature'); } catch { /* socket 已断 */ }
     });
     console.log('[Collaboration] 协作路由已关闭 (未发布特性, 拒连 410)');

@@ -33,4 +33,10 @@ function parsePaging(req) {
   return { size, offset: (page - 1) * size, page };
 }
 
-module.exports = { uid, now, slugify, parsePaging };
+// issue #45: 租户上下文取值。req.user.tid 由 auth 中间件注入 (identity verify 或本地旁路)。
+// 缺失则 'local-tenant' (仅本地旁路兼容; 生产路径 auth 已 401 拦截, 此处不会到)。
+function tenantId(req) {
+  return req.user?.tid || 'local-tenant';
+}
+
+module.exports = { uid, now, slugify, parsePaging, tenantId };

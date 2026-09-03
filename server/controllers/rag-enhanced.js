@@ -11,9 +11,13 @@ function register(app) {
     const { db } = app;
     // S1 修复: 计算当前用户可见 page_id 集合。admin → null; 普通用户 → 已发布 OR 自建页。
     function accessiblePageIdsFor(req) {
-        if (req.user?.role === 'admin') return null;
+        const { tenantId } = require('../utils/helpers');
+        const tid = tenantId(req);
+        const isAdmin = req.user?.role === 'admin' || req.user?.role === 'tenant_admin';
+        // issue #45: admin 在本租户内无限制; 普通用户仅已发布 OR 自建页 (均按 tid 过滤)
+        if (isAdmin) return db.prepare('SELECT id FROM pages WHERE tenant_id = ?').all(tid).map(r => r.id);
         const owner = req.user?.id || 'local';
-        const rows = db.prepare('SELECT id FROM pages WHERE is_published = 1 OR created_by = ?').all(owner);
+        const rows = db.prepare('SELECT id FROM pages WHERE tenant_id = ? AND (is_published = 1 OR created_by = ?)').all(tid, owner);
         return rows.map(r => r.id);
     }
 

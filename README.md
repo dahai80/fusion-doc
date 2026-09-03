@@ -210,6 +210,7 @@ Commercial deployment requires the env vars below and a reverse proxy + TLS up f
 # Required
 export JWT_SECRET="$(openssl rand -hex 32)"   # JWT signing secret (production fails fast if missing)
 export FUSION_MLX_API_KEY="..."               # Fusion-MLX API key
+export FUSION_IDENTITY_SERVICE_TOKEN="..."    # fusion-identity service token (required; fail-closed if missing)
 export NODE_ENV="production"                  # production mode (binds 127.0.0.1 by default)
 
 # Behind a reverse proxy
@@ -245,6 +246,22 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/key.pem -out /tmp/cert.pe
 ```
 
 Once enabled: HSTS header forces subsequent connections over TLS; `:11449` serves HTTPS, `:11448` returns HTTP 301 redirect. Without TLS but bound to `0.0.0.0`, a warning still requires a reverse proxy.
+
+### Authentication & tenant isolation (fusion-identity)
+
+Since v1.0.7, fusion-doc delegates JWT issuance and tenant registry to the sibling `fusion-identity` service (`:11470`), the sole identity provider for the Fusion ecosystem. fusion-doc no longer self-issues tokens or maintains its own user registry in production.
+
+- **Token verification**: every non-public API request must carry `Authorization: Bearer <jwt>` (issued by fusion-identity) + `X-Tenant-Id: <tid>` header. The auth middleware verifies the token against `POST /api/v1/auth/verify` and rejects on mismatch (fail-closed — no default-tenant degradation).
+- **Tenant-scoped data**: workspaces/pages/books/chapters carry a `tenant_id` column; all queries filter by `tid` from the verified context. Cross-tenant access returns `404` (no existence leakage).
+- **Roles**: 4 unified roles (`tenant_admin` / `operator` / `member` / `viewer`); admin-gated endpoints accept `tenant_admin`.
+- **AI usage**: token consumption is reported fire-and-forget to `POST /api/v1/tenants/{tid}/usage`.
+- **Local single-user dev bypass**: set `FUSION_DOC_LOCAL_AUTH=1` to restore the built-in HS256 issuer + `users` table (off by default; production-forbidden). Backfill defaults existing data to `tenant_id=local-tenant` so it stays accessible in bypass mode.
+
+```bash
+export FUSION_IDENTITY_URL="http://127.0.0.1:11470"
+export FUSION_IDENTITY_SERVICE_TOKEN="..."   # required in production (fail-closed if missing)
+# FUSION_DOC_LOCAL_AUTH=1                    # opt-in local bypass (dev only)
+```
 
 ### Multi-instance horizontal scaling (same-machine multi-process)
 

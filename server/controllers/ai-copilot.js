@@ -10,16 +10,21 @@ const { json, error } = require('../utils/response');
 const { buildContext, buildSystemPrompt } = require('../services/ai-copilot');
 // S5 修复: Copilot 读页内容须校验归属, 杜绝以他人私有页内容续写/改写/翻译 (IDOR)
 const { canReadPage } = require('../middleware/authz');
+// issue #45: AI token 用量上报 fusion-identity (fire-and-forget)
+const identity = require('../integrations/fusion-identity');
 
 function register(app) {
     const { db } = app;
 
     // S5: 校验 page_id 归属读权限。返 { allowed: bool }。无 page_id 视为允许 (仅用用户自传文本)。
+    // issue #45: 叠加租户边界 — 跨租户页一律拒读 (红线2)
     function canReadCopilotPage(req, page_id) {
         if (!page_id || !db) return true;
-        const page = db.prepare('SELECT id, is_published, created_by FROM pages WHERE id = ?').get(page_id);
+        const page = db.prepare('SELECT id, tenant_id, is_published, created_by FROM pages WHERE id = ?').get(page_id);
         if (!page) return true; // 不存在页 → buildContext 自身取不到, 无泄露面
-        if (req.user?.role === 'admin') return true;
+        const tid = req.user?.tid;
+        if (tid && page.tenant_id && page.tenant_id !== tid) return false;
+        if (req.user?.role === 'admin' || req.user?.role === 'tenant_admin') return true;
         if (page.is_published === 1 || page.is_published === '1') return true;
         const owner = page.created_by;
         if (!owner) return true;
@@ -32,7 +37,7 @@ function register(app) {
         const { page_id, text_before, text_after } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
         const context = await buildContext(db, page_id, text_before, '', text_after);
-        streamCopilotResponse(app, res, context, 'complete');
+        streamCopilotResponse(req, app, res, context, 'complete');
     });
 
     // ── 改写 ────────────────────────────────────────────────────────────
@@ -41,7 +46,7 @@ function register(app) {
         const { page_id, text_before, selected_text, text_after, instruction } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
-        streamCopilotResponse(app, res, context, 'rewrite', instruction);
+        streamCopilotResponse(req, app, res, context, 'rewrite', instruction);
     });
 
     // ── 翻译 ────────────────────────────────────────────────────────────
@@ -50,7 +55,7 @@ function register(app) {
         const { page_id, text_before, selected_text, text_after, language } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
-        streamCopilotResponse(app, res, context, 'translate', language);
+        streamCopilotResponse(req, app, res, context, 'translate', language);
     });
 
     // ── 摘要 ────────────────────────────────────────────────────────────
@@ -59,7 +64,7 @@ function register(app) {
         const { page_id, text_before, selected_text, text_after } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
-        streamCopilotResponse(app, res, context, 'summarize');
+        streamCopilotResponse(req, app, res, context, 'summarize');
     });
 
     // ── 扩展 ────────────────────────────────────────────────────────────
@@ -68,7 +73,7 @@ function register(app) {
         const { page_id, text_before, selected_text, text_after } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
-        streamCopilotResponse(app, res, context, 'expand');
+        streamCopilotResponse(req, app, res, context, 'expand');
     });
 
     // ── 命令面板 ────────────────────────────────────────────────────────
@@ -78,7 +83,7 @@ function register(app) {
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
         const context = await buildContext(db, page_id, text_before, selected_text || '', text_after);
         const systemPrompt = buildSystemPrompt(command, prompt);
-        streamCopilotResponse(app, res, context, command, prompt);
+        streamCopilotResponse(req, app, res, context, command, prompt);
     });
 
     // ── 获取页面上下文 (S5: 加读归属校验) ─────────────────────────────
@@ -97,7 +102,7 @@ function register(app) {
 }
 
 // ── SSE 流式响应 ────────────────────────────────────────────────────────────
-async function streamCopilotResponse(app, res, context, action, extra) {
+async function streamCopilotResponse(req, app, res, context, action, extra) {
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -112,6 +117,7 @@ async function streamCopilotResponse(app, res, context, action, extra) {
 
     // R7 修复: 客户端断开时真正 abort 上游 MLX 流 (原设计零 close 监听, 连接泄漏致 EMFILE)
     let aborted = false;
+    let lastUsage = null;
     const abortController = new AbortController();
     const onClose = () => { aborted = true; abortController.abort(); };
     res.on('close', onClose);
@@ -123,10 +129,17 @@ async function streamCopilotResponse(app, res, context, action, extra) {
             abortSignal: abortController.signal,
         });
         for await (const chunk of streamIter) {
+            if (chunk?.usage) lastUsage = chunk.usage;
             res.write(`data: ${JSON.stringify(chunk)}\n\n`);
         }
         res.write('data: [DONE]\n\n');
         res.end();
+        // issue #45: 流结束后 fire-and-forget 上报 token 用量
+        const _tid = req?.user?.tid;
+        if (_tid && _tid !== 'local-tenant' && lastUsage) {
+            const _t = Number(lastUsage.total_tokens) || 0;
+            if (_t) identity.reportUsage({ tid: _tid, usage: { tokens: _t, prompt_tokens: Number(lastUsage.prompt_tokens) || 0, completion_tokens: Number(lastUsage.completion_tokens) || 0 }, config: app.config.fusionIdentity }).catch(() => {});
+        }
     } catch (e) {
         console.error('[AI Copilot] Stream error:', e.message);
         if (!aborted && !res.writableEnded) {
