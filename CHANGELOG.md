@@ -4,6 +4,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.7] — 2026-09-03
+
 ### Added — Fusion-Identity tenant integration (issue #45)
 - **Retired local JWT issuer + user registry**: `fusion-identity` (sibling service, `:11470`) is now the sole JWT issuer and tenant registry for the Fusion ecosystem. fusion-doc consumes rather than self-issuing
 - **Auth middleware calls `/api/v1/auth/verify`**: `server/middleware/auth.js` verifies every Bearer token against fusion-identity (fail-closed — no default-tenant degradation). Local HS256 issuer + `users` table kept only behind explicit `FUSION_DOC_LOCAL_AUTH=1` (off by default)
