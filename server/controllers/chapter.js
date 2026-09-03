@@ -3,7 +3,7 @@
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
-const { uid, now, slugify, parsePaging } = require('../utils/helpers');
+const { uid, now, slugify, parsePaging, tenantId } = require('../utils/helpers');
 const { json, list, created, error, notFound } = require('../utils/response');
 const { requireAdmin } = require('../middleware/require-admin');
 
@@ -13,11 +13,21 @@ const MAX_DESC = 2000;
 function register(app) {
   const { db } = app;
 
+  // issue #45: 跨租户访问一律 404 (不泄露存在性)
+  function _chapterTenantOk(req, res, chapter) {
+    if (!chapter) { notFound(res, 'Chapter not found'); return false; }
+    const tid = req.user?.tid;
+    if (tid && chapter.tenant_id && chapter.tenant_id !== tid) { notFound(res, 'Chapter not found'); return false; }
+    return true;
+  }
+
   app.registerRoute('GET', '/api/chapters', (req, res) => {
     const bookId = req.ctx.url.searchParams.get('bookId');
     // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
     const { size, offset } = parsePaging(req);
-    let data = db ? db.prepare('SELECT * FROM chapters WHERE book_id = ? ORDER BY sort_order LIMIT ? OFFSET ?').all(bookId, size, offset) : require('../db').listJSON('chapters').filter(c => c.book_id === bookId).slice(offset, offset + size);
+    // issue #45: 租户隔离 (medium tier)
+    const tid = tenantId(req);
+    let data = db ? db.prepare('SELECT * FROM chapters WHERE tenant_id = ? AND book_id = ? ORDER BY sort_order LIMIT ? OFFSET ?').all(tid, bookId, size, offset) : require('../db').listJSON('chapters').filter(c => c.tenant_id === tid && c.book_id === bookId).slice(offset, offset + size);
     list(res, data);
   });
 
@@ -26,14 +36,14 @@ function register(app) {
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
     if (!name) return error(res, 'name 不能为空', 400);
     const ch = {
-      id: uid(), book_id: body.book_id || null, name,
+      id: uid(), tenant_id: tenantId(req), book_id: body.book_id || null, name,
       slug: slugify(name),
       description: typeof body.description === 'string' ? body.description.slice(0, MAX_DESC) : '',
       sort_order: Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0,
       created_at: now(), updated_at: now(),
     };
     try {
-      if (db) { db.prepare('INSERT INTO chapters (id, book_id, name, slug, description, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(ch.id, ch.book_id, ch.name, ch.slug, ch.description, ch.sort_order, ch.created_at, ch.updated_at); }
+      if (db) { db.prepare('INSERT INTO chapters (id, tenant_id, book_id, name, slug, description, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(ch.id, ch.tenant_id, ch.book_id, ch.name, ch.slug, ch.description, ch.sort_order, ch.created_at, ch.updated_at); }
       else { require('../db').writeJSON('chapters', ch.id, ch); }
     } catch (e) {
       if (String(e.message).includes('FOREIGN KEY')) return error(res, '指定的 book 不存在', 400);
@@ -45,7 +55,7 @@ function register(app) {
   app.registerRoute('GET', '/api/chapters/:id', (req, res) => {
     const { id } = req.params;
     const chapter = db ? db.prepare('SELECT * FROM chapters WHERE id = ?').get(id) : require('../db').readJSON('chapters', id);
-    if (!chapter) return notFound(res, 'Chapter not found');
+    if (!_chapterTenantOk(req, res, chapter)) return;
     json(res, chapter);
   });
 
@@ -53,16 +63,21 @@ function register(app) {
   app.registerRoute('PUT', '/api/chapters/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { id } = req.params;
+    const chapter = db ? db.prepare('SELECT * FROM chapters WHERE id = ?').get(id) : require('../db').readJSON('chapters', id);
+    if (!_chapterTenantOk(req, res, chapter)) return;
     const body = await parseBody(req);
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : body.name;
     const description = typeof body.description === 'string' ? body.description.slice(0, MAX_DESC) : body.description;
     if (db) { db.prepare('UPDATE chapters SET name = ?, description = ?, updated_at = ? WHERE id = ?').run(name, description, now(), id); }
+    else { Object.assign(chapter, { name, description, updated_at: now() }); require('../db').writeJSON('chapters', id, chapter); }
     json(res, { updated: true });
   });
 
   app.registerRoute('DELETE', '/api/chapters/:id', (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { id } = req.params;
+    const chapter = db ? db.prepare('SELECT * FROM chapters WHERE id = ?').get(id) : require('../db').readJSON('chapters', id);
+    if (!_chapterTenantOk(req, res, chapter)) return;
     // E4 修复: 原 DELETE chapters 触发 FK constraint failed (pages.chapter_id 引用未级联)。
     // 单事务内先收集该章全部 page_id, 级联删 page 子表 + pages + chapters, 失败回滚。
     if (db) {

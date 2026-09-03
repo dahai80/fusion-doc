@@ -112,6 +112,9 @@ function runMigrations() {
       // 向量写入双写 (rag_chunks.vector 兼容降级 + rag_chunks_vec ANN 检索)。
       // 扩展缺失时跳过 (降级回线性扫, 兼容 zero-dep 环境)。
       { name: '017_rag_vec_index', fn: runRagVecIndexMigration },
+      // issue #45: 租户隔离。workspaces/pages/books +tenant_id 列, 存量回填 local-tenant。
+      // 查询按 req.user.tid 过滤 (medium tier), 控制器写入时填 tenant_id。
+      { name: '018_tenant_isolation', fn: runTenantIsolationMigration },
     ];
 
     for (const migration of migrations) {
@@ -750,4 +753,33 @@ function runRagVecIndexMigration(database) {
   });
   tx();
   console.log(`  [迁移] 017_rag_vec_index: vec0 表已建 (dim=${dim}), 回填 ${filled} 向量 (${skipped} 跳过: 维度不符/解析失败)`);
+}
+
+// ── 018: 租户隔离 (issue #45) ────────────────────────────────────────────
+// fusion-identity 为唯一租户注册中心; workspaces/pages/books 增加 tenant_id 列,
+// 所有查询按 req.user.tid 过滤 (medium tier: tenant_id 列 + 守卫)。
+// 存量行回填 'local-tenant' (兼容本地旁路单用户数据); 新行由控制器从 req.user.tid 写入。
+// ALTER TABLE ADD COLUMN 不支持 IF NOT EXISTS → 先查 pragma 避免重复迁移报错。
+function runTenantIsolationMigration(database) {
+  const cols = (table) => database.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  const addIfMissing = (table, col, def = "TEXT DEFAULT 'local-tenant'") => {
+    if (!cols(table).includes(col)) {
+      database.exec(`ALTER TABLE ${table} ADD COLUMN tenant_id ${def};`);
+      console.log(`  [迁移] 018_tenant_isolation: ${table} +tenant_id`);
+    }
+  };
+  addIfMissing('workspaces', 'tenant_id');
+  addIfMissing('pages', 'tenant_id');
+  addIfMissing('books', 'tenant_id');
+  addIfMissing('chapters', 'tenant_id');
+  // 回填存量 (NULL → local-tenant)
+  for (const t of ['workspaces', 'pages', 'books', 'chapters']) {
+    const n = database.prepare(`UPDATE ${t} SET tenant_id = 'local-tenant' WHERE tenant_id IS NULL`).run().changes;
+    if (n) console.log(`  [迁移] 018_tenant_isolation: ${t} 回填 ${n} 行 → local-tenant`);
+  }
+  // 租户隔离索引 (按 tenant_id + workspace_id 复合查询提速)
+  database.exec('CREATE INDEX IF NOT EXISTS idx_pages_tenant ON pages(tenant_id);');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_books_tenant ON books(tenant_id);');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_workspaces_tenant ON workspaces(tenant_id);');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_chapters_tenant ON chapters(tenant_id);');
 }

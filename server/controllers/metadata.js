@@ -37,7 +37,7 @@ function register(app) {
         if (!page) return error(res, '页面不存在', 404, 'NOT_FOUND');
         const isOwner = page.created_by === (req.user?.id || 'local');
         const isPublished = page.is_published === 1 || page.is_published === '1';
-        if (req.user?.role !== 'admin' && !isOwner && page.created_by) {
+        if (req.user?.role !== 'admin' && req.user?.role !== 'tenant_admin' && !isOwner && page.created_by) {
           if (!isPublished) return error(res, '无权为他人私有页面添加元数据', 403, 'FORBIDDEN');
         }
       }

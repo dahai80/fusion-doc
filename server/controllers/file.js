@@ -143,10 +143,10 @@ function register(app) {
       const page = db ? db.prepare('SELECT id, is_published, created_by FROM pages WHERE id = ?').get(file.page_id) : null;
       if (page) {
         if (!canReadPage(req, res, page)) return;
-      } else if (req.user?.role !== 'admin' && file.created_by !== (req.user?.id || 'local')) {
+      } else if (req.user?.role !== 'admin' && req.user?.role !== 'tenant_admin' && file.created_by !== (req.user?.id || 'local')) {
         return error(res, '无权下载该文件', 403, 'FORBIDDEN');
       }
-    } else if (req.user?.role !== 'admin' && file.created_by !== (req.user?.id || 'local')) {
+    } else if (req.user?.role !== 'admin' && req.user?.role !== 'tenant_admin' && file.created_by !== (req.user?.id || 'local')) {
       return error(res, '无权下载该文件', 403, 'FORBIDDEN');
     }
     const filePath = safeStoragePath(storageDir, file.path);
@@ -178,7 +178,7 @@ function register(app) {
     // R13 修复: 仅 owner/admin 可删, 杜绝跨用户删除他人附件
     // S2 修复: 历史 file.created_by 为 NULL 时不再短路放行 (原逻辑允许任意非 admin 删任意无主文件),
     // 改为 admin 放行; 有主则须 owner 匹配; 无主 (历史数据) 仅 admin 可删。
-    if (req.user?.role === 'admin') {
+    if (req.user?.role === 'admin' || req.user?.role === 'tenant_admin') {
       // admin 放行
     } else if (file.created_by && file.created_by === (req.user?.id || 'local')) {
       // owner 放行

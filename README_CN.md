@@ -210,6 +210,7 @@ node -c server/db.js
 # 必需
 export JWT_SECRET="$(openssl rand -hex 32)"   # JWT 密钥 (生产缺失则启动 fail-fast)
 export FUSION_MLX_API_KEY="..."               # Fusion-MLX 密钥
+export FUSION_IDENTITY_SERVICE_TOKEN="..."    # fusion-identity 服务令牌 (必需; 缺失则 fail-closed)
 export NODE_ENV="production"                  # 生产模式 (默认绑 127.0.0.1)
 
 # 前置反代时
@@ -221,6 +222,22 @@ export CORS_ORIGINS="https://your-domain.com" # CORS 白名单
 ```
 
 安全特性: scrypt 密码哈希 · 认证端点限流 · JWT 强制密钥 · 默认本机绑定 · 在线热备 · SQL 参数化。变更历史见 [CHANGELOG.md](./CHANGELOG.md)。
+
+### 认证与租户隔离 (fusion-identity)
+
+自 v1.0.7 起，fusion-doc 将 JWT 签发与租户注册委托给同级 `fusion-identity` 服务（`:11470`），其为 Fusion 生态唯一的身份提供方。生产环境不再自签 token、不再维护自有用户表。
+
+- **token 校验**：所有非公开 API 请求须携带 `Authorization: Bearer <jwt>`（由 fusion-identity 签发）+ `X-Tenant-Id: <tid>` 头。认证中间件调 `POST /api/v1/auth/verify` 校验，不匹配即拒绝（fail-closed，无默认租户降级）。
+- **租户数据隔离**：workspaces/pages/books/chapters 含 `tenant_id` 列，所有查询按上下文 tid 过滤；跨租户访问返 `404`（不泄露存在性）。
+- **角色**：4 统一角色（`tenant_admin` / `operator` / `member` / `viewer`）；管理端点接受 `tenant_admin`。
+- **AI 用量**：token 消耗 fire-and-forget 上报至 `POST /api/v1/tenants/{tid}/usage`。
+- **本地单用户开发旁路**：设 `FUSION_DOC_LOCAL_AUTH=1` 可恢复内置 HS256 自签 + `users` 表（默认关闭，生产禁用）。存量数据回填 `tenant_id=local-tenant`，旁路模式下仍可访问。
+
+```bash
+export FUSION_IDENTITY_URL="http://127.0.0.1:11470"
+export FUSION_IDENTITY_SERVICE_TOKEN="..."   # 生产必需 (缺失 fail-closed)
+# FUSION_DOC_LOCAL_AUTH=1                    # 可选: 本地旁路 (仅开发)
+```
 
 ## 许可证
 

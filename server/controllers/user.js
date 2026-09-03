@@ -15,7 +15,7 @@ function register(app) {
 
   // ── 用户列表: 仅 admin 可列, 普通用户仅返回自身 ──────────────────────
   app.registerRoute('GET', '/api/users', (req, res) => {
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'tenant_admin';
     if (!isAdmin) {
       // 非管理员只看自身, 不暴露他人 email
       const self = db
@@ -34,7 +34,7 @@ function register(app) {
   // ── 更新自身/他人: 强制 req.user.id 作目标, 防越权 ──────────────────
   app.registerRoute('POST', '/api/users/update', async (req, res) => {
     const body = await parseBody(req);
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'tenant_admin';
     // 目标 id: 普通用户只能改自己; admin 可指定他人
     const targetId = (isAdmin && body.id) ? body.id : (req.user?.id || 'local');
     if (!isAdmin && body.id && body.id !== (req.user?.id || 'local')) {

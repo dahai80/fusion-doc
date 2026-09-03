@@ -12,9 +12,13 @@ function register(app) {
     // A4/P3 修复: 计算当前用户可见 page_id 集合 (admin 无限制), 图谱只暴露可见页节点/边。
     // 同时为 /api/graph 提供分页上限, 避免万页级库一次拉全部内容 OOM。
     function accessiblePageFilter(req) {
-        if (req.user?.role === 'admin') return null;
+        const { tenantId } = require('../utils/helpers');
+        const tid = tenantId(req);
+        const isAdmin = req.user?.role === 'admin' || req.user?.role === 'tenant_admin';
+        // issue #45: admin 在本租户内无限制; 普通用户仅已发布 OR 自建页
+        if (isAdmin) return db.prepare('SELECT id FROM pages WHERE tenant_id = ?').all(tid).map(r => r.id);
         const owner = req.user?.id || 'local';
-        return db.prepare('SELECT id FROM pages WHERE is_published = 1 OR created_by = ?').all(owner).map(r => r.id);
+        return db.prepare('SELECT id FROM pages WHERE tenant_id = ? AND (is_published = 1 OR created_by = ?)').all(tid, owner).map(r => r.id);
     }
 
     function pageIdInClause(ids) {

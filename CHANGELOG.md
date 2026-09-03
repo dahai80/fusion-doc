@@ -4,6 +4,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+### Added — Fusion-Identity tenant integration (issue #45)
+- **Retired local JWT issuer + user registry**: `fusion-identity` (sibling service, `:11470`) is now the sole JWT issuer and tenant registry for the Fusion ecosystem. fusion-doc consumes rather than self-issuing
+- **Auth middleware calls `/api/v1/auth/verify`**: `server/middleware/auth.js` verifies every Bearer token against fusion-identity (fail-closed — no default-tenant degradation). Local HS256 issuer + `users` table kept only behind explicit `FUSION_DOC_LOCAL_AUTH=1` (off by default)
+- **Tenant-scoped context**: `X-Tenant-Id` header required on all non-public routes; JWT `tid` must match the header (`AUTH_TENANT_MISMATCH` on mismatch). `req.user.tid` injected into request context
+- **Tenant-isolated data plane**: migration `018_tenant_isolation` adds `tenant_id` column to `workspaces`/`pages`/`books`/`chapters` (+ indexes); all list queries and create writes filter/bind by `tenant_id` from context. Cross-tenant access returns `404` (no existence leakage). Role mapped to 4 unified roles (`tenant_admin`/`operator`/`member`/`viewer`); admin gate accepts `tenant_admin`
+- **WebSocket collab tenant gate**: `/ws/collab/:pageId` upgrade rejected without a verified `tid` (route already 410-closed as unreleased; gate hardens the future-enabled path)
+- **AI token usage reporting**: chat/embeddings/RAG/copilot report token usage fire-and-forget to `POST /api/v1/tenants/{tid}/usage` (never blocks AI responses; skipped in local-auth mode)
+- **Tests**: `tests/unit/test-identity-tenant.js` — 14 cases covering cross-tenant denial, missing `X-Tenant-Id` (`AUTH_TENANT_REQUIRED`), tid mismatch, fail-closed on verify error, role mapping, local-auth fallback, config fail-closed
+
+### Fixed — Unified admin gate accepts `tenant_admin` (issue #45)
+- **Scattered admin checks excluded `tenant_admin`**: `system`/`graph`/`rag-enhanced`/`user`/`metadata`/`comment`/`file` controllers had local `role === 'admin'` / `role !== 'admin'` gates that rejected the unified `tenant_admin` role, breaking tenant-admin access to backup/restore, user listing, comment/file ownership bypass, and graph/RAG page-visibility. Unified all admin gates to accept `tenant_admin` (shared `require-admin` middleware or inline `admin || tenant_admin`)
+- **Graph/RAG page visibility now tenant-scoped**: `accessiblePageFilter`/`accessiblePageIdsFor` returned all pages for admin without `tenant_id` filtering; now scoped to the request tenant (red line 3 — data isolation)
+
 ### Fixed — Containerized delivery (issue #41)
 - **Dockerfile build stage adds client deps**: `deploy/Dockerfile` build stage only installed root deps, missing `client/` vite (devDependencies), so `npm run build` could not build the client. Changed to install root + client deps stepwise before building
 - **Native compile toolchain**: `node:20-slim` (linux/arm64) has no `better-sqlite3` prebuilt binary, requires `python3 make g++` source compile. Toolchain installed only in the build stage; runtime stage copies the compiled `node_modules` (no toolchain, slim image)

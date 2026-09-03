@@ -6,14 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { backupDB } = require('../db');
 const { successResponse, errorResponse } = require('../middleware/error-handler');
-
-function requireAdmin(req, res) {
-  if (req.user?.role !== 'admin') {
-    errorResponse(res, 403, '需要管理员权限', 'FORBIDDEN');
-    return false;
-  }
-  return true;
-}
+const { requireAdmin } = require('../middleware/require-admin');
 
 function register(app) {
   const config = app.config;

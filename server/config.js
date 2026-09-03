@@ -78,6 +78,17 @@ const config = {
     url: process.env.FUSION_MODEL_HUB_URL || 'http://localhost:11444',
   },
 
+  // Fusion-Identity (issue #45) — 唯一 JWT 签发方 + 租户注册中心
+  // fusion-doc 消费 verify (不自签); 缺 serviceToken 且非 local-auth 模式 → 启动 fail-fast (fail-closed)
+  fusionIdentity: {
+    url: process.env.FUSION_IDENTITY_URL || 'http://127.0.0.1:11470',
+    serviceToken: process.env.FUSION_IDENTITY_SERVICE_TOKEN || '',
+  },
+
+  // 本地认证旁路 (仅单用户开发; 默认关 = fail-closed, 无默认租户降级)
+  // 开启后保留原 JWT 签发 + users 表; 生产禁止开启
+  localAuth: process.env.FUSION_DOC_LOCAL_AUTH === '1',
+
   // Fusion-Studio JSON-RPC
   fusionStudio: {
     socketPath: process.env.FUSION_STUDIO_SOCKET || path.join(require('os').homedir(), '.fusion', 'studio.sock'),
@@ -144,6 +155,19 @@ if (!config.fusionMlx.apiKey && !config.isTest) {
   log(process.env.NODE_ENV === 'production'
     ? '  [✗] FUSION_MLX_API_KEY 未设置 (生产): AI 特性不可用, /api/health 将报 degraded。请于部署 env 注入 (禁止字面量)'
     : '  [⚠] FUSION_MLX_API_KEY 未设置, MLX 调用将被拒绝 (请于部署 env 注入, 禁止字面量)');
+}
+
+// issue #45: 非本地认证模式缺 identity serviceToken → 生产环境 fail-closed 启动拒绝
+// (identity 为唯一 JWT 签发方, 缺凭证则无法校验任何 token, 全站 401)
+// 与 JWT_SECRET 同级: 仅生产强制; 开发/测试仅告警 (可用 FUSION_DOC_LOCAL_AUTH=1 走旁路)
+if (!config.localAuth && !config.fusionIdentity.serviceToken) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('  [✗] FUSION_IDENTITY_SERVICE_TOKEN 未设置: 非本地认证模式无法校验 token (fail-closed)');
+    console.error('      请于部署 env 注入, 或设置 FUSION_DOC_LOCAL_AUTH=1 启用单用户开发旁路');
+    process.exit(1);
+  } else {
+    console.warn('  [⚠] FUSION_IDENTITY_SERVICE_TOKEN 未设置 (开发): token 校验将 fail-closed, 建议设 FUSION_DOC_LOCAL_AUTH=1 走本地旁路');
+  }
 }
 
 module.exports = config;
