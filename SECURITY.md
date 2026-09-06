@@ -20,7 +20,8 @@ Please include: impact scope, reproduction steps, suggested fix direction. We wi
 
 ### Authentication & passwords
 - **Password hashing**: scrypt slow hash (N=2^15, r=8, p=1, keyLen=64B), resists offline cracking
-- **Backward compatible**: legacy HMAC-SHA256 hashes auto-upgrade transparently to scrypt on login
+- **Backward compatible**: legacy HMAC-SHA256 hashes auto-upgrade transparently to scrypt on login (both SQLite and JSON-store modes)
+- **No plaintext fallback**: `verifyPassword` rejects any stored value that is neither `scrypt:`-prefixed nor a valid `salt:hash` pair, so plaintext seeds cannot authenticate and cannot trigger an uncaught throw. No default admin credentials are seeded — first-run users are created through `POST /api/auth/setup` (password ≥8 chars, local-auth gated)
 - **JWT**: HS256 signing, production requires the `JWT_SECRET` env var (fail-fast on missing)
 - **Session expiry**: default 24h, configurable via `SESSION_EXPIRY`
 

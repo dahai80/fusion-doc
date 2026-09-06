@@ -34,9 +34,16 @@ class AuthService {
       return crypto.timingSafeEqual(computed, Buffer.from(hashHex, 'hex'));
     }
     // 旧版 HMAC-SHA256 (兼容已存量数据) — 恒定时间比较
-    const [salt, hash] = stored.split(':');
+    // issue #48: 拒绝非哈希格式 (明文/畸形), 杜绝 createHmac(undefined) 抛错
+    const parts = stored.split(':');
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
+      console.warn('[Auth] verifyPassword: 拒绝非哈希存储格式 (疑似明文)');
+      return false;
+    }
+    const salt = parts[0];
+    const hash = parts.slice(1).join(':');
     const computed = crypto.createHmac('sha256', salt).update(password).digest('hex');
-    const a = Buffer.from(hash || '', 'utf-8');
+    const a = Buffer.from(hash, 'utf-8');
     const b = Buffer.from(computed, 'utf-8');
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
@@ -52,9 +59,15 @@ class AuthService {
     if (!user) return { error: GENERIC };
     if (!this.verifyPassword(password, user.password)) return { error: GENERIC };
     // 旧版哈希自动升级到 scrypt (透明迁移, 仅在命中旧格式时触发)
-    if (!user.password.startsWith('scrypt:') && this.db) {
+    // issue #48: JSON 模式同样升级并持久化, 之前仅 SQLite 升级导致明文种子永不迁移
+    if (!user.password.startsWith('scrypt:')) {
       const upgraded = this.hashPassword(password);
-      this.db.prepare('UPDATE users SET password = ? WHERE id = ?').run(upgraded, user.id);
+      if (this.db) {
+        this.db.prepare('UPDATE users SET password = ? WHERE id = ?').run(upgraded, user.id);
+      } else {
+        const { writeJSON } = require('../db');
+        writeJSON('users', user.id, { ...user, password: upgraded });
+      }
       console.log(`  [Auth] 用户 ${email} 密码哈希已升级到 scrypt`);
     }
     const token = createToken({ id: user.id, role: user.role }, this.config.jwtSecret, this.config.sessionExpiry);
