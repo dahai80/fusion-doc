@@ -4,6 +4,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.8] — 2026-09-06
+
 ### Fixed — Seed plaintext password hardening (issue #48)
 - **`verifyPassword` rejects non-hash storage**: the legacy HMAC-SHA256 fallback branch parsed any stored value with `split(':')`, so a plaintext seed (e.g. `admin123`, no colon) produced `salt=undefined` and threw / mis-evaluated. Now stored values must be either `scrypt:`-prefixed or a valid `salt:hash` pair (≥2 non-empty segments); everything else returns `false` with a warning. Plaintext seeds can no longer log in and no longer risk an uncaught throw
 - **Login auto-upgrade now runs in JSON-store mode**: the plaintext→scrypt transparent upgrade was guarded by `&& this.db`, so legacy/seed hashes in JSON-file mode were never migrated. Removed the guard; JSON mode persists the upgraded hash back via `writeJSON('users', id, …)`. SQLite and JSON stores both upgrade now
