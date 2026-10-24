@@ -186,10 +186,20 @@ fusion-doc/
 | **Fusion-KB** | Knowledge base | Document knowledge graph |
 | **Fusion-Doc** | Document OS (this) | Central document platform |
 
+## Union Web Shell Integration (issue #51)
+
+Fusion-Doc registers itself as a remote module of the Union Web shell (`fusion-gateway` `:11432`, PRD R-6). On startup the server POSTs `client/manifest.json` (id `fusion-doc`, category `infra`) to the gateway manifest registry, then sends a heartbeat. The gateway serves the module at `/shell/fusion-doc/` via a same-origin iframe proxy and injects the module service credential upstream — the caller's shell session never reaches fusion-doc.
+
+- **Dual mode**: standalone (`http://localhost:11449`) and embedded (`?embedded=1` or mounted under `/shell/fusion-doc/`). Embedded mode hides the sidebar/status bar chrome (R-8) and skips the local login gate — auth belongs to the shell host
+- **Service credential**: `FUSION_DOC_SHELL_API_KEY` env, or auto-generated and persisted to `data/shell-api-key.json` (0600). Requests carrying it authenticate as the `shell` tenant with role `operator` (configurable via `FUSION_DOC_SHELL_TENANT`/`FUSION_DOC_SHELL_ROLE`); admin endpoints remain admin-only
+- **Registration env**: `FUSION_GATEWAY_URL` (default `http://127.0.0.1:11432`) and `FUSION_GATEWAY_ADMIN_KEY` — without the admin key registration is skipped with a warning (standalone operation unaffected)
+- **Dev HMR**: client dev server runs on port `11477` (registered in `architecture/port-registry.yaml`; 5173 is a reserved port). Point the shell at it via `FUSION_DEV_MODULES=fusion-doc:11477`
+- The build uses a relative base (`base: './'`) so one bundle serves both the root path and the `/shell/fusion-doc/` sub-path
+
 ## Development
 
 ```bash
-# Client dev (hot reload)
+# Client dev (hot reload, port 11477)
 cd client && npm run dev
 
 # Build frontend

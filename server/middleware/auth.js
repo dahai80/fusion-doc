@@ -105,6 +105,24 @@ async function auth(req, res, pipeline) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
+  // ── Shell 服务凭证 (issue #51: gateway /shell/ 代理注入, 免自管登录) ──
+  // 网关剥离调用方 session 后注入模块 api_key; 此处常量时间比对放行。
+  // 主体为服务级 shell 会话 (tenant/role 可配, 默认 operator, admin 端点仍拒)。
+  const shellKey = cfg?.shellGateway?.apiKey || '';
+  if (shellKey && token) {
+    const a = Buffer.from(shellKey);
+    const b = Buffer.from(token);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      req.user = {
+        id: 'shell-session',
+        tid: cfg.shellGateway.tenant || 'shell',
+        role: cfg.shellGateway.role || 'operator',
+        scopes: [],
+      };
+      return false;
+    }
+  }
+
   // ── 本地认证旁路 (FUSION_DOC_LOCAL_AUTH=1) ──
   if (cfg?.localAuth) {
     if (token) {

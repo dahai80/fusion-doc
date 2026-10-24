@@ -84,6 +84,15 @@ class FusionDocApp {
     this.plugins = await loadPlugins(this);
     console.log(`  [✓] 插件已加载: ${this.plugins.length} 个`);
 
+    // issue #51: Union Web shell 模块自注册 (PRD R-6)
+    // fire-and-forget — 网关不可达只告警, 绝不阻断启动; 多实例仅 primary 注册。
+    if (this._role === 'primary') {
+        const { startShellRegistration } = require('./services/shell-register');
+        startShellRegistration(this.config).catch((e) => {
+            console.warn(`  [⚠] Shell 注册编排异常 (不影响服务): ${e.message}`);
+        });
+    }
+
     // P1-O2 修复: 自动定时备份 (原仅手动备份无调度)。间隔由 env AUTO_BACKUP_HOURS 控制 (默认 24, <=0 关闭)。
     // 单实例内存定时器, 触发 backupDB(); 失败仅记日志不中断服务。退出时清理。
     // 多实例加固: 仅 primary 跑备份 (replica 跳过, 避免多进程并发 .backup() 抢同一目标文件)。

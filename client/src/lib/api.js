@@ -1,7 +1,11 @@
 // E20 修复: 所有 fetch 加超时 + AbortController, 防后端卡死时前端无限挂起。
 // 超时默认 20s, 可经第四参 opts.timeout 覆盖 (0/负值 = 不超时, 供流式调用)。
 // P0-F1 修复: 自动附 Authorization: Bearer <token> (从 localStorage 读), 处理 401 清 token 触发登录。
-const API_BASE = '/api';
+// issue #51: shell 内嵌模式 — API 走 /shell/<id>/api 同源代理 (网关注入服务凭证),
+// 客户端不附 token, 401 不触发本地登出 (会话归 shell 宿主管)。
+import { isEmbedded, shellBasePath } from './embedded';
+
+const API_BASE = isEmbedded ? `${shellBasePath()}/api` : '/api';
 const DEFAULT_TIMEOUT = 20000;
 const TOKEN_KEY = 'fusion-doc-token';
 
@@ -10,6 +14,7 @@ function getToken() {
 }
 
 function clearTokenOn401() {
+    if (isEmbedded) return; // issue #51: 内嵌会话归 shell 宿主, 不做本地登出跳转
     try {
         if (localStorage.getItem(TOKEN_KEY)) {
             localStorage.removeItem(TOKEN_KEY);
@@ -35,8 +40,9 @@ function withTimeout(opts, timeout) {
 export async function api(method, path, body = null, reqOpts = {}) {
     const headers = { 'Content-Type': 'application/json', ...(reqOpts.headers || {}) };
     // P0-F1: 认证路径自身不带 token (登录/setup); 其余路径自动附 Bearer
+    // issue #51: 内嵌模式零 token — 网关 /shell/ 代理注入服务凭证
     const isAuthPath = path.startsWith('/auth/') || path.startsWith('/system/setup');
-    if (!isAuthPath) {
+    if (!isAuthPath && !isEmbedded) {
         const token = getToken();
         if (token) headers['Authorization'] = `Bearer ${token}`;
     }
@@ -81,7 +87,7 @@ export async function apiStream(path, body, onChunk, onDone, reqOpts = {}) {
     let res;
     try {
         const streamHeaders = { 'Content-Type': 'application/json' };
-        const token = getToken();
+        const token = isEmbedded ? null : getToken();
         if (token) streamHeaders['Authorization'] = `Bearer ${token}`;
         res = await fetch(`${API_BASE}${path}`, {
             method: 'POST',
@@ -132,7 +138,7 @@ export async function apiUpload(path, file) {
     const formData = new FormData();
     formData.append('file', file);
     const headers = {};
-    const token = getToken();
+    const token = isEmbedded ? null : getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API_BASE}${path}`, {
         method: 'POST',

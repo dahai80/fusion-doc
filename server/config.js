@@ -89,6 +89,21 @@ const config = {
   // 开启后保留原 JWT 签发 + users 表; 生产禁止开启
   localAuth: process.env.FUSION_DOC_LOCAL_AUTH === '1',
 
+  // Union Web shell 注册 (issue #51, PRD R-6)
+  // 启动时向 fusion-gateway POST manifest; 网关 /shell/fusion-doc/ 代理注入
+  // apiKey 作为服务凭证 (调用方 session 不透传, 网关侧剥离)。
+  // adminKey 缺失 → 跳过注册 (fail-visible 告警, 不阻断启动)。
+  shellGateway: {
+    url: process.env.FUSION_GATEWAY_URL || 'http://127.0.0.1:11432',
+    adminKey: process.env.FUSION_GATEWAY_ADMIN_KEY || '',
+    // 模块服务凭证: 网关代理注入上游; 缺失时自动生成并持久化 data/shell-api-key.json
+    apiKey: process.env.FUSION_DOC_SHELL_API_KEY || '',
+    // 服务凭证对应的租户/角色 (shell 会话主体; admin 端点仍拒绝非 tenant_admin)
+    tenant: process.env.FUSION_DOC_SHELL_TENANT || 'shell',
+    role: process.env.FUSION_DOC_SHELL_ROLE || 'operator',
+    heartbeatInterval: parseInt(process.env.FUSION_DOC_SHELL_HEARTBEAT_MS || '30000', 10),
+  },
+
   // Fusion-Studio JSON-RPC
   fusionStudio: {
     socketPath: process.env.FUSION_STUDIO_SOCKET || path.join(require('os').homedir(), '.fusion', 'studio.sock'),
