@@ -4,6 +4,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.9] — 2026-10-24
+
+### Added — Union Web shell remote module registration (issue #51, PRD R-6)
+- **Manifest self-registration**: on startup the server reads `client/manifest.json` (PRD §5.1 schema, id `fusion-doc`, category `infra`, devices `desktop`/`mobile-readonly`) and POSTs it to `fusion-gateway` `POST /api/v1/shell/manifests` (idempotent upsert, admin-key auth), then heartbeats on an interval. Fire-and-forget — gateway unreachable never blocks boot; only the `primary` instance role registers. Client: `server/integrations/fusion-gateway.js`, orchestration: `server/services/shell-register.js`
+- **Shell service credential**: `FUSION_DOC_SHELL_API_KEY` env or auto-generated + persisted to `data/shell-api-key.json` (0600). The gateway `/shell/fusion-doc/` proxy strips the caller's session and injects this credential upstream (`middleware/auth.js` accepts it via `timingSafeEqual` as a `shell`-tenant `operator` principal; admin endpoints still require admin). Tenant/role configurable via `FUSION_DOC_SHELL_TENANT`/`FUSION_DOC_SHELL_ROLE`
+- **Embedded dual-mode UI**: `?embedded=1` or mounting under `/shell/fusion-doc/` switches the client to embedded mode — sidebar/status-bar chrome hidden (R-8 ③), local login/setup gates skipped (session belongs to the shell host, R-8 ④), API base rebased to the shell proxy path, no token attached, no local logout redirect on 401. Router `basename` aligns to the mount path
+- **Relative build base**: `base: './'` in `client/vite.config.js` — one bundle serves both root deployment and the `/shell/fusion-doc/` sub-path
+- **Dev port migration**: client dev server moved `5173` (reserved port, forbidden for business use) → `11477`, registered in `architecture/port-registry.yaml` as `fusion-doc-web-dev`; Union Web dev HMR via `FUSION_DEV_MODULES=fusion-doc:11477`
+- **Docs**: README (EN/CN) Union Web integration section
+- **Tests**: `tests/unit/test-shell-register.js` — 10 cases (service-key env priority / generation + config write-back / re-read stability, registration body assembly with package.json version authority, manifest contains no secrets, auth middleware shell-credential acceptance in both identity and local-auth modes, wrong/short credential fall-through, branch inert without config)
+
+> Note: the issue requested "Module Federation remoteEntry.js" dual-mode build, but the PRD (§5.2 "零构建耦合，无 Federation 配置") mandates the iframe mechanism with zero build coupling — implemented per PRD. See PR description for the conflict resolution.
+
 ## [1.0.8] — 2026-09-06
 
 ### Fixed — Seed plaintext password hardening (issue #48)

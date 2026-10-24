@@ -3,8 +3,12 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
     plugins: [react()],
+    // issue #51: 相对 base — 同一构建产物既可独立部署于根路径, 也可由 gateway
+    // 挂载到 /shell/fusion-doc/ 子路径 (Union Web iframe 同源代理)
+    base: './',
     server: {
-        port: 5173,
+        // issue #51: 5173 属 port-registry 保留端口 (业务端口禁占), 迁至注册的 11477
+        port: 11477,
         proxy: {
             '/api': {
                 target: 'http://localhost:11449',

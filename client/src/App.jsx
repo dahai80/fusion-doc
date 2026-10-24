@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useUIStore } from './stores/uiStore';
 import { useAuthStore } from './stores/authStore';
+import { isEmbedded } from './lib/embedded';
 import AppLayout from './components/common/AppLayout';
 import EditorPage from './components/editor/EditorPage';
 import GraphPage from './components/graph/GraphPage';
@@ -37,8 +38,9 @@ export default function App() {
     }
 
     // P0-F1: 未安装 → 安装页; 已安装但未登录 → 登录页
-    if (needsSetup) return <AuthPage mode="setup" />;
-    if (!token || !user) return <AuthPage mode="login" />;
+    // issue #51: shell 内嵌模式跳过本地登录/安装门 (会话由宿主管, 网关注入服务凭证)
+    if (!isEmbedded && needsSetup) return <AuthPage mode="setup" />;
+    if (!isEmbedded && (!token || !user)) return <AuthPage mode="login" />;
 
     return (
         <Routes>
