@@ -2,12 +2,15 @@
     "id": "fusion-doc",
     "title": "Fusion 文档",
     "title_en": "Fusion Doc",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "path": "/doc",
     "icon": "FileText",
     "entry": "/shell/fusion-doc/",
     "health": "http://localhost:11432/shell/fusion-doc/api/health",
     "backend": "http://localhost:11432/shell/fusion-doc/api",
-    "devices": ["desktop", "mobile-readonly"],
+    "devices": [
+        "desktop",
+        "mobile-readonly"
+    ],
     "category": "infra"
 }
