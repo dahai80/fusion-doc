@@ -99,7 +99,7 @@ function register(app) {
 
   app.registerRoute('PUT', '/api/pages/:id', async (req, res) => {
     const { id } = req.params;
-    const page = getPage(app, id);
+    const page = getPage(db, id);
     if (!page) return notFound(res, '页面不存在');
     if (!canModifyPage(req, res, page)) return;
     const body = await parseBody(req);
@@ -117,13 +117,13 @@ function register(app) {
     } else { Object.assign(page, { title, content, markdown, updated_at: now() }); require('../db').writeJSON('pages', id, page); }
     // P0-F2 修复: 返回完整更新后页对象, 非裸 {updated:true}。
     // 原响应让 pageStore 把 currentPage 覆盖成 {updated:true}, 摧毁编辑器内容。
-    const refreshed = getPage(app, id);
+    const refreshed = getPage(db, id);
     json(res, refreshed || { ...page, title, content, markdown, updated_at: now() });
   });
 
   app.registerRoute('DELETE', '/api/pages/:id', (req, res) => {
     const { id } = req.params;
-    const page = getPage(app, id);
+    const page = getPage(db, id);
     if (!page) return notFound(res, '页面不存在');
     if (!canModifyPage(req, res, page)) return;
     // R5 修复: FK 强制下需先级联子表 (事务包裹), 原 DELETE 直接删 pages 触发 FK constraint failed。
@@ -159,7 +159,7 @@ function register(app) {
 
   app.registerRoute('POST', '/api/pages/:id/versions', async (req, res) => {
     const { id } = req.params;
-    const page = getPage(app, id);
+    const page = getPage(db, id);
     if (!page) return notFound(res, '页面不存在');
     if (!canModifyPage(req, res, page)) return;
     const body = await parseBody(req);

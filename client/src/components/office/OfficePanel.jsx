@@ -11,7 +11,7 @@ export default function OfficePanel({ pageId, pageTitle }) {
     const [format, setFormat] = useState('docx');
 
     useEffect(() => {
-        api('GET', '/api/office/status').then(setStatus).catch(() => setStatus({ available: false }));
+        api('GET', '/office/status').then(setStatus).catch(() => setStatus({ available: false }));
     }, []);
 
     const handleExport = async () => {

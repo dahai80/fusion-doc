@@ -7,7 +7,7 @@ export default function TemplatePicker({ onSelect, onClose }) {
     const [category, setCategory] = useState('all');
 
     useEffect(() => {
-        api('GET', '/api/templates').then(list => {
+        api('GET', '/templates').then(list => {
             setTemplates(list);
             setLoading(false);
         }).catch(() => setLoading(false));
@@ -20,7 +20,7 @@ export default function TemplatePicker({ onSelect, onClose }) {
         const title = window.prompt('文档标题:', tpl.name);
         if (!title) return;
         try {
-            const result = await api('POST', `/api/templates/${tpl.id}/instantiate`, { title });
+            const result = await api('POST', `/templates/${tpl.id}/instantiate`, { title });
             if (result.page_id) onSelect(result.page_id);
         } catch (e) {
             console.error('[Template] Instantiate error:', e);
