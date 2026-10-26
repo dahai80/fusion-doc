@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useUIStore } from '../../stores/uiStore';
 import { usePageStore } from '../../stores/pageStore';
 import { apiStream } from '../../lib/api';
+import { useT } from '../../stores/langStore';
 
 export default function AIChatPanel() {
     const [messages, setMessages] = useState([]);
@@ -12,6 +13,7 @@ export default function AIChatPanel() {
     const setAIPanelMode = useUIStore((s) => s.setAIPanelMode);
     const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
     const currentPage = usePageStore((s) => s.currentPage);
+    const t = useT();
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -41,9 +43,9 @@ export default function AIChatPanel() {
             if (aiPanelMode === 'rag' && ragQuestion) {
                 const { api } = await import('../../lib/api');
                 const data = await api('POST', '/ai/rag/query', { question: ragQuestion, top_k: 5 });
-                const answer = data.answer || '(知识库无相关结果)';
+                const answer = data.answer || t('(知识库无相关结果)', '(no relevant results in knowledge base)');
                 const sources = Array.isArray(data.sources) && data.sources.length
-                    ? `\n\n---\n📚 来源:\n${data.sources.slice(0, 3).map((s, i) => `${i + 1}. ${String(s).slice(0, 80)}`).join('\n')}`
+                    ? `\n\n---\n📚 ${t('来源', 'Sources')}:\n${data.sources.slice(0, 3).map((s, i) => `${i + 1}. ${String(s).slice(0, 80)}`).join('\n')}`
                     : '';
                 setMessages((prev) => {
                     const updated = [...prev];
@@ -76,7 +78,7 @@ export default function AIChatPanel() {
                 const updated = [...prev];
                 updated[updated.length - 1] = {
                     role: 'assistant',
-                    content: `错误: ${e.message}`,
+                    content: `${t('错误', 'Error')}: ${e.message}`,
                 };
                 return updated;
             });
@@ -92,7 +94,7 @@ export default function AIChatPanel() {
                         onClick={() => setAIPanelMode('chat')}
                         className={`px-2 py-1 text-xs rounded ${aiPanelMode === 'chat' ? 'bg-brand-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
                     >
-                        💬 对话
+                        💬 {t('对话', 'Chat')}
                     </button>
                     <button
                         onClick={() => setAIPanelMode('rag')}
@@ -112,7 +114,7 @@ export default function AIChatPanel() {
                         <div className="text-2xl mb-2">🤖</div>
                         <div className="text-sm">AI Copilot</div>
                         <div className="text-xs mt-1">
-                            {aiPanelMode === 'rag' ? '输入 ? 开头进行知识库问答' : '在编辑器中按 Cmd+J 续写'}
+                            {aiPanelMode === 'rag' ? t('输入 ? 开头进行知识库问答', 'Type ? to query the knowledge base') : t('在编辑器中按 Cmd+J 续写', 'Press Cmd+J in the editor to continue writing')}
                         </div>
                     </div>
                 )}
@@ -130,7 +132,7 @@ export default function AIChatPanel() {
                     </div>
                 ))}
                 {streaming && (
-                    <div className="text-xs text-gray-500">AI 正在生成...</div>
+                    <div className="text-xs text-gray-500">{t('AI 正在生成...', 'AI is generating...')}</div>
                 )}
                 <div ref={messagesEndRef} />
             </div>
@@ -142,7 +144,7 @@ export default function AIChatPanel() {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                        placeholder={aiPanelMode === 'rag' ? '? 知识库问答...' : '输入消息...'}
+                        placeholder={aiPanelMode === 'rag' ? t('? 知识库问答...', '? Knowledge base Q&A...') : t('输入消息...', 'Type a message...')}
                         className="flex-1 bg-surface-0 border border-surface-3 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-500"
                         disabled={streaming}
                     />
@@ -151,7 +153,7 @@ export default function AIChatPanel() {
                         disabled={streaming || !input.trim()}
                         className="bg-brand-600 hover:bg-brand-500 disabled:opacity-50 px-3 py-2 rounded-lg text-sm"
                     >
-                        发送
+                        {t('发送', 'Send')}
                     </button>
                 </div>
             </div>

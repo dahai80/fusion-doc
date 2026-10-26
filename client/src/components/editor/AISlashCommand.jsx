@@ -6,16 +6,18 @@ import { PluginKey } from '@tiptap/pm/state';
 import Suggestion from '@tiptap/suggestion';
 import { ReactRenderer } from '@tiptap/react';
 import tippy from 'tippy.js';
+import { t } from '../../stores/langStore';
 
-const COMMANDS = [
-    { title: 'AI 续写', description: '继续当前内容', command: 'complete', icon: '✨' },
-    { title: 'AI 改写', description: '改写选中/前文', command: 'rewrite', icon: '✏️' },
-    { title: '翻译为英文', description: '翻译选中内容', command: 'translate', language: '英文', icon: '🌐' },
-    { title: '翻译为中文', description: '翻译选中内容', command: 'translate', language: '中文', icon: '🌐' },
-    { title: '生成摘要', description: '对前文生成摘要', command: 'summarize', icon: '📋' },
-    { title: '内容展开', description: '展开详细阐述', command: 'expand', icon: '↔️' },
-    { title: '自定义指令', description: '输入自然语言指令', command: 'custom', icon: '💬' },
-];
+// 语言敏感命令表 — 每次过滤时现取, 切换语言后新面板即生效
+const commands = () => ([
+    { title: t('AI 续写', 'AI Continue'), description: t('继续当前内容', 'Continue current content'), command: 'complete', icon: '✨' },
+    { title: t('AI 改写', 'AI Rewrite'), description: t('改写选中/前文', 'Rewrite selection/context'), command: 'rewrite', icon: '✏️' },
+    { title: t('翻译为英文', 'Translate to English'), description: t('翻译选中内容', 'Translate selection'), command: 'translate', language: '英文', icon: '🌐' },
+    { title: t('翻译为中文', 'Translate to Chinese'), description: t('翻译选中内容', 'Translate selection'), command: 'translate', language: '中文', icon: '🌐' },
+    { title: t('生成摘要', 'Summarize'), description: t('对前文生成摘要', 'Summarize preceding text'), command: 'summarize', icon: '📋' },
+    { title: t('内容展开', 'Expand'), description: t('展开详细阐述', 'Elaborate in detail'), command: 'expand', icon: '↔️' },
+    { title: t('自定义指令', 'Custom instruction'), description: t('输入自然语言指令', 'Enter a natural-language instruction'), command: 'custom', icon: '💬' },
+]);
 
 export const AISlashCommand = Extension.create({
     name: 'aiSlashCommand',
@@ -32,7 +34,7 @@ export const AISlashCommand = Extension.create({
                     if (props.onSelect) props.onSelect(editor);
                 },
                 items: ({ query }) => {
-                    return COMMANDS.filter(c =>
+                    return commands().filter(c =>
                         c.title.toLowerCase().includes(query.toLowerCase()) ||
                         c.description.includes(query)
                     );
@@ -129,7 +131,7 @@ async function handleSlashAction(editor, item) {
     let body = { page_id: pageId, text_before: textBefore, selected_text: selectedText, text_after: textAfter };
     if (item.language) body.language = item.language;
     if (item.command === 'custom') {
-        const prompt = window.prompt('输入 AI 指令:');
+        const prompt = window.prompt(t('输入 AI 指令:', 'Enter AI instruction:'));
         if (!prompt) return;
         endpoint = '/copilot/command';
         body = { ...body, command: 'custom', prompt };

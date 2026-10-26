@@ -11,6 +11,7 @@ import Image from '@tiptap/extension-image';
 import { Placeholder, CharacterCount } from '@tiptap/extensions';
 import { usePageStore } from '../../stores/pageStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useT } from '../../stores/langStore';
 import EditorToolbar from './EditorToolbar';
 import { AIGhostText } from './AIGhostText';
 import AIBubbleMenu from './AIBubbleMenu';
@@ -28,6 +29,7 @@ export default function EditorPage() {
     const { id } = useParams();
     const { currentPage, fetchPage, updatePage } = usePageStore();
     const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
+    const t = useT();
     // F6: Office 面板抽屉开关 (默认收起)
     const [officeOpen, setOfficeOpen] = useState(false);
     const saveTimerRef = useRef(null);
@@ -87,7 +89,7 @@ export default function EditorPage() {
             Typography,
             Image.configure({ inline: false, allowBase64: true }),
             Placeholder.configure({
-                placeholder: '开始输入，或按 / 触发 AI 命令...',
+                placeholder: t('开始输入，或按 / 触发 AI 命令...', 'Start typing, or press / for AI commands...'),
             }),
             CharacterCount,
             BiLinkNode,
@@ -133,7 +135,7 @@ export default function EditorPage() {
     if (!currentPage) {
         return (
             <div className="flex-1 flex items-center justify-center text-gray-400">
-                选择或创建一个文档开始编辑
+                {t('选择或创建一个文档开始编辑', 'Select or create a document to start editing')}
             </div>
         );
     }
@@ -145,7 +147,7 @@ export default function EditorPage() {
                     type="text"
                     value={currentPage.title || ''}
                     onChange={(e) => handleTitleChange(e.target.value)}
-                    placeholder="文档标题"
+                    placeholder={t("文档标题", "Document title")}
                     className="text-xl font-semibold bg-transparent border-none outline-none flex-1 text-gray-100 placeholder-gray-500"
                 />
                 <button
@@ -175,9 +177,9 @@ export default function EditorPage() {
                 </div>
             )}
             <div className="border-t border-surface-3 px-4 py-1 flex items-center gap-4 text-xs text-gray-500">
-                <span>字符: {editor?.storage.characterCount?.characters() ?? 0}</span>
-                <span>词数: {editor?.storage.characterCount?.words() ?? 0}</span>
-                <span className="ml-auto">Cmd+J AI续写 | / 命令 | [[ 双向链接 | Tab 接受</span>
+                <span>{t('字符', 'Chars')}: {editor?.storage.characterCount?.characters() ?? 0}</span>
+                <span>{t('词数', 'Words')}: {editor?.storage.characterCount?.words() ?? 0}</span>
+                <span className="ml-auto">{t('Cmd+J AI续写 | / 命令 | [[ 双向链接 | Tab 接受', 'Cmd+J AI complete | / commands | [[ bi-links | Tab accept')}</span>
             </div>
         </div>
     );

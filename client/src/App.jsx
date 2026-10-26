@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useUIStore } from './stores/uiStore';
 import { useAuthStore } from './stores/authStore';
 import { isEmbedded } from './lib/embedded';
+import { t } from './stores/langStore';
 import AppLayout from './components/common/AppLayout';
 import EditorPage from './components/editor/EditorPage';
 import GraphPage from './components/graph/GraphPage';
@@ -34,7 +35,7 @@ export default function App() {
     }, []);
 
     if (!booted) {
-        return <div className="h-screen flex items-center justify-center bg-surface-0 text-surface-fg">加载中…</div>;
+        return <div className="h-screen flex items-center justify-center bg-surface-0 text-surface-fg">{t('加载中…', 'Loading…')}</div>;
     }
 
     // P0-F1: 未安装 → 安装页; 已安装但未登录 → 登录页

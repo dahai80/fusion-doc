@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { api } from '../../lib/api';
+import { useT } from '../../stores/langStore';
 
 function fmtSize(n) {
     if (!n && n !== 0) return '-';
@@ -18,12 +19,13 @@ export default function AdminPage() {
     const [busy, setBusy] = useState('');
     const [msg, setMsg] = useState('');
     const [restoreName, setRestoreName] = useState('');
+    const t = useT();
 
     const loadBackups = async () => {
         try {
             const res = await api('GET', '/system/backups');
             setBackups(res?.backups || []);
-        } catch (e) { setMsg(`加载备份列表失败: ${e.message}`); }
+        } catch (e) { setMsg(`${t('加载备份列表失败', 'Failed to load backups')}: ${e.message}`); }
     };
 
     const loadSchedule = async () => {
@@ -40,28 +42,28 @@ export default function AdminPage() {
         setMsg('');
         try {
             await api('POST', '/system/backup', {});
-            setMsg('备份完成');
+            setMsg(t('备份完成', 'Backup complete'));
             loadBackups();
-        } catch (e) { setMsg(`备份失败: ${e.message}`); }
+        } catch (e) { setMsg(`${t('备份失败', 'Backup failed')}: ${e.message}`); }
         finally { setBusy(''); }
     };
 
     const handleRestore = async (name) => {
-        if (!window.confirm(`确认从 ${name} 恢复? 当前库将先存为回滚点。`)) return;
+        if (!window.confirm(t(`确认从 ${name} 恢复? 当前库将先存为回滚点。`, `Restore from ${name}? Current DB will be snapshotted first.`))) return;
         setBusy('restore');
         setMsg('');
         try {
             const res = await api('POST', '/system/restore', { name });
-            setMsg(`恢复完成: ${res?.restored || name}`);
+            setMsg(`${t('恢复完成', 'Restore complete')}: ${res?.restored || name}`);
             setRestoreName('');
-        } catch (e) { setMsg(`恢复失败: ${e.message}`); }
+        } catch (e) { setMsg(`${t('恢复失败', 'Restore failed')}: ${e.message}`); }
         finally { setBusy(''); }
     };
 
     if (user?.role !== 'admin') {
         return (
             <div className="flex-1 flex items-center justify-center text-gray-400 p-8">
-                需要管理员权限访问此页面
+                {t('需要管理员权限访问此页面', 'Admin access required for this page')}
             </div>
         );
     }
@@ -69,14 +71,14 @@ export default function AdminPage() {
     return (
         <div className="flex-1 overflow-auto p-8">
             <div className="max-w-3xl mx-auto">
-                <h1 className="text-3xl font-bold mb-6">管理后台</h1>
+                <h1 className="text-3xl font-bold mb-6">{t('管理后台', 'Admin Console')}</h1>
 
                 <div className="bg-surface-1 border border-surface-3 rounded-xl p-5 mb-4">
-                    <h2 className="text-lg font-semibold mb-3">数据备份</h2>
+                    <h2 className="text-lg font-semibold mb-3">{t('数据备份', 'Data Backup')}</h2>
                     {schedule && (
                         <div className="text-xs text-gray-400 mb-3">
-                            自动备份: {schedule.enabled ? `每 ${schedule.intervalHours} 小时` : '未启用'} ·
-                            上次: {schedule.lastAutoBackupAt || '从未'}
+                            {t('自动备份', 'Auto backup')}: {schedule.enabled ? t(`每 ${schedule.intervalHours} 小时`, `every ${schedule.intervalHours}h`) : t('未启用', 'disabled')} ·
+                            {t('上次', 'Last')}: {schedule.lastAutoBackupAt || t('从未', 'never')}
                         </div>
                     )}
                     <button
@@ -84,12 +86,12 @@ export default function AdminPage() {
                         disabled={busy === 'backup'}
                         className="px-4 py-2 bg-brand-600 hover:bg-brand-500 rounded-lg text-sm disabled:opacity-50 mb-4"
                     >
-                        {busy === 'backup' ? '备份中...' : '立即备份'}
+                        {busy === 'backup' ? t('备份中...', 'Backing up...') : t('立即备份', 'Back up now')}
                     </button>
 
-                    <div className="text-sm text-gray-300 mb-2">备份列表</div>
+                    <div className="text-sm text-gray-300 mb-2">{t('备份列表', 'Backup list')}</div>
                     {backups.length === 0 ? (
-                        <div className="text-xs text-gray-500">暂无备份</div>
+                        <div className="text-xs text-gray-500">{t('暂无备份', 'No backups yet')}</div>
                     ) : (
                         <div className="space-y-2">
                             {backups.map((b) => (
@@ -102,7 +104,7 @@ export default function AdminPage() {
                                         disabled={busy === 'restore'}
                                         className="px-2 py-1 bg-yellow-600/80 hover:bg-yellow-500 rounded text-white disabled:opacity-50"
                                     >
-                                        恢复
+                                        {t('恢复', 'Restore')}
                                     </button>
                                 </div>
                             ))}

@@ -3,13 +3,15 @@
 // =============================================================================
 import { BubbleMenu } from '@tiptap/react/menus';
 import { useState } from 'react';
+import { t } from '../../stores/langStore';
 
-const ACTIONS = [
-    { key: 'rewrite', label: '改写', icon: '✏️' },
-    { key: 'translate', label: '翻译', icon: '🌐' },
-    { key: 'summarize', label: '摘要', icon: '📋' },
-    { key: 'expand', label: '展开', icon: '↔️' },
-];
+// 语言敏感操作表 — 每次渲染现取, 切换语言后即时生效
+const actions = () => ([
+    { key: 'rewrite', label: t('改写', 'Rewrite'), icon: '✏️' },
+    { key: 'translate', label: t('翻译', 'Translate'), icon: '🌐' },
+    { key: 'summarize', label: t('摘要', 'Summarize'), icon: '📋' },
+    { key: 'expand', label: t('展开', 'Expand'), icon: '↔️' },
+]);
 
 export default function AIBubbleMenu({ editor, pageId }) {
     const [loading, setLoading] = useState(false);
@@ -55,7 +57,7 @@ export default function AIBubbleMenu({ editor, pageId }) {
             return from !== to;
         }}>
             <div className="ai-bubble-menu flex items-center gap-1 bg-surface-1 border border-surface-2 rounded-lg px-2 py-1 shadow-xl">
-                {ACTIONS.map(a => (
+                {actions().map(a => (
                     <button
                         key={a.key}
                         disabled={loading}

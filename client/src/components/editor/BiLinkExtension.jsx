@@ -5,6 +5,7 @@ import Suggestion from '@tiptap/suggestion';
 import { ReactRenderer } from '@tiptap/react';
 import tippy from 'tippy.js';
 import { api } from '../../lib/api';
+import { t } from '../../stores/langStore';
 
 // ---------------------------------------------------------------------------
 // BiLink Node — inline [[Page Title]] link with data-bi-link attribute
@@ -81,7 +82,7 @@ const BiLinkSuggestionList = forwardRef(function BiLinkSuggestionList({ items, c
         },
     }));
 
-    if (!items.length) return <div className="text-xs text-gray-500 p-2">无匹配页面</div>;
+    if (!items.length) return <div className="text-xs text-gray-500 p-2">{t('无匹配页面', 'No matching pages')}</div>;
 
     return (
         <div className="bg-surface-1 border border-surface-2 rounded-lg shadow-2xl py-1 w-64 max-h-48 overflow-y-auto">

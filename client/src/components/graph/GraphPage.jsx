@@ -4,11 +4,13 @@
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { api } from '../../lib/api';
+import { useT } from '../../stores/langStore';
 
 export default function GraphPage() {
     const svgRef = useRef(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [stats, setStats] = useState({ nodes: 0, edges: 0 });
+    const t = useT();
 
     useEffect(() => {
         loadGraph();
@@ -129,23 +131,23 @@ export default function GraphPage() {
     return (
         <div className="flex-1 flex flex-col bg-surface-0">
             <div className="border-b border-surface-3 px-4 py-3 flex items-center gap-4">
-                <h2 className="text-lg font-semibold text-gray-200">知识图谱</h2>
+                <h2 className="text-lg font-semibold text-gray-200">{t('知识图谱', 'Knowledge Graph')}</h2>
                 <form onSubmit={handleSearch} className="flex gap-2">
                     <input
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="语义搜索..."
+                        placeholder={t("语义搜索...", "Semantic search...")}
                         className="bg-surface-1 border border-surface-3 rounded-lg px-3 py-1 text-sm text-gray-300 outline-none focus:border-brand-500"
                     />
                     <button type="submit" className="px-3 py-1 text-sm bg-brand-600 hover:bg-brand-500 rounded-lg">
-                        搜索
+                        {t('搜索', 'Search')}
                     </button>
                 </form>
                 <button onClick={() => { setSearchQuery(''); loadGraph(); }} className="text-sm text-gray-400 hover:text-gray-200">
-                    重置
+                    {t('重置', 'Reset')}
                 </button>
                 <div className="ml-auto text-xs text-gray-500">
-                    {stats.nodes} 节点 · {stats.edges} 连接
+                    {stats.nodes} {t('节点', 'nodes')} · {stats.edges} {t('连接', 'edges')}
                 </div>
             </div>
             <svg ref={svgRef} className="flex-1 w-full" style={{ minHeight: 600 }} />
