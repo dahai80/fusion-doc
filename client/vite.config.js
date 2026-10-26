@@ -28,11 +28,10 @@ export default defineConfig({
                 manualChunks: {
                     'vendor-react': ['react', 'react-dom', 'react-router-dom'],
                     'vendor-tiptap': [
-                        '@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-table',
-                        '@tiptap/extension-task-list', '@tiptap/extension-highlight',
-                        '@tiptap/extension-image', '@tiptap/extension-link',
-                        '@tiptap/extension-placeholder', '@tiptap/extension-character-count',
-                        '@tiptap/suggestion',
+                        '@tiptap/react', '@tiptap/react/menus', '@tiptap/starter-kit',
+                        '@tiptap/extension-table', '@tiptap/extension-task-list',
+                        '@tiptap/extension-highlight', '@tiptap/extension-image',
+                        '@tiptap/extensions', '@tiptap/suggestion',
                     ],
                     'vendor-d3': ['d3'],
                 },
