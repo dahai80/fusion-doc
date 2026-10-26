@@ -1,7 +1,7 @@
 // =============================================================================
 // AI BubbleMenu — 选中文本的 AI 操作浮窗
 // =============================================================================
-import { BubbleMenu } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
 import { useState } from 'react';
 
 const ACTIONS = [

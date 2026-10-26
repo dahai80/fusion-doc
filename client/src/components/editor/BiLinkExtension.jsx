@@ -1,5 +1,6 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Extension, Node, mergeAttributes } from '@tiptap/core';
+import { PluginKey } from '@tiptap/pm/state';
 import Suggestion from '@tiptap/suggestion';
 import { ReactRenderer } from '@tiptap/react';
 import tippy from 'tippy.js';
@@ -48,7 +49,7 @@ export const BiLinkNode = Node.create({
 async function createBackLink(sourcePageId, targetPageId) {
     if (!sourcePageId || !targetPageId || sourcePageId === targetPageId) return;
     try {
-        await api('POST', `/api/pages/${targetPageId}/links`, {
+        await api('POST', `/pages/${targetPageId}/links`, {
             target_page_id: sourcePageId,
             link_type: 'backlink',
         });
@@ -106,6 +107,8 @@ export const BiLinkExtension = Extension.create({
     addOptions() {
         return {
             suggestion: {
+                // v3: 与 aiSlashSuggestion 区分, 避免 'suggestion$' keyed plugin 冲突
+                pluginKey: new PluginKey('biLinkSuggestion'),
                 char: '[[',
                 command: ({ editor, range, props }) => {
                     const { pageId, pageTitle } = props;
@@ -117,7 +120,7 @@ export const BiLinkExtension = Extension.create({
                 },
                 items: async ({ query }) => {
                     try {
-                        const data = await api('GET', `/api/search?q=${encodeURIComponent(query)}`);
+                        const data = await api('GET', `/search?q=${encodeURIComponent(query)}`);
                         // F4 修复: /api/search 经 list() 返回 { data: [...] }, 非 results。读错字段致下拉恒空。
                         const rows = Array.isArray(data) ? data : (data.data || data.results || []);
                         return rows.slice(0, 8).map(p => ({

@@ -2,6 +2,7 @@
 // AI Slash Command — / 命令面板
 // =============================================================================
 import { Extension } from '@tiptap/core';
+import { PluginKey } from '@tiptap/pm/state';
 import Suggestion from '@tiptap/suggestion';
 import { ReactRenderer } from '@tiptap/react';
 import tippy from 'tippy.js';
@@ -22,6 +23,9 @@ export const AISlashCommand = Extension.create({
     addOptions() {
         return {
             suggestion: {
+                // v3: 两个 Suggestion 实例 (slash + biLink) 默认共用 pluginKey 'suggestion$',
+                // ProseMirror 拒绝重复 keyed plugin — 必须显式指定唯一 key
+                pluginKey: new PluginKey('aiSlashSuggestion'),
                 char: '/',
                 command: ({ editor, range, props }) => {
                     editor.chain().focus().deleteRange(range).run();

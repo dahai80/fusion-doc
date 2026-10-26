@@ -2,19 +2,13 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Table from '@tiptap/extension-table';
-import TableRow from '@tiptap/extension-table-row';
-import TableCell from '@tiptap/extension-table-cell';
-import TableHeader from '@tiptap/extension-table-header';
+import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Highlight from '@tiptap/extension-highlight';
 import Typography from '@tiptap/extension-typography';
 import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
-import Underline from '@tiptap/extension-underline';
-import Placeholder from '@tiptap/extension-placeholder';
-import CharacterCount from '@tiptap/extension-character-count';
+import { Placeholder, CharacterCount } from '@tiptap/extensions';
 import { usePageStore } from '../../stores/pageStore';
 import { useUIStore } from '../../stores/uiStore';
 import EditorToolbar from './EditorToolbar';
@@ -77,6 +71,11 @@ export default function EditorPage() {
             StarterKit.configure({
                 heading: { levels: [1, 2, 3] },
                 codeBlock: { HTMLAttributes: { class: 'rounded-lg' } },
+                // v3 StarterKit 自带 link/underline, 直接在 kit 内配置避免重复注册
+                link: {
+                    openOnClick: false,
+                    HTMLAttributes: { class: 'text-brand-400 underline' },
+                },
             }),
             Table.configure({ resizable: true }),
             TableRow,
@@ -87,11 +86,6 @@ export default function EditorPage() {
             Highlight.configure({ multicolor: true }),
             Typography,
             Image.configure({ inline: false, allowBase64: true }),
-            Link.configure({
-                openOnClick: false,
-                HTMLAttributes: { class: 'text-brand-400 underline' },
-            }),
-            Underline,
             Placeholder.configure({
                 placeholder: '开始输入，或按 / 触发 AI 命令...',
             }),

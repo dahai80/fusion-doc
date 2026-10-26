@@ -21,18 +21,19 @@ export default function WorkflowBadge({ pageId }) {
 
     useEffect(() => {
         if (!pageId) return;
-        api('GET', `/api/workflow/${pageId}`).then(setWorkflow).catch(() => {});
-        api('GET', `/api/workflow/${pageId}/transitions`).then(data => {
+        // api() 已拼 API_BASE (/api), 这里只传相对路径 — 原先传 /api/workflow/... 双前缀 404
+        api('GET', `/workflow/${pageId}`).then(setWorkflow).catch(() => {});
+        api('GET', `/workflow/${pageId}/transitions`).then(data => {
             setTransitions(data.transitions || []);
         }).catch(() => {});
     }, [pageId]);
 
     const handleTransition = async (state) => {
         try {
-            await api('POST', `/api/workflow/${pageId}/transition`, { state });
-            const w = await api('GET', `/api/workflow/${pageId}`);
+            await api('POST', `/workflow/${pageId}/transition`, { state });
+            const w = await api('GET', `/workflow/${pageId}`);
             setWorkflow(w);
-            const t = await api('GET', `/api/workflow/${pageId}/transitions`);
+            const t = await api('GET', `/workflow/${pageId}/transitions`);
             setTransitions(t.transitions || []);
         } catch (e) {
             console.error('[Workflow] Transition error:', e);
