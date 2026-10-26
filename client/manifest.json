@@ -2,7 +2,7 @@
     "id": "fusion-doc",
     "title": "Fusion 文档",
     "title_en": "Fusion Doc",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "path": "/doc",
     "icon": "FileText",
     "entry": "/shell/fusion-doc/",

@@ -4,6 +4,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.10] — 2026-10-26
+
+### Fixed — CI green again + dependency security (issue #53)
+- **Client high-severity advisories cleared** (main had been red since 2026-10-24: the CI `audit` job's client `npm audit --audit-level=high --omit=dev` gate failed on advisories published after the v1.0.9 lockfile was cut). `npm audit fix` in `client/` (semver-compatible, lockfile-only): markdown-it 14.3.2 → 14.3.3 (quadratic-time DoS: GHSA-r7fv-28h4-cvq7 / GHSA-vfgh-jcmw-g37q / GHSA-gfr2-rv44-r23c / GHSA-253c-mchw-3w2r), prosemirror-view → 1.42.8 (XSS in paste handling: GHSA-c8x8-7fp4-3x9w). Client audit now exits 0 at the high gate; 43 moderate remain in the tiptap 2.x / react-router 6.x chains (no non-breaking fix, below the gate)
+- **De-flaked config fail-closed test**: `tests/unit/test-identity-tenant.js` probe set `FUSION_DOC_LOCAL_AUTH = ''` (falsy), so the `.env` loader — which fills only unset variables — could leak a developer-local `.env`'s `FUSION_DOC_LOCAL_AUTH=1` into the spawned probe and skip the expected `process.exit(1)`. Probe now sets `'0'`, blocking the fill and evaluating false under `=== '1'`
+
 ## [1.0.9] — 2026-10-24
 
 ### Added — Union Web shell remote module registration (issue #51, PRD R-6)
