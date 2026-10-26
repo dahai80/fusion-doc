@@ -203,7 +203,9 @@ test('issue#45: config fail-closed — 非本地认证 + 无 serviceToken + 非�
     const probe = path.join(__dirname, '_probe-config-failclosed.js');
     const fs = require('node:fs');
     fs.writeFileSync(probe, `
-        process.env.FUSION_DOC_LOCAL_AUTH = '';
+        // 置 '0' 而非 '': 空串是 falsy, config.js 的 .env 加载器会把仓库 .env 的
+        // FUSION_DOC_LOCAL_AUTH=1 灌回来 (仅填充未设置变量), 测试变成本机 .env 内容敏感
+        process.env.FUSION_DOC_LOCAL_AUTH = '0';
         delete process.env.FUSION_IDENTITY_SERVICE_TOKEN;
         process.env.NODE_ENV = 'production';
         process.env.JWT_SECRET = 'a'.repeat(32); // 先过 JWT_SECRET 闸, 验证 identity 闸
