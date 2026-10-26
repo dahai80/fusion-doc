@@ -3,12 +3,14 @@
 // =============================================================================
 import { useState, useEffect } from 'react';
 import { api, apiUpload } from '../../lib/api';
+import { useT } from '../../stores/langStore';
 
 export default function OfficePanel({ pageId, pageTitle }) {
     const [status, setStatus] = useState(null);
     const [importing, setImporting] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [format, setFormat] = useState('docx');
+    const t = useT();
 
     useEffect(() => {
         api('GET', '/office/status').then(setStatus).catch(() => setStatus({ available: false }));
@@ -59,14 +61,14 @@ export default function OfficePanel({ pageId, pageTitle }) {
 
     return (
         <div className="space-y-4 p-4">
-            <h3 className="text-sm font-semibold text-gray-300">Office 文档</h3>
+            <h3 className="text-sm font-semibold text-gray-300">{t('Office 文档', 'Office Documents')}</h3>
             {status && !status.available && (
                 <div className="text-xs text-yellow-500 bg-yellow-500/10 rounded p-2">
-                    OfficeCLI 不可用 — 导入导出功能需安装 @officecli/sdk
+                    {t('OfficeCLI 不可用 — 导入导出功能需安装 @officecli/sdk', 'OfficeCLI unavailable — install @officecli/sdk to enable import/export')}
                 </div>
             )}
             <div className="space-y-2">
-                <label className="block text-xs text-gray-400">导出格式</label>
+                <label className="block text-xs text-gray-400">{t('导出格式', 'Export format')}</label>
                 <div className="flex gap-2">
                     {['docx', 'xlsx', 'pptx'].map(f => (
                         <button
@@ -83,11 +85,11 @@ export default function OfficePanel({ pageId, pageTitle }) {
                     disabled={exporting || !pageId || !status?.available}
                     className="w-full py-2 text-xs bg-brand-600 hover:bg-brand-500 rounded-lg disabled:opacity-40"
                 >
-                    {exporting ? '导出中...' : `导出为 .${format}`}
+                    {exporting ? t('导出中...', 'Exporting...') : t(`导出为 .${format}`, `Export as .${format}`)}
                 </button>
             </div>
             <div className="border-t border-surface-3 pt-3">
-                <label className="block text-xs text-gray-400 mb-2">导入文档</label>
+                <label className="block text-xs text-gray-400 mb-2">{t('导入文档', 'Import document')}</label>
                 <input
                     type="file"
                     accept=".docx,.xlsx,.pptx"

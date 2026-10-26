@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
+import { t } from '../../stores/langStore';
 
 const STATE_COLORS = {
     draft: 'bg-gray-600',
@@ -8,12 +9,13 @@ const STATE_COLORS = {
     archived: 'bg-gray-800',
 };
 
-const STATE_LABELS = {
-    draft: '草稿',
-    review: '审核中',
-    published: '已发布',
-    archived: '归档',
-};
+// 语言敏感的状态文案 — 直读 langStore, 不随渲染订阅 (徽标重挂载时刷新)
+const stateLabels = () => ({
+    draft: t('草稿', 'Draft'),
+    review: t('审核中', 'In review'),
+    published: t('已发布', 'Published'),
+    archived: t('归档', 'Archived'),
+});
 
 export default function WorkflowBadge({ pageId }) {
     const [workflow, setWorkflow] = useState(null);
@@ -46,15 +48,15 @@ export default function WorkflowBadge({ pageId }) {
     return (
         <div className="flex items-center gap-2">
             <span className={`px-2 py-0.5 text-xs rounded-full text-white ${STATE_COLORS[currentState] || 'bg-gray-600'}`}>
-                {STATE_LABELS[currentState] || currentState}
+                {stateLabels()[currentState] || currentState}
             </span>
-            {transitions.map(t => (
+            {transitions.map(tr => (
                 <button
-                    key={t}
-                    onClick={() => handleTransition(t)}
+                    key={tr}
+                    onClick={() => handleTransition(tr)}
                     className="px-2 py-0.5 text-xs bg-surface-2 hover:bg-surface-3 rounded text-gray-400 transition-colors"
                 >
-                    → {STATE_LABELS[t] || t}
+                    → {stateLabels()[tr] || tr}
                 </button>
             ))}
         </div>

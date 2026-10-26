@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { searchPages } from '../../lib/api';
+import { useT } from '../../stores/langStore';
 
 export default function SearchModal({ open, onClose }) {
     const [query, setQuery] = useState('');
@@ -8,6 +9,7 @@ export default function SearchModal({ open, onClose }) {
     const [loading, setLoading] = useState(false);
     const [activeIndex, setActiveIndex] = useState(-1);
     const navigate = useNavigate();
+    const t = useT();
     const inputRef = useRef(null);
     const timerRef = useRef(null);
 
@@ -89,11 +91,11 @@ export default function SearchModal({ open, onClose }) {
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="搜索文档... (Cmd+K)"
+                        placeholder={t("搜索文档... (Cmd+K)", "Search docs... (Cmd+K)")}
                         className="flex-1 py-3 bg-transparent text-sm focus:outline-none"
                         style={{ color: 'var(--text-primary)' }}
                     />
-                    {loading && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>搜索中...</span>}
+                    {loading && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('搜索中...', 'Searching...')}</span>}
                     <kbd className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>ESC</kbd>
                 </div>
 
@@ -112,7 +114,7 @@ export default function SearchModal({ open, onClose }) {
                             >
                                 <span>📄</span>
                                 <div className="flex-1 min-w-0">
-                                    <div className="truncate font-medium">{page.title || '未命名'}</div>
+                                    <div className="truncate font-medium">{page.title || t('未命名', 'Untitled')}</div>
                                     {page.excerpt && (
                                         <div className="text-xs truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
                                             {page.excerpt}
@@ -127,13 +129,13 @@ export default function SearchModal({ open, onClose }) {
 
                 {query && !loading && results.length === 0 && (
                     <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                        未找到匹配文档
+                        {t('未找到匹配文档', 'No matching documents')}
                     </div>
                 )}
 
                 {!query && (
                     <div className="py-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                        输入关键词搜索文档
+                        {t('输入关键词搜索文档', 'Type keywords to search documents')}
                     </div>
                 )}
             </div>
