@@ -7,6 +7,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const config = require('./config');
 const { version: APP_VERSION } = require('../package.json');
 const { initDB } = require('./db');
@@ -17,6 +18,45 @@ const { createMiddlewarePipeline } = require('./middleware/pipeline');
 const { seedTemplates } = require('./services/seed-templates');
 let WebSocketServer;
 try { WebSocketServer = require('ws').WebSocketServer; } catch { WebSocketServer = null; }
+
+// ── issue #60: SPA fallback <base> 计算 ──────────────────────────────────────
+// 构建产物资源为相对路径 (./assets), 深链 (如 /page/<uuid>) 下浏览器解析到错误
+// 目录。根部署深链注入 '/', 网关 shell 代理请求 (Bearer = 模块服务凭证, 网关
+// 剥离挂载前缀后转发) 注入 '/shell/<manifest-id>/'。
+let _cachedManifestId = null;
+function shellManifestId() {
+    if (_cachedManifestId) return _cachedManifestId;
+    try {
+        _cachedManifestId = JSON.parse(
+            fs.readFileSync(path.join(__dirname, '..', 'client', 'manifest.json'), 'utf8')
+        ).id || 'fusion-doc';
+    } catch (e) {
+        console.warn('[Fusion-Doc] manifest.json 读取失败, shell base 回退 fusion-doc:', e.message);
+        _cachedManifestId = 'fusion-doc';
+    }
+    return _cachedManifestId;
+}
+
+function isShellCaller(req, cfg) {
+    const key = cfg?.shellGateway?.apiKey || '';
+    const header = req.headers['authorization'] || '';
+    if (!key || !header.startsWith('Bearer ')) return false;
+    const token = header.slice(7);
+    const a = Buffer.from(key);
+    const b = Buffer.from(token);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function spaBaseHref(req, pathname, cfg) {
+    if (isShellCaller(req, cfg)) return `/shell/${shellManifestId()}/`;
+    if (
+        typeof pathname === 'string'
+        && /^\/[A-Za-z0-9\-._/]*$/.test(pathname)
+        && !pathname.includes('..')
+        && pathname.lastIndexOf('/') > 0
+    ) return '/';
+    return null;
+}
 
 class FusionDocApp {
   constructor() {
@@ -184,8 +224,8 @@ class FusionDocApp {
         return serveStatic(res, path.join(config.publicDir, cleanPath), config.publicDir);
       }
 
-      // SPA fallback
-      serveSPA(res, config.publicDir);
+      // SPA fallback (issue #60: 按请求来源注入 <base> 修复深链相对资源解析)
+      serveSPA(res, config.publicDir, spaBaseHref(req, pathname, config));
     } catch (err) {
       const status = err.statusCode || 500;
       console.error(`[Fusion-Doc] 错误 (${status}): ${err.message}`);
