@@ -195,6 +195,7 @@ Fusion-Doc 作为 Union Web 统一前端（`fusion-gateway` `:11432`，PRD R-6�
 - **注册 env**：`FUSION_GATEWAY_URL`（默认 `http://127.0.0.1:11432`）与 `FUSION_GATEWAY_ADMIN_KEY` —— 缺 admin key 时跳过注册并告警（不影响独立运行）
 - **开发 HMR**：前端 dev server 端口 `11477`（已登记 `architecture/port-registry.yaml`；5173 为保留端口）。shell 侧经 `FUSION_DEV_MODULES=fusion-doc:11477` 指向本地 dev server
 - 构建产物使用相对 base（`base: './'`），同一份 bundle 同时服务根路径与 `/shell/fusion-doc/` 子路径
+- **宿主同步**（issues #58/#62）：内嵌时主题/语言跟随宿主。桥接层为 vendored `@fusion/web-sdk` v0.1.2（`client/src/vendor/fusion-web-sdk.js`，取自 `fusion-web-shell` tag v0.1.2）——`theme.subscribe()` 为唯一事实来源（cached-sync `get()` 由后台宿主拉取播种），`lang` 事件走 `sdk.i18n` 通道，心跳 ping 由 SDK 内部应答
 
 ## 开发
 

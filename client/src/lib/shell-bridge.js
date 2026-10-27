@@ -1,21 +1,15 @@
-// ── Shell 桥接 (issue #58): 内嵌 fusion-web-shell 时跟随宿主主题/语言 ──
-// 协议见 fusion-web-shell packages/sdk/src/host.ts:
-//   宿主 → 模块: {type:'event', event:'theme'|'visibility'|'lang', payload}
-//   模块 → 宿主: {type:'request', id, method:'theme'|'ping', payload} → {type:'response', id, ok, result}
-// 宿主在 iframe onLoad 时主动 push 全量状态, 请求仅作兜底; 心跳 ping 应答保持 bridge 存活
+// ── Shell 桥接 (issue #58 → #62): 内嵌 fusion-web-shell 时跟随宿主主题/语言 ──
+// #62 起改用 vendored @fusion/web-sdk v0.1.2 (client/src/vendor/fusion-web-sdk.js),
+// 不再手写 postMessage 协议: 心跳 ping/pong、theme 后台补拉 (宿主 mount 时 push
+// 可能落在 about:blank 上丢失, fusion-web-shell#77)、origin 校验均由 SDK 内部处理。
+// 消费方式见 fusion-web-shell docs/module-integration-notes.md §2:
+//   theme.get() 同步一次性读 (可能滞后), theme.subscribe() 为唯一事实来源。
 import { isEmbedded } from './embedded';
+import { createShellSdk } from '../vendor/fusion-web-sdk';
 import { useUIStore } from '../stores/uiStore';
 import { useLangStore } from '../stores/langStore';
 
 let inited = false;
-
-function postToHost(msg) {
-    try {
-        window.parent.postMessage(msg, window.location.origin);
-    } catch (e) {
-        console.warn('[ShellBridge] postMessage to host failed:', e.message);
-    }
-}
 
 function applyTheme(mode) {
     if (mode === 'dark' || mode === 'light') {
@@ -35,31 +29,17 @@ export function initShellSync() {
     if (!isEmbedded || inited) return;
     inited = true;
 
-    window.addEventListener('message', (ev) => {
-        if (ev.origin !== window.location.origin) return;
-        const msg = ev.data;
-        if (!msg || typeof msg !== 'object') return;
-        if (msg.type === 'event') {
-            if (msg.event === 'theme') applyTheme(msg.payload);
-            else if (msg.event === 'lang') applyLang(msg.payload);
-            // 'visibility' 暂不消费 — 无全屏/隐藏态逻辑
-        } else if (msg.type === 'request' && msg.method === 'ping') {
-            // 宿主心跳: 应答 pong 标记 sdkAlive, 防宿主误判模块假死
-            postToHost({ type: 'response', id: msg.id, ok: true, result: 'pong' });
-        }
-    });
+    const sdk = createShellSdk();
 
-    // 初始主题兜底: 宿主 handleRequest case 'theme' 直接返回 'dark'|'light'
-    const reqId = 'fusion-doc-init-' + Date.now();
-    const onInitResp = (ev) => {
-        if (ev.origin !== window.location.origin) return;
-        const msg = ev.data;
-        if (msg?.type !== 'response' || msg.id !== reqId) return;
-        window.removeEventListener('message', onInitResp);
-        if (msg.ok) applyTheme(typeof msg.result === 'string' ? msg.result : msg.result?.mode);
-    };
-    window.addEventListener('message', onInitResp);
-    postToHost({ type: 'request', id: reqId, method: 'theme' });
+    // 主题: 首帧仍用模块自身初始绘制 (中性兜底), 订阅宿主变化为唯一事实来源;
+    // SDK 内部后台拉取宿主真实值, 与首帧不一致时订阅回调会纠正。
+    applyTheme(sdk.theme.get());
+    sdk.theme.subscribe(applyTheme);
 
-    console.log('[ShellBridge] host sync initialized (embedded mode)');
+    // 语言: 走 SDK i18n 通道 (宿主 lang 事件 → subscribe 回调), 与标签标题同步机制一致
+    applyLang(sdk.i18n.lang());
+    sdk.i18n.subscribe(applyLang);
+
+    // 心跳 ping/pong 由 SDK 应答, 宿主 liveness 检测标记本模块存活
+    console.log('[ShellBridge] host sync initialized via @fusion/web-sdk (embedded mode)');
 }
