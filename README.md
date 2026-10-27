@@ -195,6 +195,7 @@ Fusion-Doc registers itself as a remote module of the Union Web shell (`fusion-g
 - **Registration env**: `FUSION_GATEWAY_URL` (default `http://127.0.0.1:11432`) and `FUSION_GATEWAY_ADMIN_KEY` — without the admin key registration is skipped with a warning (standalone operation unaffected)
 - **Dev HMR**: client dev server runs on port `11477` (registered in `architecture/port-registry.yaml`; 5173 is a reserved port). Point the shell at it via `FUSION_DEV_MODULES=fusion-doc:11477`
 - The build uses a relative base (`base: './'`) so one bundle serves both the root path and the `/shell/fusion-doc/` sub-path
+- **Host sync** (issues #58/#62): when embedded, theme and language follow the host. The bridge is the vendored `@fusion/web-sdk` v0.1.2 (`client/src/vendor/fusion-web-sdk.js`, from `fusion-web-shell` tag v0.1.2) — `theme.subscribe()` is the source of truth (cached-sync `get()` seeds from a background host pull), `lang` events flow through `sdk.i18n`, and the heartbeat ping is answered SDK-internally
 
 ## Development
 
