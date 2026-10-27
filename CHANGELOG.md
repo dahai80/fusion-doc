@@ -4,6 +4,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.11] — 2026-10-27
+
+### Changed — dependency major upgrades (issue #55)
+- **react-router-dom 6.28 → 7.18.4** (PR #56): `<BrowserRouter>` API compatible; client routes unchanged
+- **@tiptap/* 2.x → 3.32.0** (PR #57): major bump across the editor stack (starter-kit, extensions, suggestion); dropped unused collab/yjs/lowlight deps; distinct `PluginKey` per Suggestion instance (slash commands, bilinks) — v3 crashes on shared keys; smoke fixups: `PUT /api/pages` 500 (authz `getPage` received `app` where `db` expected, 4 call sites in `server/controllers/page.js`) and client double `/api` prefix in 4 components. Eliminates all 43 moderate advisories in the tiptap 2.x / react-router 6.x chains; `npm audit --audit-level=high` clean
+
+### Added — shell host theme/language sync (issue #58, PR #59)
+- **`client/src/lib/shell-bridge.js`**: when embedded in fusion-web-shell, consumes host bridge events — `theme` → `useUIStore.setTheme`, `lang` → `useLangStore.setLang` — and answers heartbeat `ping` with `pong` (host SDK liveness detection now marks fusion-doc alive)
+- **`client/src/stores/langStore.js`**: `zh`/`en` language store (persisted to `fusion-doc-lang`) + `t(zh, en)` helper + `useT()` hook; all user-visible strings across 19 components translated; Settings page gains real theme/language controls (standalone mode; embedded mode follows the host)
+- **HomePage fix**: Fusion-MLX status read nonexistent `health.mlx` — now `health.checks.mlx.ok` (showed "disconnected" unconditionally)
+
+### Fixed — deep links break client assets (issue #60, PR #61)
+- **SPA fallback `<base>` injection**: the build uses relative base `./` (one bundle serves root + `/shell/` mount), so direct load / refresh of a nested route (`/page/<uuid>`) resolved `./assets` against `/page/` and MIME-crashed. The server now injects `<base href="/">` for nested paths and `<base href="/shell/<manifest-id>/">` for shell-proxy callers (detected via the gateway-injected Bearer service key, timing-safe compare). 5 new unit tests (suite 70/70)
+
 ## [1.0.10] — 2026-10-26
 
 ### Fixed — CI green again + dependency security (issue #53)
