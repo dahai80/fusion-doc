@@ -4,6 +4,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.12] — 2026-10-27
+
+### Changed — shell host sync via vendored @fusion/web-sdk (issue #62, PR #63)
+- **Vendored SDK**: `client/src/vendor/fusion-web-sdk.js` — ESM build of `@fusion/web-sdk` v0.1.2 from `dahai80/fusion-web-shell` tag v0.1.2 — replaces the hand-rolled postMessage bridge (PR #59). Heartbeat ping/pong, origin/source validation and request/response correlation are now SDK-internal
+- **Theme**: `sdk.theme.subscribe()` is the source of truth (module-integration-notes §2); `theme.get()` one-off seed read. The SDK's background host pull covers the host's mount-time push being lost to `about:blank` (fusion-web-shell#77), so the hand-rolled initial pull is gone. First paint stays neutral; the first subscribe callback corrects it
+- **Language**: host `lang` events flow through `sdk.i18n.subscribe()` (same channel as shell tab titles, fusion-web-shell#74) instead of a direct event listener
+- `client/src/lib/shell-bridge.js` shrinks to wiring only; standalone mode unchanged (`initShellSync` still gated on `isEmbedded`, Settings controls keep driving the stores outside the shell)
+- Verified with a same-origin iframe harness: theme pull + subscribe apply, lang apply, ping answered `pong`
+
 ## [1.0.11] — 2026-10-27
 
 ### Changed — dependency major upgrades (issue #55)
