@@ -26,6 +26,10 @@
 //   - LibreOffice  → Office 文档格式转换
 // =============================================================================
 
+// ── 进程标题 (issue #64): ps 中显示 fusion-doc 而非 node ──
+// start.sh 按 pidfile 管理 (无 pkill 按名匹配), 改名不影响 stop/status/restart。
+process.title = 'fusion-doc';
+
 const FusionDocApp = require('./app');
 
 // ── 启动应用 ──────────────────────────────────────────────────────────────
