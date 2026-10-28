@@ -4,6 +4,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.13] — 2026-10-28
+
+### Fixed — process title (issue #64)
+- `process.title = 'fusion-doc'` at the top of `server/index.js`: `ps` now shows the service name instead of a bare `node`, matching the other fusion-* daemons. `start.sh` manages the process via pidfile + child-pid cross-check (no pkill-by-name) and its `is_running` pattern already matched `*fusion-doc*`, so stop/status/restart are unaffected in both autorestart and plain-nohup modes
+
+### Verified — config conventions allowlist (issue #65)
+- Workspace gate `python scripts/check-env.py`: 0 non-baseline findings for this repo (no ERROR / BASELINE-WARN lines). The 6 remaining `[legacy]` WARN lines reference `FUSION_MLX_API_KEY` / `FUSION_GATEWAY_ADMIN_KEY` — the Phase 2.2 alias-chain names, migration-period by design; closed as verified-no-change-required
+
 ## [1.0.12] — 2026-10-27
 
 ### Changed — shell host sync via vendored @fusion/web-sdk (issue #62, PR #63)
