@@ -41,7 +41,7 @@ const config = {
   // 端口约定: 经 fusion-gateway 11432 调用 MLX (统一组网方案B; env 可覆盖回直连 11434)
   fusionMlx: {
     url: process.env.FUSION_MLX_URL || 'http://127.0.0.1:11432',
-    apiKey: process.env.FUSION_MLX_API_KEY || '',
+    apiKey: process.env.FUSION_CLIENT_KEY || '',
     chatModel: process.env.AI_CHAT_MODEL || 'Qwen3.5-9B-4bit',
     embeddingModel: process.env.AI_EMBEDDING_MODEL || 'bge-small-en-v1.5',
     rerankModel: process.env.AI_RERANK_MODEL || 'bge-reranker-v2-m3',
@@ -95,7 +95,7 @@ const config = {
   // adminKey 缺失 → 跳过注册 (fail-visible 告警, 不阻断启动)。
   shellGateway: {
     url: process.env.FUSION_GATEWAY_URL || 'http://127.0.0.1:11432',
-    adminKey: process.env.FUSION_GATEWAY_ADMIN_KEY || '',
+    adminKey: process.env.FUSION_ADMIN_KEY || '',
     // 模块服务凭证: 网关代理注入上游; 缺失时自动生成并持久化 data/shell-api-key.json
     apiKey: process.env.FUSION_DOC_SHELL_API_KEY || '',
     // 服务凭证对应的租户/角色 (shell 会话主体; admin 端点仍拒绝非 tenant_admin)
@@ -161,15 +161,15 @@ const config = {
   isTest: process.env.NODE_ENV === 'test',
 };
 
-// §2.2: FUSION_MLX_API_KEY 未设置时启动告警, 调用时 fail visibly (禁止字面量/静默放行)
+// §2.2: FUSION_CLIENT_KEY 未设置时启动告警, 调用时 fail visibly (禁止字面量/静默放行)
 // O9 修复: 生产环境升级为 error 级日志 + 标 mlxKeyMissing, /api/health 读绪探针报 degraded (非假阳性)。
 // 不 fail-fast 退出: AI 为可选特性, 缺密钥不应阻断 boot (与强制 JWT_SECRET 不同)。
 if (!config.fusionMlx.apiKey && !config.isTest) {
   config.fusionMlx.mlxKeyMissing = true;
   const log = process.env.NODE_ENV === 'production' ? console.error : console.warn;
   log(process.env.NODE_ENV === 'production'
-    ? '  [✗] FUSION_MLX_API_KEY 未设置 (生产): AI 特性不可用, /api/health 将报 degraded。请于部署 env 注入 (禁止字面量)'
-    : '  [⚠] FUSION_MLX_API_KEY 未设置, MLX 调用将被拒绝 (请于部署 env 注入, 禁止字面量)');
+    ? '  [✗] FUSION_CLIENT_KEY 未设置 (生产): AI 特性不可用, /api/health 将报 degraded。请于部署 env 注入 (禁止字面量)'
+    : '  [⚠] FUSION_CLIENT_KEY 未设置, MLX 调用将被拒绝 (请于部署 env 注入, 禁止字面量)');
 }
 
 // issue #45: 非本地认证模式缺 identity serviceToken → 生产环境 fail-closed 启动拒绝

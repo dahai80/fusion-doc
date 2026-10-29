@@ -25,7 +25,7 @@ from typing import Any
 # 默认经 fusion-gateway 11432 统一组网 (方案B); env 可覆盖回直连 11434
 FUSION_MLX_URL = os.environ.get("FUSION_MLX_URL", "http://localhost:11432")
 # key 由部署 env 注入, 严禁字面量默认值; 空则调用时报错 (fail visibly)
-FUSION_MLX_API_KEY = os.environ.get("FUSION_MLX_API_KEY", "")
+FUSION_CLIENT_KEY = os.environ.get("FUSION_CLIENT_KEY", "")
 
 class FusionMLXModelProvider:
     """仅对接本地 Fusion-MLX 推理引擎"""
@@ -34,7 +34,7 @@ class FusionMLXModelProvider:
         self.client = httpx.Client(
             base_url=FUSION_MLX_URL,
             timeout=120.0,
-            headers={"Authorization": f"Bearer {FUSION_MLX_API_KEY}"},
+            headers={"Authorization": f"Bearer {FUSION_CLIENT_KEY}"},
         )
 
     def chat(self, messages: list[dict], model: str = "qwen2.5-7b-instruct",

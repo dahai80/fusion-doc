@@ -125,6 +125,20 @@ do_start() {
         log_error "port ${PORT} already in use by another process; aborting (set FUSION_DOC_PORT to change)"
         return 1
     fi
+    # Phase 3.3 (issue #67): register-then-start 自检。
+    # 端口未登记 port-registry.yaml 则拒绝启动 (CI 前置到 boot); registry 文件缺失仅告警
+    # (standalone 部署); FUSION_SKIP_REGISTRY_CHECK=1 显式绕过。
+    SERVICE="fusion-doc"
+    REGISTRY="${FUSION_REGISTRY:-$HOME/fusion/architecture/port-registry.yaml}"
+    if [ ! -f "$REGISTRY" ]; then
+        log_warn "port-registry.yaml not found at $REGISTRY — registry self-check skipped"
+    elif ! grep -A3 "^  ${SERVICE}:" "$REGISTRY" 2>/dev/null | grep -q "port: $PORT$"; then
+        if [ "${FUSION_SKIP_REGISTRY_CHECK:-}" != "1" ]; then
+            log_error "port $PORT for ${SERVICE} not registered in $REGISTRY — refusing to start"
+            return 1
+        fi
+        log_warn "registry check bypassed (FUSION_SKIP_REGISTRY_CHECK=1)"
+    fi
     if ! command -v node >/dev/null 2>&1; then
         log_error "Node.js 未安装"
         return 1
