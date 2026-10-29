@@ -192,7 +192,7 @@ Fusion-Doc registers itself as a remote module of the Union Web shell (`fusion-g
 
 - **Dual mode**: standalone (`http://localhost:11449`) and embedded (`?embedded=1` or mounted under `/shell/fusion-doc/`). Embedded mode hides the sidebar/status bar chrome (R-8) and skips the local login gate — auth belongs to the shell host
 - **Service credential**: `FUSION_DOC_SHELL_API_KEY` env, or auto-generated and persisted to `data/shell-api-key.json` (0600). Requests carrying it authenticate as the `shell` tenant with role `operator` (configurable via `FUSION_DOC_SHELL_TENANT`/`FUSION_DOC_SHELL_ROLE`); admin endpoints remain admin-only
-- **Registration env**: `FUSION_GATEWAY_URL` (default `http://127.0.0.1:11432`) and `FUSION_GATEWAY_ADMIN_KEY` — without the admin key registration is skipped with a warning (standalone operation unaffected)
+- **Registration env**: `FUSION_GATEWAY_URL` (default `http://127.0.0.1:11432`) and `FUSION_ADMIN_KEY` — without the admin key registration is skipped with a warning (standalone operation unaffected)
 - **Dev HMR**: client dev server runs on port `11477` (registered in `architecture/port-registry.yaml`; 5173 is a reserved port). Point the shell at it via `FUSION_DEV_MODULES=fusion-doc:11477`
 - The build uses a relative base (`base: './'`) so one bundle serves both the root path and the `/shell/fusion-doc/` sub-path
 - **Host sync** (issues #58/#62): when embedded, theme and language follow the host. The bridge is the vendored `@fusion/web-sdk` v0.1.2 (`client/src/vendor/fusion-web-sdk.js`, from `fusion-web-shell` tag v0.1.2) — `theme.subscribe()` is the source of truth (cached-sync `get()` seeds from a background host pull), `lang` events flow through `sdk.i18n`, and the heartbeat ping is answered SDK-internally
@@ -220,7 +220,7 @@ Commercial deployment requires the env vars below and a reverse proxy + TLS up f
 ```bash
 # Required
 export JWT_SECRET="$(openssl rand -hex 32)"   # JWT signing secret (production fails fast if missing)
-export FUSION_MLX_API_KEY="..."               # Fusion-MLX API key
+export FUSION_CLIENT_KEY="..."               # Fusion-MLX API key
 export FUSION_IDENTITY_SERVICE_TOKEN="..."    # fusion-identity service token (required; fail-closed if missing)
 export NODE_ENV="production"                  # production mode (binds 127.0.0.1 by default)
 
@@ -308,7 +308,7 @@ Design: `rag_chunks_vec` (vec0, integer rowid) + `rag_vec_map` (rowid<->chunk_id
 docker build -f deploy/Dockerfile -t fusion-doc .
 docker run -d -p 11449:11449 \
     -e JWT_SECRET="$(openssl rand -hex 32)" \
-    -e FUSION_MLX_API_KEY="..." \
+    -e FUSION_CLIENT_KEY="..." \
     -e FUSION_MLX_URL="http://host.docker.internal:11434" \
     --add-host=host.docker.internal:host-gateway \
     -v fusion-doc-data:/app/data fusion-doc

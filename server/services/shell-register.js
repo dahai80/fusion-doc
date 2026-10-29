@@ -73,7 +73,7 @@ async function heartbeatOnce(config, moduleId) {
 async function startShellRegistration(config) {
     const sg = config?.shellGateway;
     if (!sg?.adminKey) {
-        console.warn('  [⚠] FUSION_GATEWAY_ADMIN_KEY 未设置: 跳过 Union Web shell 注册 (单机独立运行不受影响)');
+        console.warn('  [⚠] FUSION_ADMIN_KEY 未设置: 跳过 Union Web shell 注册 (单机独立运行不受影响)');
         return;
     }
     // 服务凭证无论注册成败都必须先回写 config (auth 中件 shell 分支依赖)

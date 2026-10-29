@@ -49,7 +49,7 @@ FUSION_DOC_PORT=11449
 # Fusion-MLX（本地 AI 推理引擎）
 # 默认经 fusion-gateway 11432 统一组网 (方案B); env 可覆盖回直连 11434
 FUSION_MLX_URL=http://127.0.0.1:11432
-FUSION_MLX_API_KEY=
+FUSION_CLIENT_KEY=
 
 # AI 模型配置
 AI_CHAT_MODEL=Qwen3.5-9B-4bit

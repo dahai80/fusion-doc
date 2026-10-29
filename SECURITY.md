@@ -42,7 +42,7 @@ Please include: impact scope, reproduction steps, suggested fix direction. We wi
 - **Backup**: online hot backup (WAL-consistent snapshot), API-triggered and cron-scheduled
 
 ### AI key
-- **FUSION_MLX_API_KEY**: read from env var only, literal hardcoding forbidden
+- **FUSION_CLIENT_KEY**: read from env var only, literal hardcoding forbidden
 - **Fail visibly**: missing key throws on call, never silently passes through
 
 ## Production deployment checklist
@@ -50,7 +50,7 @@ Please include: impact scope, reproduction steps, suggested fix direction. We wi
 ```bash
 # 1. Required env vars
 export JWT_SECRET="$(openssl rand -hex 32)"      # JWT signing secret (required)
-export FUSION_MLX_API_KEY="..."                  # Fusion-MLX API key (required)
+export FUSION_CLIENT_KEY="..."                  # Fusion-MLX API key (required)
 export FUSION_IDENTITY_SERVICE_TOKEN="..."       # fusion-identity service token (required; fail-closed if missing)
 export FUSION_IDENTITY_URL="http://127.0.0.1:11470"  # fusion-identity base URL
 export NODE_ENV="production"                     # production mode

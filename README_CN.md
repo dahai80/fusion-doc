@@ -192,7 +192,7 @@ Fusion-Doc 作为 Union Web 统一前端（`fusion-gateway` `:11432`，PRD R-6�
 
 - **双模式**：独立运行（`http://localhost:11449`）与内嵌（`?embedded=1` 或挂载于 `/shell/fusion-doc/`）。内嵌模式隐藏侧栏/状态栏自有导航（R-8），跳过本地登录门 —— 鉴权归 shell 宿主
 - **服务凭证**：env `FUSION_DOC_SHELL_API_KEY`，未设置则自动生成并持久化到 `data/shell-api-key.json`（0600）。携带该凭证的请求以 `shell` 租户、`operator` 角色认证（`FUSION_DOC_SHELL_TENANT`/`FUSION_DOC_SHELL_ROLE` 可配）；admin 端点仍仅限 admin
-- **注册 env**：`FUSION_GATEWAY_URL`（默认 `http://127.0.0.1:11432`）与 `FUSION_GATEWAY_ADMIN_KEY` —— 缺 admin key 时跳过注册并告警（不影响独立运行）
+- **注册 env**：`FUSION_GATEWAY_URL`（默认 `http://127.0.0.1:11432`）与 `FUSION_ADMIN_KEY` —— 缺 admin key 时跳过注册并告警（不影响独立运行）
 - **开发 HMR**：前端 dev server 端口 `11477`（已登记 `architecture/port-registry.yaml`；5173 为保留端口）。shell 侧经 `FUSION_DEV_MODULES=fusion-doc:11477` 指向本地 dev server
 - 构建产物使用相对 base（`base: './'`），同一份 bundle 同时服务根路径与 `/shell/fusion-doc/` 子路径
 - **宿主同步**（issues #58/#62）：内嵌时主题/语言跟随宿主。桥接层为 vendored `@fusion/web-sdk` v0.1.2（`client/src/vendor/fusion-web-sdk.js`，取自 `fusion-web-shell` tag v0.1.2）——`theme.subscribe()` 为唯一事实来源（cached-sync `get()` 由后台宿主拉取播种），`lang` 事件走 `sdk.i18n` 通道，心跳 ping 由 SDK 内部应答
@@ -223,7 +223,7 @@ node -c server/db.js
 ```bash
 # 必需
 export JWT_SECRET="$(openssl rand -hex 32)"   # JWT 密钥 (生产缺失则启动 fail-fast)
-export FUSION_MLX_API_KEY="..."               # Fusion-MLX 密钥
+export FUSION_CLIENT_KEY="..."               # Fusion-MLX 密钥
 export FUSION_IDENTITY_SERVICE_TOKEN="..."    # fusion-identity 服务令牌 (必需; 缺失则 fail-closed)
 export NODE_ENV="production"                  # 生产模式 (默认绑 127.0.0.1)
 

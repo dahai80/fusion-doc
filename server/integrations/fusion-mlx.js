@@ -21,7 +21,7 @@ const CALL_MAX_RETRIES = parseInt(process.env.FUSION_MLX_RETRIES || '1', 10);
 async function callFusionMLX({ method, path, body, config }) {
   // §2.2: key 未设置时 fail visibly, 禁止静默放行 (字面量亦禁止)
   if (!config.apiKey) {
-    throw new Error('Fusion-MLX 调用被拒绝: FUSION_MLX_API_KEY 未设置 (请在部署 env 注入)');
+    throw new Error('Fusion-MLX 调用被拒绝: FUSION_CLIENT_KEY 未设置 (请在部署 env 注入)');
   }
   const url = `${config.url}${BASE_PATH}${path}`;
   const headers = {
@@ -65,7 +65,7 @@ async function callFusionMLX({ method, path, body, config }) {
 async function* callFusionMLXStream({ model, messages, config, timeoutMs = 120000, abortSignal }) {
   // §2.2: key 未设置时 fail visibly, 禁止静默放行
   if (!config.apiKey) {
-    throw new Error('Fusion-MLX 流式调用被拒绝: FUSION_MLX_API_KEY 未设置 (请在部署 env 注入)');
+    throw new Error('Fusion-MLX 流式调用被拒绝: FUSION_CLIENT_KEY 未设置 (请在部署 env 注入)');
   }
   const url = `${config.url}${BASE_PATH}/chat/completions`;
   const headers = {
