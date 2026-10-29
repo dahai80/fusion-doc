@@ -4,6 +4,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.14] — 2026-10-30
+
+### Changed — config Phase 3: legacy key names to canonical (issue #67, PR #68)
+- **`FUSION_MLX_API_KEY` → `FUSION_CLIENT_KEY`** across `server/config.js`, `server/integrations/fusion-mlx.js`, `scripts/setup.sh`, `patches/maxkb/fusion-mlx-integration.py`, README/README_CN/SECURITY — no alias chain kept in this repo (alias compatibility is fusion-core's job, config-conventions §6)
+- **`FUSION_GATEWAY_ADMIN_KEY` → `FUSION_ADMIN_KEY`** across `server/config.js`, `server/integrations/fusion-gateway.js`, `server/services/shell-register.js`, README/README_CN — canonical client-side name per fusion-core `admin_key()`; the old name remains in check-env's `legacy_prefix`, so keeping it would have failed the `0 [legacy]` warns acceptance. **Breaking env rename** — deployments must set the new names (values unchanged, names only)
+- Workspace gate `python scripts/check-env.py` (incl. `--strict`): 0 `[legacy]` warns for fusion-doc (was 6 files / 13 lines) — clears the 2027-01-01 auto-escalation to error
+
+### Added — start.sh register-then-start self-check (Phase 3.3, issue #67)
+- `do_start` verifies the `fusion-doc` entry in `architecture/port-registry.yaml` (path overridable via `FUSION_REGISTRY`) after the port-in-use check: unregistered port → refuse to start; `FUSION_SKIP_REGISTRY_CHECK=1` → bypass with warning; missing registry file → warn and continue (standalone deploy)
+- 2 new CI-safe unit tests (`tests/unit/test-start-registry.js`, refusal paths; suite 72)
+
 ## [1.0.13] — 2026-10-28
 
 ### Fixed — process title (issue #64)
