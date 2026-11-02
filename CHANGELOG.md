@@ -4,6 +4,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.15] — 2026-11-02
+
+### Fixed — long-context: copilot selection cap, boundary truncation, page rolling summary (issue #69, PR #70)
+- **Selection hard cap (P1)**: all 5 copilot routes reject selections > 8000 chars (`413 SELECTION_TOO_LONG` + actionable message); `buildContext` defense-in-depth slice — a 50k select-all can no longer reach the LLM (blown context window, gateway timeouts, unbounded tenant token spend)
+- **Boundary-aware truncation (P2)**: cut at paragraph/newline/sentence/comma/space boundaries instead of blind `slice()` — CJK and Latin never cut mid-sentence when a boundary exists in the budget window; common HTML entities decoded in stripped text; char budgets documented in token terms (CJK ≈ 1 token/char)
+- **Page rolling summary (P3)**: migration `019_page_summary` (`pages.summary`, `pages.summary_source_len`); on save of pages ≥ 6000 plain chars an async LLM summary (≤400 chars, fire-and-forget, in-flight dedupe, stale at >20% length drift) is stored on the page; `buildContext` for long pages carries **summary + TOC (h1–h3) + 800-char head** instead of the blind first-2000 slice
+- **Client**: `apiStream` surfaces backend error messages (was bare `API 413`); `AIBubbleMenu` inline error display; `AISlashCommand` alerts instead of silent failure
+- **Tests**: 9 new unit tests (suite 81) — CJK/Latin boundaries, TOC extraction, long-doc summary path, selection cap, staleness ratio
+
 ## [1.0.14] — 2026-10-30
 
 ### Changed — config Phase 3: legacy key names to canonical (issue #67, PR #68)
