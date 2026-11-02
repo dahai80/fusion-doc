@@ -7,7 +7,7 @@
 const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLXStream } = require('../integrations/fusion-mlx');
 const { json, error } = require('../utils/response');
-const { buildContext, buildSystemPrompt } = require('../services/ai-copilot');
+const { buildContext, buildSystemPrompt, truncateAtBoundary, MAX_SELECTION_CHARS } = require('../services/ai-copilot');
 // S5 修复: Copilot 读页内容须校验归属, 杜绝以他人私有页内容续写/改写/翻译 (IDOR)
 const { canReadPage } = require('../middleware/authz');
 // issue #45: AI token 用量上报 fusion-identity (fire-and-forget)
@@ -31,6 +31,17 @@ function register(app) {
         return owner === (req.user?.id || 'local');
     }
 
+    // issue #69 P1: 选区大小上限服务端强校验。超限 413 + 可操作提示 (先摘要/分段),
+    // 50k 全选不再直达 LLM (上下文窗口爆/网关超时/租户 token 账单失控)。
+    function checkSelectionSize(res, selected_text) {
+        if (selected_text && selected_text.length > MAX_SELECTION_CHARS) {
+            console.warn(`[AI Copilot] selection too long: ${selected_text.length} chars > ${MAX_SELECTION_CHARS}`);
+            error(res, `选中内容过长 (${selected_text.length} 字符, 上限 ${MAX_SELECTION_CHARS})，请先摘要或分段处理`, 413, 'SELECTION_TOO_LONG');
+            return false;
+        }
+        return true;
+    }
+
     // ── 内联续写 ────────────────────────────────────────────────────────
     app.registerRoute('POST', '/api/copilot/complete', async (req, res) => {
         const body = await parseBody(req);
@@ -45,6 +56,7 @@ function register(app) {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after, instruction } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'rewrite', instruction);
     });
@@ -54,6 +66,7 @@ function register(app) {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after, language } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'translate', language);
     });
@@ -63,6 +76,7 @@ function register(app) {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'summarize');
     });
@@ -72,6 +86,7 @@ function register(app) {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'expand');
     });
@@ -81,6 +96,7 @@ function register(app) {
         const body = await parseBody(req);
         const { page_id, command, prompt, text_before, selected_text, text_after } = body;
         if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text || '', text_after);
         const systemPrompt = buildSystemPrompt(command, prompt);
         streamCopilotResponse(req, app, res, context, command, prompt);
@@ -93,7 +109,8 @@ function register(app) {
             let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : null;
             if (!page) return json(res, { context: '' });
             if (!canReadPage(req, res, page)) return;
-            const content = (page.content || '').replace(/<[^>]+>/g, '').slice(0, 3000);
+            // issue #69 P2: 边界感知截断代替盲切
+            const content = truncateAtBoundary((page.content || '').replace(/<[^>]+>/g, ''), 3000);
             json(res, { context: `文档: ${page.title}\n${content}` });
         } catch (e) {
             error(res, `Context fetch failed: ${e.message}`, 500);

@@ -139,11 +139,18 @@ async function handleSlashAction(editor, item) {
 
     const { apiStream } = await import('../../lib/api');
     let result = '';
-    await apiStream(endpoint, body, (chunk) => {
-        if (chunk.choices?.[0]?.delta?.content) {
-            result += chunk.choices[0].delta.content;
-        }
-    });
+    try {
+        await apiStream(endpoint, body, (chunk) => {
+            if (chunk.choices?.[0]?.delta?.content) {
+                result += chunk.choices[0].delta.content;
+            }
+        });
+    } catch (e) {
+        // issue #69: 服务端拒绝 (如选区超限 413) 可见提示, 不再静默
+        console.error('[AISlashCommand] Error:', e);
+        window.alert(e.message || 'AI 请求失败');
+        return;
+    }
     if (result.trim()) {
         if (selectedText && from !== to) {
             editor.chain().focus().deleteSelection().insertContent(result).run();

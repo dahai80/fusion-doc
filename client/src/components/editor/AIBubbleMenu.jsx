@@ -15,6 +15,8 @@ const actions = () => ([
 
 export default function AIBubbleMenu({ editor, pageId }) {
     const [loading, setLoading] = useState(false);
+    // issue #69: 服务端拒绝 (选区超限 413 等) 直接可见, 不再只进 console
+    const [err, setErr] = useState('');
 
     if (!editor) return null;
 
@@ -26,6 +28,7 @@ export default function AIBubbleMenu({ editor, pageId }) {
         const textAfter = editor.state.doc.textBetween(to, editor.state.doc.content.size, '\n');
 
         setLoading(true);
+        setErr('');
         let result = '';
         try {
             const { apiStream } = await import('../../lib/api');
@@ -46,6 +49,8 @@ export default function AIBubbleMenu({ editor, pageId }) {
             }
         } catch (e) {
             console.error('[AIBubbleMenu] Error:', e);
+            setErr(e.message || 'AI 请求失败');
+            setTimeout(() => setErr(''), 5000);
         } finally {
             setLoading(false);
         }
@@ -56,19 +61,26 @@ export default function AIBubbleMenu({ editor, pageId }) {
             const { from, to } = state.selection;
             return from !== to;
         }}>
-            <div className="ai-bubble-menu flex items-center gap-1 bg-surface-1 border border-surface-2 rounded-lg px-2 py-1 shadow-xl">
-                {actions().map(a => (
-                    <button
-                        key={a.key}
-                        disabled={loading}
-                        onClick={() => handleAction(a.key)}
-                        className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:bg-surface-2 rounded transition-colors disabled:opacity-40"
-                        title={a.label}
-                    >
-                        <span>{a.icon}</span>
-                        <span>{a.label}</span>
-                    </button>
-                ))}
+            <div className="ai-bubble-menu flex flex-col gap-1 bg-surface-1 border border-surface-2 rounded-lg px-2 py-1 shadow-xl">
+                <div className="flex items-center gap-1">
+                    {actions().map(a => (
+                        <button
+                            key={a.key}
+                            disabled={loading}
+                            onClick={() => handleAction(a.key)}
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-300 hover:bg-surface-2 rounded transition-colors disabled:opacity-40"
+                            title={a.label}
+                        >
+                            <span>{a.icon}</span>
+                            <span>{a.label}</span>
+                        </button>
+                    ))}
+                </div>
+                {err && (
+                    <div className="px-2 py-1 text-xs text-red-400 max-w-xs break-all" role="alert">
+                        {err}
+                    </div>
+                )}
             </div>
         </BubbleMenu>
     );
