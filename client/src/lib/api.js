@@ -102,7 +102,9 @@ export async function apiStream(path, body, onChunk, onDone, reqOpts = {}) {
     }
     if (!res.ok) {
         if (idleTimer) clearTimeout(idleTimer);
-        throw new Error(`API ${res.status}`);
+        // issue #69: 透传后端错误体 message (如 SELECTION_TOO_LONG 可操作提示), 不再裸抛状态码
+        const err = await res.json().catch(() => ({ message: `API ${res.status}` }));
+        throw new Error(err.message || `API ${res.status}`);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();

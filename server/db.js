@@ -115,6 +115,9 @@ function runMigrations() {
       // issue #45: 租户隔离。workspaces/pages/books +tenant_id 列, 存量回填 local-tenant。
       // 查询按 req.user.tid 过滤 (medium tier), 控制器写入时填 tenant_id。
       { name: '018_tenant_isolation', fn: runTenantIsolationMigration },
+      // issue #69 P3: 页面滚动摘要。长文档保存时异步生成 ≤400字 摘要存页上,
+      // copilot buildContext 对长文档改用 摘要+目录+开头片段 代替盲目前2000字符。
+      { name: '019_page_summary', fn: runPageSummaryMigration },
     ];
 
     for (const migration of migrations) {
@@ -217,6 +220,8 @@ function getInitialSchema() {
       book_id TEXT, chapter_id TEXT,
       title TEXT NOT NULL, slug TEXT NOT NULL,
       content TEXT DEFAULT '', markdown TEXT DEFAULT '',
+      summary TEXT DEFAULT '',
+      summary_source_len INTEGER DEFAULT 0,
       editor_mode TEXT DEFAULT 'rich-text',
       parent_id TEXT, sort_order REAL DEFAULT 0,
       created_by TEXT, is_published INTEGER DEFAULT 1,
@@ -782,4 +787,20 @@ function runTenantIsolationMigration(database) {
   database.exec('CREATE INDEX IF NOT EXISTS idx_books_tenant ON books(tenant_id);');
   database.exec('CREATE INDEX IF NOT EXISTS idx_workspaces_tenant ON workspaces(tenant_id);');
   database.exec('CREATE INDEX IF NOT EXISTS idx_chapters_tenant ON chapters(tenant_id);');
+}
+
+// ── 019: 页面滚动摘要 (issue #69 P3) ──────────────────────────────────────
+// pages +summary (≤400字摘要) + summary_source_len (生成时原文 plain 长度, 判断过期)。
+// 生成由 services/page-summary.js 在保存时异步触发, 此处仅 DDL。
+// ALTER TABLE ADD COLUMN 不支持 IF NOT EXISTS → 先查 pragma (同 018)。
+function runPageSummaryMigration(database) {
+  const cols = database.prepare('PRAGMA table_info(pages)').all().map(c => c.name);
+  if (!cols.includes('summary')) {
+    database.exec("ALTER TABLE pages ADD COLUMN summary TEXT DEFAULT '';");
+    console.log('  [迁移] 019_page_summary: pages +summary');
+  }
+  if (!cols.includes('summary_source_len')) {
+    database.exec('ALTER TABLE pages ADD COLUMN summary_source_len INTEGER DEFAULT 0;');
+    console.log('  [迁移] 019_page_summary: pages +summary_source_len');
+  }
 }

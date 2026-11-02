@@ -8,6 +8,8 @@ const { uid, now, slugify, tenantId } = require('../utils/helpers');
 const { json, list, created, notFound, error } = require('../utils/response');
 // 授权守卫统一走共享 middleware/authz (R13 读隔离 + R12 写隔离), 杜绝各控制器重复实现 IDOR
 const { canReadPage, canModifyPage, getPage } = require('../middleware/authz');
+// issue #69 P3: 长文档保存后异步滚动摘要 (fire-and-forget, 不阻塞响应)
+const { maybeGeneratePageSummary } = require('../services/page-summary');
 
 const EDITOR_MODES = new Set(['rich-text', 'markdown', 'plain']);
 const MAX_TITLE = 500;
@@ -78,6 +80,7 @@ function register(app) {
       throw e;
     }
     created(res, page);
+    maybeGeneratePageSummary(app, page);
   });
 
   // ── 单页操作 ──────────────────────────────────────────────────────────
@@ -119,6 +122,7 @@ function register(app) {
     // 原响应让 pageStore 把 currentPage 覆盖成 {updated:true}, 摧毁编辑器内容。
     const refreshed = getPage(db, id);
     json(res, refreshed || { ...page, title, content, markdown, updated_at: now() });
+    maybeGeneratePageSummary(app, refreshed || { ...page, title, content });
   });
 
   app.registerRoute('DELETE', '/api/pages/:id', (req, res) => {
