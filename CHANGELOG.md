@@ -4,6 +4,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.17] — 2026-11-05
+
+### Added — collections backend + management UI (issue #73, PR #74)
+- **Migration `020_collections`**: `collections` + `collection_pages` (FK `ON DELETE CASCADE` both sides, `tenant_id` backfilled per migration 018 pattern); same DDL in initial schema for fresh DBs
+- **`/api/collections` routes** (`server/controllers/collection.js`): tenant-scoped CRUD + single-page membership add/remove; owner-or-admin mutation guard; transactional membership replace; 500-member cap
+- **Client**: Collections tab in `/manage` — list + create + delete with member counts
+- Live-verified: full CRUD E2E + cascade delete (0 leftover membership rows)
+
 ## [1.0.16] — 2026-11-05
 
 ### Added — web surface: management page (issue #71, PR #72)
