@@ -115,6 +115,15 @@ export default function Sidebar() {
                     <span>🕸️</span> {t('知识图谱', 'Knowledge Graph')}
                 </button>
                 <button
+                    onClick={() => navigate('/manage')}
+                    className="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-surface-2 flex items-center gap-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => e.target.style.color = 'var(--text-primary)'}
+                    onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
+                >
+                    <span>🛠️</span> {t('管理面板', 'Management')}
+                </button>
+                <button
                     onClick={toggleTheme}
                     className="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-surface-2 flex items-center gap-2"
                     style={{ color: 'var(--text-secondary)' }}

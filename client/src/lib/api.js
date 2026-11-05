@@ -69,6 +69,29 @@ export async function api(method, path, body = null, reqOpts = {}) {
     return res.json();
 }
 
+// issue #71: binary download (page export) — same auth/base as api(), blob response.
+export async function apiBlob(path, timeoutMs = 60000) {
+    const headers = {};
+    const token = isEmbedded ? null : getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(`${API_BASE}${path}`, { headers, signal: controller.signal });
+        if (!res.ok) {
+            if (res.status === 401 && !isEmbedded) clearTokenOn401();
+            const err = await res.json().catch(() => ({ message: res.statusText }));
+            throw new Error(err.message || `API ${res.status}`);
+        }
+        return await res.blob();
+    } catch (e) {
+        if (e.name === 'AbortError') throw new Error(`Download timeout: ${path}`);
+        throw e;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // E20 修复: 流式支持外部 AbortController (reqOpts.signal), 加空闲心跳:
 // 连续 IDLE_MS 无数据视为后端卡死, abort 防永久挂起。
 export async function apiStream(path, body, onChunk, onDone, reqOpts = {}) {
