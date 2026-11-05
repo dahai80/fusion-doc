@@ -15,6 +15,7 @@ function registerRoutes(app) {
     require('./book'),
     require('./chapter'),
     require('./page'),
+    require('./collection'),
     require('./tag'),
     require('./search'),
     require('./graph'),

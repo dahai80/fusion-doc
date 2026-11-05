@@ -118,6 +118,9 @@ function runMigrations() {
       // issue #69 P3: 页面滚动摘要。长文档保存时异步生成 ≤400字 摘要存页上,
       // copilot buildContext 对长文档改用 摘要+目录+开头片段 代替盲目前2000字符。
       { name: '019_page_summary', fn: runPageSummaryMigration },
+      // issue #73: collections backend. collections + collection_pages (FK cascade),
+      // tenant_id column backfilled local-tenant (same tier as migration 018).
+      { name: '020_collections', fn: runCollectionsMigration },
     ];
 
     for (const migration of migrations) {
@@ -229,6 +232,25 @@ function getInitialSchema() {
       updated_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (book_id) REFERENCES books(id),
       FOREIGN KEY (chapter_id) REFERENCES chapters(id)
+    );
+
+    -- Collections (issue #73: cross-book page grouping layer)
+    CREATE TABLE IF NOT EXISTS collections (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT DEFAULT 'local-tenant',
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS collection_pages (
+      collection_id TEXT NOT NULL,
+      page_id TEXT NOT NULL,
+      added_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (collection_id, page_id),
+      FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+      FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE
     );
 
     -- 页面历史版本
@@ -787,6 +809,39 @@ function runTenantIsolationMigration(database) {
   database.exec('CREATE INDEX IF NOT EXISTS idx_books_tenant ON books(tenant_id);');
   database.exec('CREATE INDEX IF NOT EXISTS idx_workspaces_tenant ON workspaces(tenant_id);');
   database.exec('CREATE INDEX IF NOT EXISTS idx_chapters_tenant ON chapters(tenant_id);');
+}
+
+// ── 020: collections (issue #73) ─────────────────────────────────────────
+// Collections group pages across books (social/organizational layer, issue #71/#73).
+// Membership table uses FK cascade so collection/page deletes clean up automatically.
+function runCollectionsMigration(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS collections (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT DEFAULT 'local-tenant',
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_by TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS collection_pages (
+      collection_id TEXT NOT NULL,
+      page_id TEXT NOT NULL,
+      added_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (collection_id, page_id),
+      FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+      FOREIGN KEY (page_id) REFERENCES pages(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_collections_tenant ON collections(tenant_id);
+  `);
+  const cols = database.prepare('PRAGMA table_info(collections)').all().map(c => c.name);
+  if (!cols.includes('tenant_id')) {
+    database.exec("ALTER TABLE collections ADD COLUMN tenant_id TEXT DEFAULT 'local-tenant';");
+  }
+  const n = database.prepare("UPDATE collections SET tenant_id = 'local-tenant' WHERE tenant_id IS NULL").run().changes;
+  if (n) console.log(`  [migration] 020_collections: backfilled ${n} rows -> local-tenant`);
+  console.log('  [migration] 020_collections: collections + collection_pages ready');
 }
 
 // ── 019: 页面滚动摘要 (issue #69 P3) ──────────────────────────────────────
