@@ -4,6 +4,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.16] — 2026-11-05
+
+### Added — web surface: management page (issue #71, PR #72)
+- **New `/manage` page + sidebar entry** landing the previously unreachable REST surfaces in the UI, 5 tabs:
+  - **RAG**: reindex-all trigger + per-page chunk browse (`/api/rag/reindex-all`, `/api/rag/chunks/:pageId`; admin-gated routes surface 403 in UI)
+  - **Export**: markdown / html / pdf per page via authenticated blob download (`/api/export/:format/:id`) — only Office export was reachable before
+  - **Tags**: list + create (`/api/tags`)
+  - **Comments**: moderation list + delete (`/api/comments`)
+  - **Activity**: feed (`/api/activity`)
+- `apiBlob()` in `lib/api.js`: binary download sharing auth/base/401/timeout handling with `api()`
+- Collections skipped: no server-side route exists — follow-up issue #73 tracks the backend
+
 ## [1.0.15] — 2026-11-02
 
 ### Fixed — long-context: copilot selection cap, boundary truncation, page rolling summary (issue #69, PR #70)
