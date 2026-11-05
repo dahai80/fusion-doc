@@ -234,9 +234,73 @@ function ActivityPanel() {
     );
 }
 
+// ── Collections tab: list + create + delete (issue #73) ─────────────────────
+function CollectionsPanel() {
+    const t = useT();
+    const [collections, setCollections] = useState([]);
+    const [name, setName] = useState('');
+    const [err, setErr] = useState('');
+
+    const refresh = () => api('GET', '/collections').then((d) => setCollections(d.data || d || [])).catch((e) => setErr(e.message));
+    useEffect(() => { refresh(); }, []);
+
+    const create = async () => {
+        if (!name.trim()) return;
+        try {
+            await api('POST', '/collections', { name: name.trim() });
+            setName('');
+            refresh();
+        } catch (e) {
+            setErr(e.message);
+        }
+    };
+
+    const remove = async (id) => {
+        try {
+            await api('DELETE', `/collections/${id}`);
+            refresh();
+        } catch (e) {
+            setErr(e.message);
+        }
+    };
+
+    return (
+        <div className="space-y-3">
+            <div className="flex gap-2">
+                <input value={name} onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && create()}
+                    placeholder={t('新集合名', 'New collection name')}
+                    className="bg-surface-0 border border-[var(--border-color)] rounded px-2 py-1 text-sm focus:outline-none focus:border-brand-500"
+                    style={{ color: 'var(--text-primary)' }} />
+                <button onClick={create} className="bg-brand-600 hover:bg-brand-500 px-3 py-1 rounded-lg text-sm text-white transition-colors">
+                    {t('创建', 'Create')}
+                </button>
+            </div>
+            {err && <div className="text-xs text-red-400">{err}</div>}
+            {collections.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无集合', 'No collections')}</span>}
+            {collections.map((c) => (
+                <div key={c.id} className="flex items-start justify-between gap-3 border border-[var(--border-color)] rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                        <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{c.name}</div>
+                        {c.description && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{c.description}</div>}
+                        <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                            {t('成员页', 'Members')}: {(c.page_ids || []).length}
+                        </div>
+                    </div>
+                    <button onClick={() => remove(c.id)}
+                        className="text-xs px-2 py-1 rounded text-red-400 border border-red-400/30 hover:bg-red-400/10 transition-colors shrink-0">
+                        {t('删除', 'Delete')}
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 const TABS = [
     { key: 'rag', label: 'RAG', comp: RagPanel },
     { key: 'export', labelKey: '导出', labelKeyEn: 'Export', comp: ExportPanel },
+    { key: 'collections', labelKey: '集合', labelKeyEn: 'Collections', comp: CollectionsPanel },
     { key: 'tags', labelKey: '标签', labelKeyEn: 'Tags', comp: TagsPanel },
     { key: 'comments', labelKey: '评论', labelKeyEn: 'Comments', comp: CommentsPanel },
     { key: 'activity', labelKey: '动态', labelKeyEn: 'Activity', comp: ActivityPanel },
