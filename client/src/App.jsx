@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import ManagePage from './components/common/ManagePage';
 import { useUIStore } from './stores/uiStore';
 import { useAuthStore } from './stores/authStore';
 import { isEmbedded } from './lib/embedded';
@@ -51,6 +52,7 @@ export default function App() {
                 <Route path="graph" element={<GraphPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="admin" element={<AdminPage />} />
+<Route path="manage" element={<ManagePage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
         </Routes>
