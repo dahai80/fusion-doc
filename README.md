@@ -350,7 +350,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fusion-doc
 - `/settings` / `/admin` — SPA settings page + admin console (backup/restore UI)
 
 Security features: scrypt password hashing / auth endpoint rate-limit / enforced JWT secret / default localhost bind / online hot backup / parameterized SQL / request body size cap / Webhook SSRF guard / data-endpoint ownership check / file path-traversal guard / MIME allowlist / CORS origin allowlist / log redaction / built-in TLS / HSTS / HTTP->HTTPS redirect.
-Changelog at [CHANGELOG.md](./CHANGELOG.md). Full adversarial security audit at [../audit/fusion-doc-audit-0830.md](../audit/fusion-doc-audit-0830.md).
+Changelog at [CHANGELOG.md](./CHANGELOG.md). Full adversarial security audit: `audit/fusion-doc-audit-0830.md` in the Fusion monorepo workspace root (not part of this repository).
 
 ## License
 
