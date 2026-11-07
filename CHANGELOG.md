@@ -1,3 +1,19 @@
+---
+doc_id: fusion-doc/changelog
+product: fusion-doc
+class: platform
+entry: service
+doc_type: changelog
+title: {zh: Fusion-Doc 变更日志, en: Fusion-Doc Changelog}
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - CHANGELOG.md
+---
+
 # Changelog
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [Semantic Versioning](https://semver.org/).
@@ -138,7 +154,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
   - Migration lock `_acquireMigrateLock` + `busy_retry` (60 retries, Atomics.wait 200ms); on concurrent multi-process startup only one runs migrations, the rest queue on BUSY; `SAVEPOINT` per-migration rollback, no half schema left
   - `FUSION_DOC_ROLE=primary|replica` role gating: primary owns single-instance duties (E8 sweep + auto backup), replica only serves requests, prevents duplicate execution/thundering herd across processes; defaults to primary (single-instance backward compatible)
 - **Large-scale knowledge base (sqlite-vec ANN)**: `vec0` virtual table approximate nearest-neighbor search, resolves vector linear-scan scale ceiling.
-  - `rag_chunks.id` is TEXT, `vec0` accepts only integer rowid -> two-table bridge `rag_chunks_vec` (vec0 auto-increment rowid) + `rag_vec_map` (vec_rowid<->chunk_id)
+  - `rag_chunks.id` is TEXT, `vec0` accepts only integer rowid -> two-table bridge `rag_chunks_vec` (vec0 auto-increment rowid) + `rag_vec_map` (`vec_rowid<->chunk_id`)
   - `worker_threads` offloads vector scan; `AI_EMBEDDING_DIM` (default 384 = bge-small-en-v1.5) controls dimension; `KNN_OVERSAMPLE=4` ensures full results after permission filtering
   - Extension load failure (no `vec0.so/.dylib`) degrades back to linear scan, zero regression, does not block startup
 

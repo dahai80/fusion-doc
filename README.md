@@ -1,8 +1,28 @@
+---
+doc_id: fusion-doc/readme
+product: fusion-doc
+class: platform
+entry: service
+doc_type: readme
+title: {zh: Fusion-Doc 项目说明（英文）, en: Fusion-Doc README}
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - README.md
+---
+
 <div align="center">
   <img src="./branding/logo.svg" width="120" alt="Fusion-Doc Logo" />
-  <h1>Fusion-Doc V1.0</h1>
-  <p><strong>AI-First Document OS for Apple Silicon</strong></p>
-  <p>TipTap Editor · AI Copilot · Knowledge Graph · Office Format · Real-time Collab</p>
+</div>
+
+# Fusion-Doc V1.0
+
+**AI-First Document OS for Apple Silicon**
+
+TipTap Editor · AI Copilot · Knowledge Graph · Office Format · Real-time Collab
   <p>
     <a href="./README_CN.md">🇨🇳 中文</a> •
     <a href="./README.md">🇬🇧 English</a>
@@ -299,7 +319,7 @@ npm install sqlite-vec         # already a dependency (v1.0.6+)
 export AI_EMBEDDING_DIM="384"
 ```
 
-Design: `rag_chunks_vec` (vec0, integer rowid) + `rag_vec_map` (rowid<->chunk_id TEXT) two-table bridge for TEXT primary keys; dual-write (rag_chunks.vector JSON fallback + vec table ANN). Missing extension / dimension mismatch -> auto fallback to linear scan (zero regression). Retrieval oversamples `topK*4` to compensate for permission-filter elimination.
+Design: `rag_chunks_vec` (vec0, integer rowid) + `rag_vec_map` (`rowid<->chunk_id` TEXT) two-table bridge for TEXT primary keys; dual-write (rag_chunks.vector JSON fallback + vec table ANN). Missing extension / dimension mismatch -> auto fallback to linear scan (zero regression). Retrieval oversamples `topK*4` to compensate for permission-filter elimination.
 
 ### Container / process hosting
 
@@ -330,7 +350,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fusion-doc
 - `/settings` / `/admin` — SPA settings page + admin console (backup/restore UI)
 
 Security features: scrypt password hashing / auth endpoint rate-limit / enforced JWT secret / default localhost bind / online hot backup / parameterized SQL / request body size cap / Webhook SSRF guard / data-endpoint ownership check / file path-traversal guard / MIME allowlist / CORS origin allowlist / log redaction / built-in TLS / HSTS / HTTP->HTTPS redirect.
-Changelog at [CHANGELOG.md](./CHANGELOG.md). Full adversarial security audit at [../audit/fusion-doc-audit-0830.md](../audit/fusion-doc-audit-0830.md).
+Changelog at [CHANGELOG.md](./CHANGELOG.md). Full adversarial security audit: `audit/fusion-doc-audit-0830.md` in the Fusion monorepo workspace root (not part of this repository).
 
 ## License
 
