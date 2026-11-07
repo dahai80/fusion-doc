@@ -1,8 +1,28 @@
+---
+doc_id: fusion-doc/readme
+product: fusion-doc
+class: platform
+entry: service
+doc_type: readme
+title: {zh: Fusion-Doc 项目说明（中文）, en: Fusion-Doc README (Chinese)}
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - README_CN.md
+---
+
 <div align="center">
   <img src="./branding/logo.svg" width="120" alt="Fusion-Doc Logo" />
-  <h1>Fusion-Doc V0.2</h1>
-  <p><strong>Apple Silicon 原生离线智能文档知识库</strong></p>
-  <p>模块化 MVC · 插件体系 · 融合生态</p>
+</div>
+
+# Fusion-Doc V0.2
+
+**Apple Silicon 原生离线智能文档知识库**
+
+模块化 MVC · 插件体系 · 融合生态
   <p>
     <a href="./README_CN.md">🇨🇳 中文</a> •
     <a href="./README.md">🇬🇧 English</a>

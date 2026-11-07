@@ -1,3 +1,19 @@
+---
+doc_id: fusion-doc/security-policy
+product: fusion-doc
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 安全策略, en: Security Policy}
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - SECURITY.md
+---
+
 # Security Policy
 
 ## Reporting a vulnerability

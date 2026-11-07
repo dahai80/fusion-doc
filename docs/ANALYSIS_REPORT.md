@@ -1,3 +1,19 @@
+---
+doc_id: fusion-doc/analysis-report
+product: fusion-doc
+class: platform
+entry: service
+doc_type: guide
+title: {zh: 开源文档软件分析报告, en: Open-source Document Software Analysis Report}
+audience: engineer
+status: draft
+version: 1.0.17
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - docs/ANALYSIS_REPORT.md
+---
+
 # Open-source document software analysis report
 
 ---
@@ -100,7 +116,7 @@ client/
 - Multiple auth methods (LDAP, OAuth, SAML)
 - Modular plugin architecture
 - Theme system
-- Powerful search (database-based or Typesense)
+- Full-text search (database-based or Typesense)
 - Server-side rendering (Pug template engine)
 
 **Takeaways:**
