@@ -20,6 +20,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 
 ## [Unreleased]
 
+## [1.0.18] — 2026-11-07
+
+### Docs — docs-system v1.1 contract adoption (PR #75)
+- `docs/` tree adopts the Fusion docs-system v1.1 contract (platform x service): product page, guides (shell embedding), troubleshooting, and cross-repo audit links fixed (removed broken relative link to the workspace audit report)
+- 17 files, +1805/-10; no code changes
+
 ## [1.0.17] — 2026-11-05
 
 ### Added — collections backend + management UI (issue #73, PR #74)
