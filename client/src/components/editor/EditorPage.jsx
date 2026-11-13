@@ -121,6 +121,13 @@ export default function EditorPage() {
         }
     }, [editor, currentPage?.id]);
 
+    // Expose the live editor so the AI chat panel can insert generated
+    // content (tables, code blocks, paragraphs) into the open document.
+    useEffect(() => {
+        window.__fusionDocEditor = editor || null;
+        return () => { window.__fusionDocEditor = null; };
+    }, [editor]);
+
     // R23 修复: 仅在切换页面 (id 变化) 时初始化一次内容, 避免 setContent 与输入抖动循环。
     // P0-F3: 协作模式已移除 (未实现), 不再有 CRDT 冲突; 仅按 id 变化 setContent。
     useEffect(() => {

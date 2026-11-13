@@ -4,6 +4,67 @@ import { usePageStore } from '../../stores/pageStore';
 import { apiStream } from '../../lib/api';
 import { useT } from '../../stores/langStore';
 
+// Convert assistant markdown output to editor-insertable HTML.
+// Supports markdown tables, fenced code blocks and plain paragraphs —
+// everything else the model emits falls back to paragraph text.
+function mdToHtml(md) {
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const lines = md.split('\n');
+    const html = [];
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i];
+        const fence = line.match(/^```(\w*)/);
+        if (fence) {
+            const body = [];
+            i += 1;
+            while (i < lines.length && !lines[i].startsWith('```')) {
+                body.push(lines[i]);
+                i += 1;
+            }
+            i += 1;
+            html.push(`<pre><code>${esc(body.join('\n'))}</code></pre>`);
+            continue;
+        }
+        if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+            const cells = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+            const head = cells(line);
+            i += 2;
+            const rows = [];
+            while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+                rows.push(cells(lines[i]));
+                i += 1;
+            }
+            const ths = head.map((c) => `<th><p>${esc(c)}</p></th>`).join('');
+            const trs = rows.map((r) => `<tr>${r.map((c) => `<td><p>${esc(c)}</p></td>`).join('')}</tr>`).join('');
+            html.push(`<table><tbody><tr>${ths}</tr>${trs}</tbody></table>`);
+            continue;
+        }
+        if (line.trim()) {
+            const inline = esc(line.trim())
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                .replace(/`(.+?)`/g, '<code>$1</code>');
+            html.push(`<p>${inline}</p>`);
+        }
+        i += 1;
+    }
+    return html.join('') || `<p>${esc(md)}</p>`;
+}
+
+function insertIntoDocument(md, t) {
+    const editor = window.__fusionDocEditor;
+    if (!editor) {
+        return { ok: false, msg: t('没有打开的文档', 'No open document') };
+    }
+    try {
+        editor.chain().focus('end').insertContent(mdToHtml(md)).run();
+        return { ok: true };
+    } catch (e) {
+        return { ok: false, msg: e.message };
+    }
+}
+
 export default function AIChatPanel() {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -129,6 +190,29 @@ export default function AIChatPanel() {
                         >
                             <pre className="whitespace-pre-wrap font-sans text-sm">{msg.content}</pre>
                         </div>
+                        {msg.role === 'assistant' && msg.content && !streaming && (
+                            <div className="mt-1">
+                                <button
+                                    onClick={() => {
+                                        const r = insertIntoDocument(msg.content, t);
+                                        setMessages((prev) => {
+                                            const updated = [...prev];
+                                            updated[i] = { ...updated[i], inserted: r.ok, insertMsg: r.msg || '' };
+                                            return updated;
+                                        });
+                                    }}
+                                    className="text-xs text-brand-400 hover:text-brand-300 underline"
+                                >
+                                    {t('⬇ 插入到文档', '⬇ Insert into document')}
+                                </button>
+                                {msg.insertMsg && (
+                                    <span className="ml-2 text-xs text-red-400">{msg.insertMsg}</span>
+                                )}
+                                {msg.inserted && (
+                                    <span className="ml-2 text-xs text-emerald-400">{t('已插入', 'Inserted')}</span>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ))}
                 {streaming && (
