@@ -7,8 +7,8 @@ doc_type: changelog
 title: {zh: Fusion-Doc 变更日志, en: Fusion-Doc Changelog}
 audience: engineer
 status: draft
-version: 1.0.17
-updated: 2026-11-07
+version: 1.0.19
+updated: 2026-11-13
 owner: "@dahai"
 source_of_truth:
   - CHANGELOG.md
@@ -19,6 +19,13 @@ source_of_truth:
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.0.19] — 2026-11-13
+
+### Fixed — AI chat: insert assistant output into the document (PR #76)
+- "Insert into document" button on assistant messages in the AI chat panel: converts markdown (tables incl. 5x3, fenced code blocks, paragraphs, inline bold/italic/code) to editor HTML and inserts at document end
+- Live Tiptap editor registered from `EditorPage` (window handle, cleared on unmount); success/failure surfaced inline on the message
+- Markdown is HTML-escaped before conversion — no XSS surface from model output
 
 ## [1.0.18] — 2026-11-07
 
