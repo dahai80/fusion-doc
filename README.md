@@ -22,7 +22,7 @@ source_of_truth:
 
 **AI-First Document OS for Apple Silicon**
 
-TipTap Editor · AI Copilot · Knowledge Graph · Office Format · Real-time Collab
+TipTap Editor · AI Copilot · Knowledge Graph · Office Format
   <p>
     <a href="./README_CN.md">🇨🇳 中文</a> •
     <a href="./README.md">🇬🇧 English</a>
@@ -41,15 +41,15 @@ Fusion-Doc Server (:11449) — AI-First Document Operating System
 │   ├── AI Chat Panel (SSE Streaming)
 │   ├── Office Import/Export
 │   ├── Template System
-│   ├── Workflow & Collaboration
+│   ├── Workflow
 │   └── Dark Theme (Tailwind CSS)
 ├── Server (Modular MVC)
 │   ├── Controllers (25+ domain modules)
-│   ├── Services (AI Copilot, RAG, Office, Workflow, Collaboration)
+│   ├── Services (AI Copilot, RAG, Office, Workflow)
 │   ├── Models (SQLite + JSON dual storage)
 │   ├── Integrations (Fusion-MLX, OfficeCLI)
 │   └── Plugins (extensible plugin system)
-└── WebSocket (Real-time Collaboration — not released, route rejects 410)
+└── WebSocket (real-time collaboration not released)
 ```
 
 **Zero external dependencies:** No PostgreSQL, Redis, NestJS, or reverse proxy required.
@@ -83,7 +83,7 @@ bash scripts/start.sh
 
 | Source | Feature | API Endpoint | Status |
 |--------|---------|-------------|--------|
-| **TipTap 2.x** | Rich text editor with extensions | Built-in frontend | ✅ |
+| **TipTap** | Rich-text editing and auto-save | Built-in frontend | ✅ |
 | **DocMost** | Workspace → Book → Chapter → Page | `/api/workspaces` | ✅ |
 | **Wiki.js** | Modular routing + SQLite FTS5 | `server/controllers/` | ✅ |
 | **BookStack** | Shelf → Chapter → Page 3-tier | `/api/books`, `/api/chapters` | ✅ |
@@ -95,7 +95,7 @@ bash scripts/start.sh
 | **AI Copilot** | Inline AI (complete/rewrite/translate) | `/api/copilot/*` | ✅ |
 | **Template** | Document templates + instantiation | `/api/templates` | ✅ |
 | **Workflow** | Document state machine (draft→review→publish) | `/api/workflow/*` | ✅ |
-| **Collaboration** | Real-time WebSocket + cursors (not released, route rejects 410) | `/ws/collab/:pageId` | ⏸ |
+| **Real-time collaboration** | No live co-editing or collaborator cursors; no collaboration toggle in the editor | `/ws/collab/:pageId` | ⏸ Not released |
 
 ## Project Structure
 
@@ -105,7 +105,7 @@ fusion-doc/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── editor/          ← TipTap editor + AI extensions
-│   │   │   │   ├── EditorPage.jsx      (TipTap + auto-save + collab toggle)
+│   │   │   │   ├── EditorPage.jsx      (TipTap + auto-save)
 │   │   │   │   ├── EditorToolbar.jsx   (formatting toolbar)
 │   │   │   │   ├── AIGhostText.jsx     (Cmd+J inline completion)
 │   │   │   │   ├── AIBubbleMenu.jsx    (selection AI menu)
@@ -131,7 +131,7 @@ fusion-doc/
 │   │   ├── office.js           ← Office import/export
 │   │   ├── template.js         ← Template CRUD + instantiate
 │   │   ├── workflow.js         ← Document workflow state machine
-│   │   ├── collaboration.js    ← WebSocket collab (not released, route rejects 410)
+│   │   ├── collaboration.js    ← Stub route for unreleased real-time collaboration
 │   │   ├── graph.js            ← Knowledge graph (enhanced + semantic search)
 │   │   └── ...                 ← (health, auth, page, book, ai, etc.)
 │   ├── services/               ← Business logic
@@ -195,7 +195,7 @@ fusion-doc/
 | POST | `/api/rag/enhanced-query` | Hybrid RAG query |
 | POST | `/api/rag/reindex/:id` | Reindex page chunks |
 | GET | `/api/rag/chunks/:pageId` | Get page chunks |
-| WS | `/ws/collab/:pageId` | Real-time collaboration (not released, rejects 410) |
+| WS | `/ws/collab/:pageId` | Not released; closes upgraded connections with WebSocket close code `4011` |
 
 ## Fusion Ecosystem
 
