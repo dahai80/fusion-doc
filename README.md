@@ -60,13 +60,15 @@ Fusion-Doc Server (:11449) — AI-First Document Operating System
 # 1. Install
 bash scripts/setup.sh
 
-# 2. Start (Fusion-MLX recommended for AI features)
-bash scripts/start.sh
+# 2. Start (local development only)
+NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash start.sh start
 
 # 3. Access
-#    http://localhost:11449       → Document editor
-#    http://localhost:11449/api/health → Health check
+#    http://127.0.0.1:11449            → Document editor
+#    http://127.0.0.1:11449/api/health → Health check
 ```
+
+[First local run: clone the repo, create an admin, and save your first page](./docs/get-started.md#english-quick-start)
 
 ## AI-First Features
 
