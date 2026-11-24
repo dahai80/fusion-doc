@@ -56,6 +56,8 @@ Fusion-Doc Server (:11449) — AI-First Document Operating System
 
 ## Quick Start
 
+**Prerequisites:** Node.js 24 LTS (with npm) is recommended. The locked `better-sqlite3` dependency does not support Node.js 18. CI still uses Node.js 20.
+
 ```bash
 # 1. Install
 bash scripts/setup.sh
