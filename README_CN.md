@@ -67,7 +67,8 @@ NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash star
 
 | 来源 | 特性 | API 端点 | 状态 |
 |------|------|---------|------|
-| **DocMost** | TipTap 编辑器 + Yjs 实时协作 | 前端内置 | ✅ |
+| **TipTap** | 富文本编辑与自动保存 | 前端内置 | ✅ |
+| **实时协作** | 不支持多人同时编辑或显示协作者光标；编辑器没有协作开关 | `/ws/collab/:pageId` | ⏸ 未发布 |
 | **DocMost** | 空间 → 目录 → 页面 结构 | `/api/workspaces` | ✅ |
 | **DocMost** | 页面历史版本 + 评论 | `/api/pages/:id/versions` | ✅ |
 | **DocMost** | 收藏系统 | `/api/favorites` | ✅ |
@@ -198,6 +199,7 @@ fusion-doc/
 | GET/POST | `/api/metadata` | 元数据管理 |
 | GET/POST | `/api/vocabulary` | 词汇表管理 |
 | GET | `/api/branding` | 品牌信息 |
+| WS | `/ws/collab/:pageId` | 实时协作未发布；升级后以 WebSocket 关闭码 `4011` 断开 |
 
 ## Fusion 生态
 
