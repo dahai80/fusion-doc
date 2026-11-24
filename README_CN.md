@@ -47,6 +47,8 @@ Fusion-Doc Server (:11449) — 模块化 MVC，零外部依赖，可扩展
 
 ## 快速开始
 
+**前置要求：** 推荐 Node.js 24 LTS（含 npm）。锁定的 `better-sqlite3` 依赖不支持 Node.js 18；CI 仍使用 Node.js 20。
+
 ```bash
 # 1. 安装
 bash scripts/setup.sh

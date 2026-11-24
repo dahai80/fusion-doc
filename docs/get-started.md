@@ -19,7 +19,9 @@ source_of_truth:
 
 # 快速开始 / Get Started
 
-前置要求 / Prerequisites: Node 18+（CI 使用 Node 20），macOS 或 Linux。
+**前置要求：** macOS 或 Linux，推荐 Node.js 24 LTS（含 npm）。锁定的 `better-sqlite3` 依赖不支持 Node.js 18；CI 仍使用 Node.js 20。
+
+**Prerequisites:** macOS or Linux. Node.js 24 LTS (with npm) is recommended. The locked `better-sqlite3` dependency does not support Node.js 18. CI still uses Node.js 20.
 
 ## 1. 安装 / Install
 

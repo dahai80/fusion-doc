@@ -17,7 +17,7 @@ echo "=========================================="
 echo ""
 echo "[1/6] 系统依赖..."
 for cmd in node npm; do
-  command -v $cmd >/dev/null 2>&1 || { echo "  [✗] $cmd 未安装，请先安装 Node.js 18+"; exit 1; }
+  command -v $cmd >/dev/null 2>&1 || { echo "  [✗] $cmd 未安装，请先安装 Node.js 24 LTS（含 npm）"; exit 1; }
   echo "  [✓] $cmd"
 done
 echo "  [~] 可选: pandoc (文档导出), libreoffice (Office 格式转换), tesseract (OCR)"
@@ -25,7 +25,7 @@ echo "  [~] 可选: pandoc (文档导出), libreoffice (Office 格式转换), te
 # ── 2. 安装 Node.js 依赖 ────────────────────────────────────────────────
 echo ""
 echo "[2/6] 安装 Node.js 依赖..."
-npm install --silent 2>/dev/null || true
+npm install
 echo "  [✓] 依赖已安装"
 
 # ── 3. 数据目录 ──────────────────────────────────────────────────────────
