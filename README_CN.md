@@ -53,13 +53,15 @@ Fusion-Doc Server (:11449) — 模块化 MVC，零外部依赖，可扩展
 # 1. 安装
 bash scripts/setup.sh
 
-# 2. 启动（推荐先启动 Fusion-MLX 以使用 AI 功能）
-bash scripts/start.sh
+# 2. 启动（仅限本地开发）
+NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash start.sh start
 
 # 3. 访问
-#    http://localhost:11449    → 文档编辑器
-#    http://localhost:11449/api/health → 健康检查
+#    http://127.0.0.1:11449            → 文档编辑器
+#    http://127.0.0.1:11449/api/health → 健康检查
 ```
+
+[本地首次使用：获取源码、创建管理员并保存第一页](./docs/get-started.md#中文入门)
 
 ## 整合特性
 

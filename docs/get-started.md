@@ -23,51 +23,69 @@ source_of_truth:
 
 **Prerequisites:** macOS or Linux. Node.js 24 LTS (with npm) is recommended. The locked `better-sqlite3` dependency does not support Node.js 18. CI still uses Node.js 20.
 
-## 1. 安装 / Install
+## 中文入门
+
+### 1. 获取源码并安装
 
 ```bash
-cd ~/fusion/fusion-doc
+git clone https://github.com/dahai80/fusion-doc.git
+cd fusion-doc
 bash scripts/setup.sh
 ```
 
-安装依赖、初始化 `data/{db,storage,exports,versions,logs}` 目录，并在缺失时写入 `.env`。
+安装脚本安装服务端依赖、创建 `data/` 下的数据目录，并在缺失时生成 `.env`。仓库已包含构建好的前端，首次使用无需另行构建。
 
-En: Installs dependencies, initializes the `data/` subdirectories, and writes `.env` if missing.
-
-## 2. 启动 / Start
+### 2. 启用本地认证并启动
 
 ```bash
-bash start.sh start     # PID 文件 .fusion-doc.pid；日志 logs/stdout.log、logs/stderr.log
-bash start.sh status    # 退出码 0 = 运行中
+NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash start.sh start
+bash start.sh status
 ```
 
-访问 / Access:
+`FUSION_DOC_LOCAL_AUTH=1` 启用内置账户，不需要 fusion-identity。此模式仅用于本机单用户开发；保持监听 `127.0.0.1`，不要对外暴露或用于生产。启动日志在 `logs/stdout.log` 和 `logs/stderr.log`。
 
-- `http://localhost:11449` — 文档编辑器 / document editor
-- `http://localhost:11449/api/health` — 健康检查（DB + MLX + 磁盘）/ health check
+### 3. 新建、保存并刷新
 
-## 3. AI 功能（可选）/ AI features (optional)
+1. 打开 [http://127.0.0.1:11449](http://127.0.0.1:11449)。首次访问时，在 **初始化 Fusion-Doc 管理员** 中填写邮箱、显示名称（可选）和至少 8 字符的密码，点 **完成安装**。按钮恢复且没有报错后刷新；若看到登录界面，用刚创建的账户登录。
+2. 在首页点 **新建文档**，在正文输入 `我的第一页`。
+3. 停止输入后约 2 秒触发自动保存。等几秒再刷新当前页面，确认正文仍显示 `我的第一页`。
 
-AI 对话、内联补全、embedding/RAG 依赖兄弟服务 fusion-mlx（默认经网关 `http://127.0.0.1:11432`，可用 `FUSION_MLX_URL` 覆盖为直连 `:11434`）。密钥缺失时集成层直接抛错（fail visibly），不会静默降级。
+### 4. 配置 AI（可选）
 
-En: AI chat, inline completion, and embedding/RAG call the sibling fusion-mlx engine. A missing key throws visibly; there is no silent fallback.
+保存文档不需要 AI。需要 AI 时，先运行可用的 fusion-mlx 服务，再在 `.env` 中填入 `FUSION_CLIENT_KEY`。`FUSION_MLX_URL` 默认经 `http://127.0.0.1:11432` 网关访问，也可改为直连 `http://127.0.0.1:11434`。修改后用 `bash start.sh stop` 停止服务，再用第 2 步的启动命令启动。
+
+## English quick start
+
+### 1. Clone and install
 
 ```bash
-~/fusion/fusion-mlx/start.sh start
-export FUSION_CLIENT_KEY="<your fusion-mlx key>"   # set in .env or shell
+git clone https://github.com/dahai80/fusion-doc.git
+cd fusion-doc
+bash scripts/setup.sh
 ```
 
-## 4. 认证模式 / Auth mode
+The script installs server dependencies, creates the `data/` subdirectories, and writes `.env` if missing. The repository includes the built frontend, so no separate build is needed for the first run.
 
-生产模式（默认）要求 fusion-identity（`:11470`）签发 JWT，且启动时必须提供 `FUSION_IDENTITY_SERVICE_TOKEN`（缺失则启动失败）。本地单用户开发可临时开启旁路：
-
-En: Production mode requires fusion-identity-issued JWTs and `FUSION_IDENTITY_SERVICE_TOKEN` at startup (missing = startup fails). For local single-user dev only:
+### 2. Start with local authentication
 
 ```bash
-export FUSION_DOC_LOCAL_AUTH=1    # dev only, forbidden in production
+NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash start.sh start
+bash start.sh status
 ```
 
-## 5. 开发与构建 / Develop and build
+`FUSION_DOC_LOCAL_AUTH=1` enables built-in accounts without fusion-identity. Use this mode only for single-user development on your machine. Keep it bound to `127.0.0.1`; do not expose it to the network or use it in production. Startup logs are in `logs/stdout.log` and `logs/stderr.log`.
+
+### 3. Create, save, and refresh a page
+
+1. Open [http://127.0.0.1:11449](http://127.0.0.1:11449). On the **Initialize Fusion-Doc admin** screen, enter an email, an optional display name, and a password of at least eight characters. Click **Finish setup**. When the button is enabled again and no error appears, refresh. If prompted to sign in, use the account you created.
+2. On the home page, click **New Document** and type `My first page` in the editor body.
+3. Auto-save starts about two seconds after you stop typing. Wait a few seconds before refreshing the current page, then check that `My first page` is still in the editor.
+
+### 4. Configure AI (optional)
+
+You do not need AI to save documents. To enable AI, run a fusion-mlx service and set `FUSION_CLIENT_KEY` in `.env`. `FUSION_MLX_URL` defaults to the gateway at `http://127.0.0.1:11432`; set it to `http://127.0.0.1:11434` to connect directly instead. After editing `.env`, run `bash start.sh stop`, then start the server with the command from step 2.
+
+## 开发与构建 / Develop and build
 
 ```bash
 npm run dev:all      # server + vite client (hot reload, client on :11477)
@@ -76,14 +94,14 @@ npm test             # bash scripts/test.sh: syntax check + node:test suite + he
 npm run lint         # eslint server/ --quiet
 ```
 
-## 6. 停止 / Stop
+## 停止 / Stop
 
 ```bash
-bash start.sh stop   # graceful stop; logs rotate at 10MB (FUSION_DOC_LOG_MAX_BYTES)
+bash start.sh stop
 ```
 
 ## 下一步 / Next steps
 
-- 全部环境变量 / all env vars: `docs/config-reference.md`
-- API 契约 / API contract: `docs/api-reference.md`
-- 故障排查 / troubleshooting: `docs/troubleshooting.md`
+- [全部环境变量 / Environment variables](./config-reference.md)
+- [API 契约 / API contract](./api-reference.md)
+- [故障排查 / Troubleshooting](./troubleshooting.md)
