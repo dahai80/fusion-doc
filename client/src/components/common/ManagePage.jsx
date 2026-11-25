@@ -1,86 +1,14 @@
 // =============================================================================
 // ManagePage — web surface gap (issue #71)
-// Un-landed REST surfaces now in UI: RAG pipeline management (reindex-all,
-// chunk browse), multi-format page export (markdown/html/pdf), tags admin,
-// comments moderation, activity feed. Tabs kept in one page (single nav slot).
+// Multi-format page export (markdown/html/pdf), tags admin, comments
+// moderation, activity feed. Tabs kept in one page (single nav slot).
+// issue #84: RAG management tab removed — fusion-rag (:11436) is the single
+// knowledge layer; in-document QA retrieval is delegated there (kb_ask).
 // =============================================================================
 
 import React, { useEffect, useState } from 'react';
 import { api, apiBlob } from '../../lib/api';
 import { useT } from '../../stores/langStore';
-
-// ── RAG tab: reindex-all + per-page chunk browse ────────────────────────────
-function RagPanel() {
-    const t = useT();
-    const [pages, setPages] = useState([]);
-    const [chunks, setChunks] = useState(null);
-    const [busy, setBusy] = useState(false);
-    const [status, setStatus] = useState('');
-
-    useEffect(() => {
-        api('GET', '/pages').then((d) => setPages((d.data || d).slice(0, 100))).catch((e) => setStatus(e.message));
-    }, []);
-
-    const reindexAll = async () => {
-        setBusy(true);
-        setStatus('');
-        try {
-            const r = await api('POST', '/rag/reindex-all');
-            setStatus(t(`已重建 ${r.reindexed ?? r.count ?? '?'} 页索引`, `Reindexed ${r.reindexed ?? r.count ?? '?'} pages`));
-        } catch (e) {
-            setStatus(e.message);
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const browseChunks = async (pageId) => {
-        setChunks(null);
-        try {
-            const r = await api('GET', `/rag/chunks/${pageId}`);
-            setChunks(r.chunks || []);
-        } catch (e) {
-            setStatus(e.message);
-        }
-    };
-
-    return (
-        <div className="space-y-4">
-            <div className="flex items-center gap-3">
-                <button onClick={reindexAll} disabled={busy}
-                    className="bg-brand-600 hover:bg-brand-500 disabled:opacity-40 px-3 py-1.5 rounded-lg text-sm text-white transition-colors">
-                    {t('重建全部索引', 'Reindex all')}
-                </button>
-                {status && <span className="text-xs text-emerald-500">{status}</span>}
-            </div>
-            <div>
-                <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
-                    {t('按页浏览分块', 'Browse chunks by page')}
-                </div>
-                <div className="flex flex-wrap gap-1">
-                    {pages.map((p) => (
-                        <button key={p.id} onClick={() => browseChunks(p.id)}
-                            className="text-xs px-2 py-1 rounded border border-[var(--border-color)] hover:bg-surface-2"
-                            style={{ color: 'var(--text-primary)' }}>
-                            {p.title || t('未命名', 'Untitled')}
-                        </button>
-                    ))}
-                </div>
-            </div>
-            {chunks && (
-                <div className="space-y-2">
-                    {chunks.length === 0 && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('无分块 (未索引)', 'No chunks (not indexed)')}</div>}
-                    {chunks.map((c, i) => (
-                        <div key={c.id || i} className="border border-[var(--border-color)] rounded-lg p-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                            <div className="font-mono mb-1" style={{ color: 'var(--text-muted)' }}>#{i} · {c.heading || c.section || 'chunk'}</div>
-                            <div className="line-clamp-3">{(c.text || c.content || '').slice(0, 300)}</div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
 
 // ── Export tab: all formats via blob download (auth header attached) ────────
 async function downloadExport(pageId, format, slug) {
@@ -298,7 +226,6 @@ function CollectionsPanel() {
 }
 
 const TABS = [
-    { key: 'rag', label: 'RAG', comp: RagPanel },
     { key: 'export', labelKey: '导出', labelKeyEn: 'Export', comp: ExportPanel },
     { key: 'collections', labelKey: '集合', labelKeyEn: 'Collections', comp: CollectionsPanel },
     { key: 'tags', labelKey: '标签', labelKeyEn: 'Tags', comp: TagsPanel },
@@ -308,8 +235,8 @@ const TABS = [
 
 export default function ManagePage() {
     const t = useT();
-    const [tab, setTab] = useState('rag');
-    const Active = TABS.find((x) => x.key === tab)?.comp || RagPanel;
+    const [tab, setTab] = useState('export');
+    const Active = TABS.find((x) => x.key === tab)?.comp || ExportPanel;
     return (
         <div className="flex-1 overflow-auto p-6">
             <h1 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
@@ -321,7 +248,7 @@ export default function ManagePage() {
                         className={`text-sm px-3 py-1.5 rounded-lg transition-colors ${
                             tab === x.key ? 'bg-brand-600/20 text-brand-400' : 'hover:bg-surface-2'
                         }`} style={tab !== x.key ? { color: 'var(--text-secondary)' } : {}}>
-                        {x.key === 'rag' ? 'RAG' : t(x.labelKey, x.labelKeyEn)}
+                        {t(x.labelKey, x.labelKeyEn)}
                     </button>
                 ))}
             </div>

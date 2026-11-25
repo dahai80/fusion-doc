@@ -81,7 +81,7 @@ NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash star
 | **AI Slash Command** | Command palette with AI actions | Type `/` in editor |
 | **AI Chat Panel** | Side panel with streaming AI chat | 🤖 AI button |
 | **Global Search** | Full-text search modal with FTS5 | `Cmd+K` |
-| **RAG Enhancement** | Semantic search over document chunks | `/api/rag/query` |
+| **RAG Enhancement** | In-document QA via fusion-rag (`FUSION_RAG_KB_ID`) | `/api/rag/query` |
 
 ## Integrated Features
 
@@ -195,9 +195,9 @@ fusion-doc/
 | POST | `/api/workflows/seed` | Seed 5 preset workflows |
 | GET | `/api/workflow/:id` | Page workflow status |
 | POST | `/api/workflow/:id/transition` | State transition |
-| POST | `/api/rag/enhanced-query` | Hybrid RAG query |
-| POST | `/api/rag/reindex/:id` | Reindex page chunks |
-| GET | `/api/rag/chunks/:pageId` | Get page chunks |
+| POST | `/api/rag/enhanced-query` | Hybrid RAG query (embedded engine, non-UI API) |
+| POST | `/api/rag/reindex/:id` | Reindex page chunks (embedded engine, non-UI API) |
+| GET | `/api/rag/chunks/:pageId` | Get page chunks (embedded engine, non-UI API) |
 | WS | `/ws/collab/:pageId` | Not released; closes upgraded connections with WebSocket close code `4011` |
 
 ## Fusion Ecosystem

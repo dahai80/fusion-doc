@@ -63,9 +63,12 @@ const config = {
     })(),
   },
 
-  // Fusion-KB 知识库
+  // Fusion-KB 知识库 (fusion-rag, 单一知识层 — issue #84)
   fusionKb: {
     url: process.env.FUSION_KB_URL || 'http://localhost:11436',
+    // in-document QA delegates retrieval+answer to this KB (kb_ask equivalent)
+    kbId: process.env.FUSION_RAG_KB_ID || '',
+    apiKey: process.env.FUSION_RAG_API_KEY || '',
   },
 
   // Fusion-Cowork 协作引擎

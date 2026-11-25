@@ -7,8 +7,11 @@
 
 const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLX, callFusionMLXStream } = require('../integrations/fusion-mlx');
+const { askKb } = require('../integrations/fusion-kb');
 const { json, error, notFound } = require('../utils/response');
 // A8 修复: RAG 统一到 rag-hybrid 单存储 (rag_chunks), 不再内联写 rag_index 表。
+// issue #84: in-document QA 检索改走 fusion-rag (单一知识层); rag-hybrid 仅剩
+// 工作流 rag.search 步骤与非 UI API (/api/rag/*) 使用。
 const ragHybrid = require('../services/rag-hybrid');
 // S3 修复: 索引重建为重操作 (全页 embedding 调用), 仅 admin 可触发, 杜绝普通用户消耗算力
 const { requireAdmin } = require('../middleware/require-admin');
@@ -32,21 +35,7 @@ function _reportUsage(req, app, usage) {
   identity.reportUsage({ tid, usage: norm, config: app.config.fusionIdentity }).catch(() => {});
 }
 
-// S1 修复: 计算当前用户可见 page_id 集合。
-// admin → null (无限制); 普通用户 → 已发布页 OR 自己创建的页。传给 hybridSearch 做 IDOR 过滤。
-// 修复: 原实现引用模块级未定义的 db (register 内的 const { db } 闭包不可见), 非管理员 RAG 查询必抛 ReferenceError。
-// 改从 app.db 取 (注入于 req.ctx), 失败时降级为空数组 (fail-closed: 无可见页 → 返回空, 不泄露)。
-function accessiblePageIdsFor(req) {
-    if (req.user?.role === 'admin' || req.user?.role === 'tenant_admin') return null;
-    const db = req.ctx?.app?.db || req.ctx?.db;
-    if (!db) return [];
-    const uid = req.user?.id || 'local';
-    const tid = req.user?.tid || 'local-tenant';
-    // issue #45: 限本租户内可见页 (已发布 OR 自己创建), 杜绝跨租户 RAG 泄露
-    const rows = db.prepare('SELECT id FROM pages WHERE tenant_id = ? AND (is_published = 1 OR created_by = ?)').all(tid, uid);
-    return rows.map(r => r.id);
-}
-
+// issue #84: 可见页过滤随内嵌 RAG QA 一起退役 — 检索权限由 fusion-rag KB ACL 承担。
 const MAX_QUERY_LEN = 2000;
 
 function register(app) {
@@ -144,36 +133,36 @@ function register(app) {
     }
   });
 
-  // ── RAG 查询 (A8 修复: 委托 rag-hybrid.hybridSearch 统一检索, 向量+FTS+BM25 融合) ──
+  // ── RAG 查询 (issue #84: 单一知识层 — QA 检索/作答委托 fusion-rag kb_ask) ──
+  // 原 A8 实现在内嵌 rag_chunks 上检索 + 自行调 MLX 生成, 与 fusion-rag 重复。
+  // 现直接调 /kb/bases/{kbId}/ask, 答案由 fusion-rag 生成 (可经其请求日志/指标验证)。
   app.registerRoute('POST', '/api/rag/query', async (req, res) => {
     const body = await parseBody(req);
     const question = (typeof body.question === 'string' ? body.question : '').slice(0, MAX_QUERY_LEN);
     if (!question) { json(res, { error: 'Question required' }, 400); return; }
 
+    const kb = app.config.fusionKb;
+    if (!kb.kbId) {
+      console.warn('[AI] RAG query rejected: FUSION_RAG_KB_ID not configured');
+      return error(res, 'in-document QA requires fusion-rag: set FUSION_RAG_KB_ID (and FUSION_RAG_API_KEY if auth is enabled) to the knowledge base that indexes this workspace', 503);
+    }
+
     try {
-      // 1. 混合检索 (向量 0.5 + FTS5 0.3 + BM25 0.2 + 可选 rerank), 单存储 rag_chunks
       const topK = Math.min(parseInt(body.top_k || '5', 10), 20);
-      // S1 修复: 按用户可见 page_id 过滤检索, 杜绝 RAG 返回他人私有页 chunk (跨租户泄露)
-      const accessiblePageIds = accessiblePageIdsFor(req);
-      const results = await ragHybrid.hybridSearch(app, question, topK, accessiblePageIds);
-      const contexts = results.map(r => r.chunk_text);
-
-      // 2. 构建增强提示
-      const contextStr = contexts.length > 0 ? `\n\n相关上下文:\n${contexts.join('\n---\n')}` : '';
-      const messages = [
-        { role: 'system', content: 'You are a document assistant. Answer based on the provided context.' + contextStr },
-        { role: 'user', content: question },
-      ];
-
-      const data = await callFusionMLX({
-        method: 'POST', path: '/chat/completions',
-        body: { model: body.model || app.config.fusionMlx.chatModel, messages, stream: false },
-        config: app.config.fusionMlx,
+      const data = await askKb(kb, { kbId: kb.kbId, question, topK });
+      // client renders sources via String(s) — normalize citations to readable strings
+      const rawSources = Array.isArray(data.sources) && data.sources.length
+          ? data.sources
+          : (Array.isArray(data.citations) ? data.citations : []);
+      const sources = rawSources.map((s) => {
+        if (typeof s === 'string') return s;
+        const name = s.doc_name || s.document_name || s.source || s.doc_id || 'chunk';
+        const text = s.text || s.content || s.snippet || '';
+        return text ? `${name}: ${String(text).slice(0, 160)}` : String(name);
       });
-      _reportUsage(req, app, data?.usage);
-      json(res, { answer: data.choices?.[0]?.message?.content || '', sources: contexts });
+      json(res, { answer: data.answer || '', sources });
     } catch (e) {
-      error(res, `RAG query failed: ${e.message}`, 500);
+      error(res, `RAG query failed: ${e.message}`, e.status || 502);
     }
   });
 }
