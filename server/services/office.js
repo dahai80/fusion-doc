@@ -147,13 +147,15 @@ async function importDirectory(app, dirPath, bookId, recursive) {
 async function createPageFromHTML(app, title, html, bookId, chapterId) {
     const { db } = app;
     if (!db) throw new Error('Database not available');
-    const { uid } = require('../utils/helpers');
+    const { uid, now, slugify } = require('../utils/helpers');
     const pageId = uid();
-    const now = Date.now();
+    // slug NOT NULL + random suffix (mirrors controllers/page.js); tenant_id
+    // omitted so the DB default (local-tenant, migration 018) applies.
+    const slug = (slugify(title) || 'import') + '-' + Math.random().toString(36).slice(2, 6);
     db.prepare(`
-        INSERT INTO pages (id, title, content, book_id, chapter_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(pageId, title, html, bookId || null, chapterId || null, now, now);
+        INSERT INTO pages (id, book_id, chapter_id, title, slug, content, markdown, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(pageId, bookId || null, chapterId || null, title, slug, html, html, now(), now());
     return { id: pageId, title };
 }
 
