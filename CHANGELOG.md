@@ -7,8 +7,8 @@ doc_type: changelog
 title: {zh: Fusion-Doc 变更日志, en: Fusion-Doc Changelog}
 audience: engineer
 status: draft
-version: 1.0.19
-updated: 2026-11-13
+version: 1.0.21
+updated: 2026-11-25
 owner: "@dahai"
 source_of_truth:
   - CHANGELOG.md
@@ -19,6 +19,23 @@ source_of_truth:
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.0.21] — 2026-11-25
+
+### Changed — office integration: officecli → fusion-office office-api (issue #82)
+- The `officecli` binary never existed in the workspace; office endpoints now consume the fusion-office office-api HTTP service (`:11492`, `FUSION_OFFICE_API_URL`), mirroring the OfficeClient shape proven in ai-envipermit
+- **Functional**: xlsx upload/import renders each sheet as an HTML table (`/v1/xlsx/parse`, merged cells pre-flattened); docx template merge via `/v1/docx/fill` with SHA-256 integrity verification and unfilled-placeholder reporting
+- **Visible degradation (422 + actionable message)**: docx/pptx import, docx/xlsx/pptx export, preview, create — upstream endpoints not shipped yet (pptx: fusion-office#32; `/v1/docx/snapshot` deferred to fusion-office v0.2)
+- `/api/office/status` reports `backend: "office-api"` + capability map; `/api/office/command` endpoint removed with the CLI surface
+- Fixed latent multipart parsing crash in `/api/office/upload-import` (`Buffer.split` does not exist — latin1 boundary split)
+- New `office-api` integration client with retry/backoff; 7 new unit tests (88 total)
+
+## [1.0.20] — 2026-11-16
+
+### Changed — CI retrofit (issue #77, PR #78)
+- Concurrency group `ci-<ref>` + cancel-in-progress: superseded runs (push -f / force-updated PRs) no longer spend runners
+- setup-node npm cache (root + client lockfiles) on all 5 jobs; steady-state wall clock ~1.9min → ~1.5min including one-time cache write
+- Sharding and tiered gating assessed and rejected: 81 tests run in ~2s, full pipeline under 2 minutes
 
 ## [1.0.19] — 2026-11-13
 

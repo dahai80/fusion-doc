@@ -461,12 +461,6 @@ class FusionDocApp {
       console.log('  [✓] 自动备份调度已停止');
     }
 
-    // 杀 officecli 常驻子进程
-    try {
-      const { stopResident } = require('./integrations/officecli');
-      stopResident();
-    } catch (_) { /* officecli 未加载 */ }
-
     // 杀 trainer 子进程 (R15: 等待退出 + SIGKILL 兜底, 防 GPU 孤儿)
     try {
       const trainer = require('./integrations/fusion-trainer');

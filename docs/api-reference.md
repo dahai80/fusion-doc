@@ -75,9 +75,10 @@ X-Tenant-Id: <tenant id, must match the token tenant>
 
 | Method | Path | 说明 / Description |
 |---|---|---|
-| GET | `/api/office/status` | OfficeCLI 可用性 / OfficeCLI availability |
-| POST | `/api/office/create` `/import` `/merge` `/command` | 创建 / 导入 / 模板合并 / 原生命令 |
-| POST | `/api/office/export/:id` `/preview/:id` | 导出 / 预览（.docx/.xlsx/.pptx） |
+| GET | `/api/office/status` | office-api 可用性与能力矩阵 / office-api availability + capability map |
+| POST | `/api/office/import` `/upload-import` `/import-dir` | xlsx 导入为 HTML 页（docx/pptx 待上游端点，422 降级） / xlsx import to HTML page (docx/pptx degrade 422 pending upstream) |
+| POST | `/api/office/merge` | docx 模板填充合并（/v1/docx/fill） / docx template fill merge |
+| POST | `/api/office/create` `/export/:id` `/preview/:id` | 待上游写出/渲染端点，422 降级 / pending upstream write/render endpoints, degrade 422 |
 
 ### 模板与工作流 / Templates and workflow
 

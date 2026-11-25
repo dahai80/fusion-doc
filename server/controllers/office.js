@@ -1,6 +1,8 @@
 // =============================================================================
-// Fusion-Doc — Office 文档控制器
-// .docx/.xlsx/.pptx 导入导出 + 创建/预览/合并 via OfficeCLI
+// Fusion-Doc — Office document controller (issue #82)
+// xlsx import + docx template merge via fusion-office office-api (:11492).
+// Endpoints without an upstream office-api counterpart degrade visibly (422,
+// kept below 500 so the actionable message survives production masking).
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
@@ -9,13 +11,17 @@ const { requireAdmin } = require('../middleware/require-admin');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { officeImport, officeExport, getOfficeStatus } = require('../services/office');
-const officecli = require('../integrations/officecli');
+const { officeImport, officeExport, officeMerge, getOfficeStatus } = require('../services/office');
+const { OfficeApiError } = require('../integrations/office-api');
 // S4 修复: export/preview 复用页读归属守卫, 杜绝非 owner 读他人私有页内容/产物 (IDOR)
 const { canReadPage } = require('../middleware/authz');
 
-const ALLOWED_COMMANDS = new Set(['create', 'convert', 'preview', 'merge']);
 const SAFE_FILENAME_RE = /[^a-zA-Z0-9一-龥_.-]/g;
+
+// Map service errors to HTTP status (OfficeApiError carries .status)
+function errStatus(e) {
+    return e instanceof OfficeApiError && e.status ? e.status : 500;
+}
 
 // Content-Disposition 文件名消毒 (剥 CRLF/引号, RFC 5987 编码)
 function safeContentDisposition(name, ext) {
@@ -74,7 +80,12 @@ function _saveMultipartUpload(req, boundary, uploadDir) {
             cleanup();
             try {
                 const buf = Buffer.concat(chunks);
-                const parts = buf.split(boundary).filter(p => p.length > 4 && !p.equals(Buffer.from('--')));
+                // Buffer has no .split — round-trip through latin1 (byte-preserving)
+                // to split on the boundary, then restore Buffer per part.
+                const boundaryStr = boundary.toString('latin1');
+                const parts = buf.toString('latin1').split(boundaryStr)
+                    .map((p) => Buffer.from(p, 'latin1'))
+                    .filter((p) => p.length > 4 && !p.equals(Buffer.from('--')));
                 const result = { file: null, fields: {} };
                 for (const part of parts) {
                     // 去首尾 CRLF
@@ -120,29 +131,15 @@ function _saveMultipartUpload(req, boundary, uploadDir) {
 function register(app) {
     const { db } = app;
 
-    // ── OfficeCLI 状态 ──────────────────────────────────────────────────
+    // ── office-api status + capability map ──────────────────────────────
     app.registerRoute('GET', '/api/office/status', async (req, res) => {
-        const status = await getOfficeStatus();
-        const cliStatus = await officecli.getStatus();
-        json(res, { ...status, resident: cliStatus.resident });
+        json(res, await getOfficeStatus(req.ctx?.config?.fusionOfficeApi || app.config.fusionOfficeApi));
     });
 
-    // ── 创建 Office 文档 (admin only) ──────────────────────────────────
+    // ── Create Office document — no upstream write endpoint, degrade ────
     app.registerRoute('POST', '/api/office/create', async (req, res) => {
         if (!requireAdmin(req, res)) return;
-        const body = await parseBody(req);
-        const { format, title, content, template } = body;
-        if (!format) return error(res, 'format required (docx/xlsx/pptx)', 400);
-        // 模板路径围栏 (P1-12: 杜绝任意文件读作模板)
-        const safeTemplate = template ? safePath(app, template, 'create.template') : null;
-        if (template && !safeTemplate) return error(res, 'template not allowed', 403);
-
-        try {
-            const result = await officecli.createDoc(format, { title, content, template: safeTemplate });
-            json(res, result);
-        } catch (e) {
-            error(res, `Create failed: ${e.message}`, 500);
-        }
+        return error(res, 'create is not available: office-api has no document write endpoint yet (tracked in fusion-office upstream); use docx template fill via /api/office/merge instead', 422);
     });
 
     // ── 导入 Office 文档 (admin only) ──────────────────────────────────
@@ -157,7 +154,7 @@ function register(app) {
             const result = await officeImport(app, { file_path: safeFilePath, book_id, chapter_id });
             json(res, result);
         } catch (e) {
-            error(res, `Import failed: ${e.message}`, 500);
+            error(res, `Import failed: ${e.message}`, errStatus(e));
         }
     });
 
@@ -190,7 +187,7 @@ function register(app) {
             json(res, result);
         } catch (e) {
             console.error('[Office] upload-import failed:', e.message);
-            error(res, `Upload import failed: ${e.message}`, 500);
+            error(res, `Upload import failed: ${e.message}`, errStatus(e));
         }
     });
 
@@ -223,52 +220,27 @@ function register(app) {
             }
             json(res, result);
         } catch (e) {
-            error(res, `Export failed: ${e.message}`, 500);
+            error(res, `Export failed: ${e.message}`, errStatus(e));
         }
     });
 
-    // ── 预览 Office 文档 ────────────────────────────────────────────────
+    // ── Preview — no upstream render endpoint, degrade visibly ──────────
     app.registerRoute('POST', '/api/office/preview/:id', async (req, res) => {
         const { id } = req.params;
-        const body = await parseBody(req);
-
         try {
             const officeFile = db
                 ? db.prepare('SELECT * FROM office_files WHERE page_id = ?').get(id)
                 : null;
-
             if (!officeFile) return error(res, 'Office file not found for this page', 404);
-
-            // S4 修复: 预览读页内容, 须校验归属页读权限, 杜绝任意用户预览他人私有页 (IDOR)
             const page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : null;
             if (page && !canReadPage(req, res, page)) return;
-
-            // 路径围栏 (P3-32: 纵深防御, 即便 DB 被写脏也拒越界)
-            const safePreviewPath = safePath(app, officeFile.file_path, 'preview');
-            if (!safePreviewPath) return error(res, 'preview file_path not allowed', 403);
-
-            const result = await officecli.previewDoc(safePreviewPath, { page: body.page || 1 });
-            if (result.success && result.preview_path && fs.existsSync(result.preview_path)) {
-                res.writeHead(200, {
-                    'Content-Type': 'image/png',
-                    'Content-Length': fs.statSync(result.preview_path).size,
-                });
-                // E2 修复: 预览流须挂 error 句柄, 防 EPIPE 抛 uncaught
-                const stream = fs.createReadStream(result.preview_path);
-                stream.on('error', (e) => {
-                    console.error(`[Office] 预览流错误: ${e.message}`);
-                    if (!res.writableEnded) res.end();
-                });
-                stream.pipe(res);
-                return;
-            }
-            json(res, result);
+            return error(res, 'preview is not available: office-api has no document render endpoint yet (/v1/docx/snapshot deferred to fusion-office v0.2)', 422);
         } catch (e) {
-            error(res, `Preview failed: ${e.message}`, 500);
+            error(res, `Preview failed: ${e.message}`, errStatus(e));
         }
     });
 
-    // ── 模板合并生成 (admin only) ──────────────────────────────────────
+    // ── Docx template merge via office-api /v1/docx/fill (admin only) ───
     app.registerRoute('POST', '/api/office/merge', async (req, res) => {
         if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);
@@ -280,10 +252,10 @@ function register(app) {
         if (output_path && !safeOutput) return error(res, 'output_path not allowed', 403);
 
         try {
-            const result = await officecli.mergeTemplate(safeTemplate, data || {}, safeOutput);
+            const result = await officeMerge(app, safeTemplate, data || {}, safeOutput);
             json(res, result);
         } catch (e) {
-            error(res, `Merge failed: ${e.message}`, 500);
+            error(res, `Merge failed: ${e.message}`, errStatus(e));
         }
     });
 
@@ -299,42 +271,7 @@ function register(app) {
             const result = await officeImport(app, { dir_path: safeDir, book_id, recursive: true });
             json(res, result);
         } catch (e) {
-            error(res, `Import-dir failed: ${e.message}`, 500);
-        }
-    });
-
-    // ── 执行 OfficeCLI 命令 (admin only, 路径围栏) ─────────────────────
-    app.registerRoute('POST', '/api/office/command', async (req, res) => {
-        if (!requireAdmin(req, res)) return;
-        const body = await parseBody(req);
-        const { command, args } = body;
-        if (!command) return error(res, 'command required', 400);
-        if (!ALLOWED_COMMANDS.has(command)) {
-            console.warn(`[Office] Rejected disallowed command: ${command}`);
-            return error(res, `command not allowed, valid: ${[...ALLOWED_COMMANDS].join(', ')}`, 403);
-        }
-        // 仅保留字符串参数, 且对路径型参数跑 safePath (P0-4: 杜绝任意文件读写)
-        const rawArgs = Array.isArray(args) ? args.filter(a => typeof a === 'string') : [];
-        const safeArgs = [];
-        for (const a of rawArgs) {
-            // --output/--template 及裸路径形参数, 视作路径围栏
-            if (a.includes('/') || a.includes(path.sep) || a === '.' || a === '..' || path.isAbsolute(a)) {
-                const safe = safePath(app, a, `command.${command}.arg`);
-                if (!safe) {
-                    console.warn(`[Office] command ${command} arg blocked: ${a}`);
-                    return error(res, `arg not allowed: ${a}`, 403);
-                }
-                safeArgs.push(safe);
-            } else {
-                safeArgs.push(a);
-            }
-        }
-
-        try {
-            const result = await officecli.executeCommand(command, safeArgs);
-            json(res, result);
-        } catch (e) {
-            error(res, `Command failed: ${e.message}`, 500);
+            error(res, `Import-dir failed: ${e.message}`, errStatus(e));
         }
     });
 }

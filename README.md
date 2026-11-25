@@ -47,7 +47,7 @@ Fusion-Doc Server (:11449) — AI-First Document Operating System
 │   ├── Controllers (25+ domain modules)
 │   ├── Services (AI Copilot, RAG, Office, Workflow, Collaboration)
 │   ├── Models (SQLite + JSON dual storage)
-│   ├── Integrations (Fusion-MLX, OfficeCLI)
+│   ├── Integrations (Fusion-MLX, fusion-office office-api)
 │   └── Plugins (extensible plugin system)
 └── WebSocket (Real-time Collaboration — not released, route rejects 410)
 ```
@@ -89,7 +89,7 @@ bash scripts/start.sh
 | **BookStack** | Shelf → Chapter → Page 3-tier | `/api/books`, `/api/chapters` | ✅ |
 | **Zettlr** | Bidirectional links + knowledge graph | `/api/graph`, `/api/graph/search` | ✅ |
 | **D3.js** | Force-directed graph visualization | `/graph` page | ✅ |
-| **OfficeCLI** | .docx/.xlsx/.pptx import/export | `/api/office/import`, `/api/office/export` | ✅ |
+| **fusion-office office-api** | xlsx import + docx template fill (`:11492`) | `/api/office/import`, `/api/office/merge` | ✅ |
 | **Fusion-MLX** | Local AI chat (SSE streaming) | `/api/ai/chat` | ✅ |
 | **Fusion-MLX** | Local Embedding + RAG | `/api/ai/embeddings`, `/api/rag/query` | ✅ |
 | **AI Copilot** | Inline AI (complete/rewrite/translate) | `/api/copilot/*` | ✅ |
@@ -136,7 +136,7 @@ fusion-doc/
 │   │   └── ...                 ← (health, auth, page, book, ai, etc.)
 │   ├── services/               ← Business logic
 │   │   ├── ai-copilot.js       ← Context building + system prompts
-│   │   ├── office.js           ← OfficeCLI SDK interaction
+│   │   ├── office.js           ← Office service (xlsx import via office-api, docx fill merge)
 │   │   ├── rag.js              ← Document chunking + vector search
 │   │   ├── rag-hybrid.js       ← Hybrid RAG (vector+FTS5+BM25 + RRF + rerank)
 │   │   ├── workflow.js         ← State transitions + audit trail
@@ -146,7 +146,7 @@ fusion-doc/
 │   │   └── rag-worker.js       ← vector-scan worker_thread (offloads event loop)
 │   ├── integrations/           ← External service clients
 │   │   ├── fusion-mlx.js       ← OpenAI-compatible (chat/embed/rerank/SSE)
-│   │   └── officecli.js        ← OfficeCLI resident mode + preview + merge
+│   │   └── office-api.js       ← fusion-office office-api client (xlsx parse + docx fill)
 │   └── ...
 ├── gateway/public/              ← Built frontend (from `npm run build`)
 ├── scripts/
@@ -176,13 +176,12 @@ fusion-doc/
 | POST | `/api/copilot/expand` | AI expand selection |
 | POST | `/api/copilot/command` | AI custom command |
 | GET | `/api/copilot/context/:id` | Page context for AI |
-| GET | `/api/office/status` | OfficeCLI availability |
-| POST | `/api/office/create` | Create Office document |
-| POST | `/api/office/import` | Import .docx/.xlsx/.pptx |
-| POST | `/api/office/export/:id` | Export page to Office format |
-| POST | `/api/office/preview/:id` | Preview Office document |
-| POST | `/api/office/merge` | Template merge |
-| POST | `/api/office/command` | Raw OfficeCLI command |
+| GET | `/api/office/status` | office-api availability + capability map |
+| POST | `/api/office/create` | Create Office document (422 — pending upstream write endpoint) |
+| POST | `/api/office/import` | Import .xlsx → HTML page (.docx/.pptx → 422 pending upstream) |
+| POST | `/api/office/export/:id` | Export page to Office format (422 — pending upstream) |
+| POST | `/api/office/preview/:id` | Preview Office document (422 — pending upstream) |
+| POST | `/api/office/merge` | Docx template merge via /v1/docx/fill |
 | GET/POST | `/api/templates` | Template CRUD |
 | POST | `/api/templates/:id/instantiate` | Create page from template |
 | GET | `/api/templates/:id/variables` | Extract template variables |
