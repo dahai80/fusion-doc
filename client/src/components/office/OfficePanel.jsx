@@ -10,6 +10,7 @@ export default function OfficePanel({ pageId, pageTitle }) {
     const [importing, setImporting] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [format, setFormat] = useState('docx');
+    const [err, setErr] = useState('');
     const t = useT();
 
     useEffect(() => {
@@ -19,6 +20,7 @@ export default function OfficePanel({ pageId, pageTitle }) {
     const handleExport = async () => {
         if (!pageId) return;
         setExporting(true);
+        setErr('');
         try {
             const res = await fetch(`/api/office/export/${pageId}`, {
                 method: 'POST',
@@ -33,9 +35,13 @@ export default function OfficePanel({ pageId, pageTitle }) {
                 a.download = `${pageTitle || 'export'}.${format}`;
                 a.click();
                 URL.revokeObjectURL(url);
+            } else {
+                const body = await res.json().catch(() => ({}));
+                setErr(body.message || body.error || `Export failed (${res.status})`);
             }
         } catch (e) {
             console.error('[Office] Export error:', e);
+            setErr(e.message);
         } finally {
             setExporting(false);
         }
@@ -45,15 +51,19 @@ export default function OfficePanel({ pageId, pageTitle }) {
         const file = e.target.files?.[0];
         if (!file) return;
         setImporting(true);
+        setErr('');
         try {
             // F7 修复: 原 /api/office/import 走 JSON parseBody, 客户端发 multipart 契约断裂。
             // 改用 /api/office/upload-import (服务端 multipart 端点) + apiUpload 助手。
             const result = await apiUpload('/office/upload-import', file);
             if (result.success || result.page_id) {
                 window.location.href = `/page/${result.page_id}`;
+            } else {
+                setErr(result.error || result.message || 'Import failed');
             }
         } catch (e) {
             console.error('[Office] Import error:', e);
+            setErr(e.message);
         } finally {
             setImporting(false);
         }
@@ -64,8 +74,16 @@ export default function OfficePanel({ pageId, pageTitle }) {
             <h3 className="text-sm font-semibold text-gray-300">{t('Office 文档', 'Office Documents')}</h3>
             {status && !status.available && (
                 <div className="text-xs text-yellow-500 bg-yellow-500/10 rounded p-2">
-                    {t('OfficeCLI 不可用 — 导入导出功能需安装 @officecli/sdk', 'OfficeCLI unavailable — install @officecli/sdk to enable import/export')}
+                    {t('office-api 服务不可用 — 请启动 fusion-office office-api (:11492)', 'office-api service unavailable — start fusion-office office-api (:11492)')}
                 </div>
+            )}
+            {status?.available && status.capabilities && !status.capabilities.export && (
+                <div className="text-xs text-zinc-400 bg-surface-2 rounded p-2">
+                    {t('当前 office-api 仅支持 xlsx 导入与 docx 模板填充；docx/pptx 转换待上游支持', 'office-api currently supports xlsx import and docx template fill only; docx/pptx conversion awaits upstream support')}
+                </div>
+            )}
+            {err && (
+                <div className="text-xs text-red-400 bg-red-500/10 rounded p-2">{err}</div>
             )}
             <div className="space-y-2">
                 <label className="block text-xs text-gray-400">{t('导出格式', 'Export format')}</label>
@@ -89,8 +107,7 @@ export default function OfficePanel({ pageId, pageTitle }) {
                 </button>
             </div>
             <div className="border-t border-surface-3 pt-3">
-                <label className="block text-xs text-gray-400 mb-2">{t('导入文档', 'Import document')}</label>
-                <input
+                <label className="block text-xs text-gray-400 mb-2">{t('导入文档', 'Import document')}</label>                <input
                     type="file"
                     accept=".docx,.xlsx,.pptx"
                     onChange={handleImport}

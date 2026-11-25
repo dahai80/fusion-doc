@@ -78,6 +78,11 @@ const config = {
     url: process.env.FUSION_MODEL_HUB_URL || 'http://localhost:11444',
   },
 
+  // Fusion-Office office-api 文档服务 (issue #82, port 11492)
+  fusionOfficeApi: {
+    url: process.env.FUSION_OFFICE_API_URL || 'http://127.0.0.1:11492',
+  },
+
   // Fusion-Identity (issue #45) — 唯一 JWT 签发方 + 租户注册中心
   // fusion-doc 消费 verify (不自签); 缺 serviceToken 且非 local-auth 模式 → 启动 fail-fast (fail-closed)
   fusionIdentity: {

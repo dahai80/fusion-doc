@@ -32,13 +32,13 @@ platform:
     - document/page/book/workspace storage with SQLite WAL + tenant-scoped queries
     - full-text search (SQLite FTS5) and hybrid RAG retrieval (vector + FTS5 + BM25 + RRF + rerank)
     - knowledge graph API and D3 force-directed visualization
-    - Office import/export/preview/merge via OfficeCLI (execFile arg arrays, no shell)
+    - Office xlsx import and docx template fill via fusion-office office-api HTTP service (:11492)
     - document workflow state machine (draft/review/publish) with audit trail
     - authentication, tenant isolation, roles, and admin gates (delegated to fusion-identity)
   builds_on:
     - fusion-mlx (:11434 via gateway :11432) — chat / embeddings / rerank, OpenAI-compatible HTTP
     - fusion-identity (:11470) — sole JWT issuer, tenant registry, usage reporting
-    - officecli — resident-mode Office conversion subprocess
+    - fusion-office office-api (:11492) — xlsx parse + docx fill HTTP service
   hosts:
     - the document SPA (React 18 + Vite build output in gateway/public/, served by the same Node process)
     - the Union Web shell module fusion-doc (registered to fusion-gateway :11432, mounted at /shell/fusion-doc/)
@@ -63,7 +63,7 @@ platform:
 | 富文本编辑 / Rich text | Editor UI, auto-save, AI ghost text (`Cmd+J`), bubble menu, `/` slash commands | TipTap 2.x; AI actions require fusion-mlx and `FUSION_CLIENT_KEY` (fails visibly when missing) |
 | 知识图谱 / Knowledge graph | `[[` bidirectional links, backlink inference, D3 graph page | Graph search quality depends on indexed chunks; semantic path needs embeddings |
 | 检索 / Retrieval | FTS5 full-text modal (`Cmd+K`) + hybrid RAG (`/api/rag/enhanced-query`) | Vector scan is linear by default; sqlite-vec ANN needs `AI_EMBEDDING_DIM` match (default 384) and degrades to linear scan without the extension |
-| Office 往返 / Office round-trip | .docx/.xlsx/.pptx import, export, preview, template merge | Requires OfficeCLI; office ops are subprocess `execFile` only — no arbitrary shell commands |
+| Office 往返 / Office round-trip | xlsx import (sheets → HTML page), docx template merge via office-api | Requires fusion-office office-api (:11492); docx/pptx parse and document write/render endpoints degrade 422 until shipped upstream (pptx: fusion-office#32) |
 | 工作流 / Workflow | draft→review→publish state machine + audit trail + YAML workflow presets | Workflow runs are in-process; no external queue (single-machine scaling only) |
 | 多租户 / Multi-tenant | JWT verification, `tenant_id` scoping, 4 roles, admin gates | fusion-identity is mandatory in production (`FUSION_IDENTITY_SERVICE_TOKEN`, fail-closed); `FUSION_DOC_LOCAL_AUTH=1` bypass is dev-only |
 | Shell 集成 / Shell integration | manifest registration, heartbeat, embedded chrome-less mode, host theme/lang sync | Registration needs `FUSION_ADMIN_KEY` (warn-only if missing); WebSocket collab route is not released (responds 410) |

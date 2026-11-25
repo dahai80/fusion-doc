@@ -61,7 +61,7 @@ Two-process model behind one port (11449):
 controllers/  → route registration + req handling (call services, return via utils/response)
 services/     → business logic (rag, office, workflow-engine, template-engine, seed-templates)
 models/       → data access (base.js SQLite/JSON dual-mode; index.js registry)
-integrations/ → external clients (fusion-identity, fusion-mlx, officecli, libreoffice, fusion-kb/cowork/model-hub/studio/trainer/coder, http-retry)
+integrations/ → external clients (fusion-identity, fusion-mlx, office-api, libreoffice, fusion-kb/cowork/model-hub/studio/trainer/coder, http-retry)
 middleware/   → cors, logger, body-parser, rate-limit, auth, authz, require-admin, error-handler, pipeline
 plugins/      → loader.js + registry.js (drop-in extensions, loaded at init)
 utils/        → response (json/success/error/notFound/created/list), static, helpers
@@ -100,7 +100,7 @@ This project went through a commercial-grade hardening pass (v1.0.5) plus multi-
 - **Public paths** (`/api/health`, `/api/auth/login`, `/api/system/setup`, `/api/branding`, `/api/theme`) are allowlisted in `middleware/auth.js` `PUBLIC_PATHS`.
 - **Union Web shell (issue #51)**: at boot the primary instance registers `client/manifest.json` (id `fusion-doc`, category `infra`) to `fusion-gateway` `:11432` (`services/shell-register.js`, fire-and-forget + heartbeat). The gateway `/shell/fusion-doc/` proxy injects the module service credential (`FUSION_DOC_SHELL_API_KEY` env or auto-generated `data/shell-api-key.json`, 0600); `middleware/auth.js` accepts it as a `shell`-tenant `operator` principal — new endpoints must keep tenant filtering. Embedded mode (`?embedded=1` or `/shell/` mount) hides chrome and skips the local login gate (`client/src/lib/embedded.js`); vite uses relative `base: './'`. Registration needs `FUSION_ADMIN_KEY` (canonical name, issue #67) — missing it only warns.
 - **Rate limiting**: `middleware/rate-limit.js` — `/api/auth/*` 10/min, other API 120/min. Memory-based (single-instance only).
-- **Command injection**: office ops use `execFile` with **arg arrays** (no shell) in `services/office.js` + `integrations/officecli.js`. Never reintroduce `exec()`/`execSync` with string concat.
+- **Command injection**: office ops are HTTP calls to the fusion-office office-api service (`integrations/office-api.js`, default `http://127.0.0.1:11492`, `FUSION_OFFICE_API_URL`) — no subprocess, no shell. Never reintroduce `exec()`/`execSync` with string concat.
 - **Path traversal**: office file paths validated — use existing `safePath`-style guards, never trust raw input into fs paths.
 - **Binding**: production defaults to `127.0.0.1`; `FUSION_DOC_HOST=0.0.0.0` exposes (must sit behind reverse proxy + TLS). No built-in HTTPS.
 - **Admin gate**: backup/system endpoints enforce `req.user.role === 'admin'`.

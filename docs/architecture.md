@@ -33,7 +33,7 @@ Client (React 18 + Vite + TipTap 2.x)
 Server (modular MVC on http.Server)
   app.js FusionDocApp: init -> middleware -> _matchRoute -> handler
   controllers/ (30) -> services/ -> models/ (base.js SQLite/JSON dual mode)
-  integrations/ (fusion-identity, fusion-mlx, officecli, fusion-trainer, ...)
+  integrations/ (fusion-identity, fusion-mlx, office-api, fusion-trainer, ...)
   middleware/ (cors, logger, body-parser, rate-limit, auth, authz, error-handler)
   plugins/ (loader + registry, drop-in at init)
 Storage: data/db/fusion-doc.db (SQLite WAL) + data/{storage,exports,versions,logs}
@@ -54,7 +54,7 @@ En: `init()` boots DB, seeds templates, registers middleware/routes/plugins. `_h
 controllers/  路由注册 + 请求处理（调 services，经 utils/response 返回）
 services/     业务逻辑（rag, rag-hybrid, office, workflow-engine, template-engine, seed-templates, ai-copilot, shell-register）
 models/       数据访问（base.js SQLite/JSON 双模；index.js 注册表）
-integrations/ 外部客户端（fusion-identity, fusion-mlx, officecli, libreoffice, fusion-trainer, http-retry）
+integrations/ 外部客户端（fusion-identity, fusion-mlx, office-api, libreoffice, fusion-trainer, http-retry）
 middleware/   cors, logger, body-parser, rate-limit, auth, authz, require-admin, error-handler, pipeline
 plugins/      loader.js + registry.js（即插即用扩展，init 时加载）
 utils/        response(json/success/error/notFound/created/list), static, helpers
