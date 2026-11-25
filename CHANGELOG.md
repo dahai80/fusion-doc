@@ -7,7 +7,7 @@ doc_type: changelog
 title: {zh: Fusion-Doc 变更日志, en: Fusion-Doc Changelog}
 audience: engineer
 status: draft
-version: 1.0.21
+version: 1.0.22
 updated: 2026-11-25
 owner: "@dahai"
 source_of_truth:
@@ -19,6 +19,17 @@ source_of_truth:
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.0.22] — 2026-11-25
+
+### Changed — single knowledge layer: RAG management UI removed, QA delegated to fusion-rag (issue #84)
+- RAG management tab (reindex-all + chunk browse) removed from the management panel — fusion-rag (:11436) is the single knowledge layer per the Fusion Agentic Office plan §9.3; only the fusion-rag shell module remains as RAG admin entry
+- In-document QA (`/api/rag/query`) now delegates retrieval + answer generation to fusion-rag `POST /kb/bases/{kbId}/ask` (kb_ask equivalent); configure `FUSION_RAG_KB_ID` (required) and `FUSION_RAG_API_KEY` (when fusion-rag auth is enabled) — unconfigured or unreachable KB fails visibly (503/502), no silent fallback to the embedded engine
+- Verified via fusion-rag audit log (`caller=ask`); embedded rag-hybrid engine stays for workflow `rag.search` steps and non-UI `/api/rag/*` endpoints (full retirement tracked separately)
+- Collections browsing, editor, export, AI chat/copilot unchanged
+- 3 new unit tests for the askKb integration (91 total)
+
+## [1.0.21] — 2026-11-25
 
 ## [1.0.21] — 2026-11-25
 
