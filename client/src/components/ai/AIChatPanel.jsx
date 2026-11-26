@@ -55,7 +55,7 @@ function mdToHtml(md) {
 function insertIntoDocument(md, t) {
     const editor = window.__fusionDocEditor;
     if (!editor) {
-        return { ok: false, msg: t('没有打开的文档', 'No open document') };
+        return { ok: false, msg: t('没有打开的文档', 'No open document') }; // i18n: user-facing
     }
     try {
         editor.chain().focus('end').insertContent(mdToHtml(md)).run();
@@ -95,8 +95,8 @@ export default function AIChatPanel() {
                 role: m.role,
                 content: m.content,
             }));
-            // F5 修复: RAG 模式不再装饰 — 实发 /ai/rag/query 走知识库检索增强回答。
-            // /rag/query 非流式返回 { answer, sources }; chat 模式仍走 /ai/chat 流式。
+            // F5 fix: RAG mode is no longer cosmetic — it actually calls /ai/rag/query for knowledge-base retrieval-augmented answers.
+            // /rag/query returns { answer, sources } non-streaming; chat mode still streams via /ai/chat.
             const rawInput = userMsg.content;
             const ragQuestion = aiPanelMode === 'rag'
                 ? rawInput.replace(/^\?\s*/, '')
@@ -104,9 +104,9 @@ export default function AIChatPanel() {
             if (aiPanelMode === 'rag' && ragQuestion) {
                 const { api } = await import('../../lib/api');
                 const data = await api('POST', '/ai/rag/query', { question: ragQuestion, top_k: 5 });
-                const answer = data.answer || t('(知识库无相关结果)', '(no relevant results in knowledge base)');
+                const answer = data.answer || t('(知识库无相关结果)', '(no relevant results in knowledge base)'); // i18n: user-facing
                 const sources = Array.isArray(data.sources) && data.sources.length
-                    ? `\n\n---\n📚 ${t('来源', 'Sources')}:\n${data.sources.slice(0, 3).map((s, i) => `${i + 1}. ${String(s).slice(0, 80)}`).join('\n')}`
+                    ? `\n\n---\n📚 ${t('来源', 'Sources')}:\n${data.sources.slice(0, 3).map((s, i) => `${i + 1}. ${String(s).slice(0, 80)}`).join('\n')}` // i18n: user-facing
                     : '';
                 setMessages((prev) => {
                     const updated = [...prev];
@@ -139,7 +139,7 @@ export default function AIChatPanel() {
                 const updated = [...prev];
                 updated[updated.length - 1] = {
                     role: 'assistant',
-                    content: `${t('错误', 'Error')}: ${e.message}`,
+                    content: `${t('错误', 'Error')}: ${e.message}`, // i18n: user-facing
                 };
                 return updated;
             });
@@ -155,6 +155,7 @@ export default function AIChatPanel() {
                         onClick={() => setAIPanelMode('chat')}
                         className={`px-2 py-1 text-xs rounded ${aiPanelMode === 'chat' ? 'bg-brand-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
                     >
+                        {/* i18n: user-facing */}
                         💬 {t('对话', 'Chat')}
                     </button>
                     <button
@@ -175,6 +176,7 @@ export default function AIChatPanel() {
                         <div className="text-2xl mb-2">🤖</div>
                         <div className="text-sm">AI Copilot</div>
                         <div className="text-xs mt-1">
+                            {/* i18n: user-facing */}
                             {aiPanelMode === 'rag' ? t('输入 ? 开头进行知识库问答', 'Type ? to query the knowledge base') : t('在编辑器中按 Cmd+J 续写', 'Press Cmd+J in the editor to continue writing')}
                         </div>
                     </div>
@@ -203,19 +205,20 @@ export default function AIChatPanel() {
                                     }}
                                     className="text-xs text-brand-400 hover:text-brand-300 underline"
                                 >
+                                    {/* i18n: user-facing */}
                                     {t('⬇ 插入到文档', '⬇ Insert into document')}
                                 </button>
                                 {msg.insertMsg && (
                                     <span className="ml-2 text-xs text-red-400">{msg.insertMsg}</span>
                                 )}
-                                {msg.inserted && (
+                                {msg.inserted && ( // i18n: user-facing
                                     <span className="ml-2 text-xs text-emerald-400">{t('已插入', 'Inserted')}</span>
                                 )}
                             </div>
                         )}
                     </div>
                 ))}
-                {streaming && (
+                {streaming && ( // i18n: user-facing
                     <div className="text-xs text-gray-500">{t('AI 正在生成...', 'AI is generating...')}</div>
                 )}
                 <div ref={messagesEndRef} />
@@ -228,7 +231,7 @@ export default function AIChatPanel() {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                        placeholder={aiPanelMode === 'rag' ? t('? 知识库问答...', '? Knowledge base Q&A...') : t('输入消息...', 'Type a message...')}
+                        placeholder={aiPanelMode === 'rag' ? t('? 知识库问答...', '? Knowledge base Q&A...') : t('输入消息...', 'Type a message...') /* i18n: user-facing */}
                         className="flex-1 bg-surface-0 border border-surface-3 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-500"
                         disabled={streaming}
                     />
@@ -237,6 +240,7 @@ export default function AIChatPanel() {
                         disabled={streaming || !input.trim()}
                         className="bg-brand-600 hover:bg-brand-500 disabled:opacity-50 px-3 py-2 rounded-lg text-sm"
                     >
+                        {/* i18n: user-facing */}
                         {t('发送', 'Send')}
                     </button>
                 </div>

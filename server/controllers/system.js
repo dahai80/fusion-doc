@@ -1,5 +1,5 @@
 // =============================================================================
-// Fusion-Doc — 系统管理控制器 (商用级: 备份/恢复, 仅 admin)
+// Fusion-Doc — system admin controller (production-grade: backup/restore, admin only)
 // =============================================================================
 
 const fs = require('fs');
@@ -11,21 +11,21 @@ const { requireAdmin } = require('../middleware/require-admin');
 function register(app) {
   const config = app.config;
 
-  // ── 数据库备份 (在线热备, WAL 安全) ────────────────────────────────────
+  // ── Database backup (online hot backup, WAL-safe) ─────────────────────
   app.registerRoute('POST', '/api/system/backup', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
       const dest = await backupDB();
       const stat = fs.statSync(dest);
-      console.log(`  [System] 备份由 ${req.user?.id} 触发: ${dest} (${(stat.size / 1024).toFixed(1)} KB)`);
+      console.log(`  [System] Backup triggered by ${req.user?.id}: ${dest} (${(stat.size / 1024).toFixed(1)} KB)`);
       successResponse(res, { backup: path.basename(dest), path: dest, size: stat.size, createdAt: new Date().toISOString() });
     } catch (e) {
-      console.error('  [System] 备份失败:', e.message);
-      errorResponse(res, 500, `备份失败: ${e.message}`, 'BACKUP_FAILED');
+      console.error('  [System] Backup failed:', e.message);
+      errorResponse(res, 500, `Backup failed: ${e.message}`, 'BACKUP_FAILED');
     }
   });
 
-  // ── 备份列表 ────────────────────────────────────────────────────────────
+  // ── Backup list ───────────────────────────────────────────────────────
   app.registerRoute('GET', '/api/system/backups', (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
@@ -40,56 +40,56 @@ function register(app) {
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       successResponse(res, { backups: files });
     } catch (e) {
-      errorResponse(res, 500, `获取备份列表失败: ${e.message}`, 'BACKUP_LIST_FAILED');
+      errorResponse(res, 500, `Failed to list backups: ${e.message}`, 'BACKUP_LIST_FAILED');
     }
   });
 
-  // ── 恢复备份 (admin only) ───────────────────────────────────────────────
-  // P1-O3 修复: 原仅有备份无恢复路径。从备份文件恢复 DB: 校验文件名白名单 (防路径穿越),
-  // 停当前 DB 连接 → 复制备份覆盖主库 → 重新 initDB 重载。恢复是高危操作, 仅 admin。
+  // ── Restore backup (admin only) ───────────────────────────────────────
+  // P1-O3 fix: previously there was backup but no restore path. Restore the DB from a backup file: validate the filename against a whitelist (prevents path traversal),
+  // close the current DB connection → copy the backup over the main DB → re-run initDB to reload. Restore is high-risk, admin only.
   app.registerRoute('POST', '/api/system/restore', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { parseBody } = require('../middleware/body-parser');
     const body = await parseBody(req);
     const backupName = (body.name || '').trim();
     if (!backupName || !/^[a-zA-Z0-9._-]+\.db$/.test(backupName)) {
-      return errorResponse(res, 400, '非法备份文件名', 'INVALID_BACKUP_NAME');
+      return errorResponse(res, 400, 'Invalid backup filename', 'INVALID_BACKUP_NAME');
     }
     const backupDir = path.join(config.dataDir, 'db', 'backups');
     const backupPath = path.resolve(path.join(backupDir, backupName));
     if (!backupPath.startsWith(path.resolve(backupDir) + path.sep)) {
-      return errorResponse(res, 403, '备份路径越界', 'PATH_TRAVERSAL');
+      return errorResponse(res, 403, 'Backup path out of bounds', 'PATH_TRAVERSAL');
     }
     if (!fs.existsSync(backupPath)) {
-      return errorResponse(res, 404, '备份文件不存在', 'BACKUP_NOT_FOUND');
+      return errorResponse(res, 404, 'Backup file not found', 'BACKUP_NOT_FOUND');
     }
     try {
       const dbPath = path.join(config.dataDir, 'db', 'fusion-doc.db');
-      console.log(`  [System] 恢复由 ${req.user?.id} 触发: ${backupName}`);
-      // 关闭当前连接 (释放主库文件锁)
+      console.log(`  [System] Restore triggered by ${req.user?.id}: ${backupName}`);
+      // Close the current connection (releases the main DB file lock)
       const { getDB } = require('../db');
       const cur = getDB();
       if (cur && typeof cur.close === 'function') cur.close();
-      // 先备份当前库 (回滚点), 再覆盖
+      // Back up the current DB first (rollback point), then overwrite
       if (fs.existsSync(dbPath)) {
         fs.copyFileSync(dbPath, dbPath + `.prerestore-${Date.now()}`);
       }
       fs.copyFileSync(backupPath, dbPath);
-      // 重新初始化 DB (重跑迁移, 重建连接)
+      // Re-initialize the DB (rerun migrations, rebuild the connection)
       const { initDB } = require('../db');
       const newDb = initDB();
       app.db = newDb;
-      console.log(`  [System] 恢复完成: ${backupName}`);
+      console.log(`  [System] Restore complete: ${backupName}`);
       successResponse(res, { restored: backupName, reloaded: !!newDb });
     } catch (e) {
-      console.error('  [System] 恢复失败:', e.message);
-      errorResponse(res, 500, `恢复失败: ${e.message}`, 'RESTORE_FAILED');
+      console.error('  [System] Restore failed:', e.message);
+      errorResponse(res, 500, `Restore failed: ${e.message}`, 'RESTORE_FAILED');
     }
   });
 
-  // ── 触发自动备份检查 (admin only, 供调度与手动共用) ───────────────────
-  // P1-O2 修复: 原仅手动备份无自动调度。提供按间隔自动备份 (见 app.js init 注册的定时器),
-  // 此端点暴露上次自动备份时间与下次预计时间, 供运维/仪表盘查看。
+  // ── Trigger auto-backup check (admin only, shared by scheduler and manual use) ──
+  // P1-O2 fix: previously only manual backups, no automatic schedule. Provides interval-based auto-backup (see the timer registered in app.js init);
+  // this endpoint exposes the last auto-backup time and the next expected time for ops/dashboards.
   app.registerRoute('GET', '/api/system/backup-schedule', (req, res) => {
     if (!requireAdmin(req, res)) return;
     successResponse(res, {

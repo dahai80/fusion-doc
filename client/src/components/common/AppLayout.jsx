@@ -16,7 +16,7 @@ export default function AppLayout() {
     const openSearch = useCallback(() => setSearchOpen(true), []);
     closeSearch.__open = openSearch;
 
-    // issue #51 (PRD R-8 ③): shell 内嵌时隐藏自有导航 chrome, 导航归宿主
+    // issue #51 (PRD R-8 ③): hide our own navigation chrome when embedded in the shell; navigation belongs to the host
     return (
         <div className="h-screen flex flex-col bg-surface-0">
             <div className="flex flex-1 overflow-hidden">

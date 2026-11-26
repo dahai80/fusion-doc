@@ -109,7 +109,7 @@ This project went through a commercial-grade hardening pass (v1.0.5) plus multi-
 
 - Server is CommonJS (`require`/`module.exports`); client is ESM (`"type": "module"`).
 - Indentation: multiples of 4 spaces. **No docstrings.** Always log (the codebase logs at every layer via `console.log/error` with `[tag]` prefixes).
-- Comments are dense Chinese block headers (`// ── section ──`) mirroring the monorepo style — match this when adding files.
+- Source is English-only (issue #87): comments, logs, error messages and test names are English, with `// ── section ──` block headers. User-facing product strings (UI labels, LLM prompts, product data fixtures) may stay Chinese only with an `// i18n: user-facing` marker on the same or preceding line; preset template content lives in `server/services/seed-templates.json`.
 - `req.ctx = { app, db, config, url }` is injected before handlers; `req.params` and `req.user` populated by matcher/auth.
 - ESLint flat config (`eslint.config.js`, eslint 9): `no-unused-vars` is `warn` (unused args starting `_` ignored), `no-console` off, commonjs globals declared. Ignores `gateway/public`, `client/dist`, `node_modules`, `.venv`.
 - Build output dir `gateway/public/` is committed-ignored and created by `npm run build` — the server's `publicDir` points here.

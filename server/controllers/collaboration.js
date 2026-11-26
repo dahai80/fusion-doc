@@ -1,16 +1,16 @@
 // =============================================================================
-// Fusion-Doc — 实时协作控制器 (未发布特性, 路由已关闭)
+// Fusion-Doc — real-time collaboration controller (unreleased feature, routes disabled)
 // =============================================================================
-// P0-F3/P1-A1/A2 修复: 实时协作 (Yjs) 协议层未实现 (客户端 y-websocket 二进制 vs
-// 服务端原 JSON 中继), 且多实例内存态脑裂 (A1) + yjs_updates 无界回放不压缩 (A2)。
-// 企业级处置: 显式关闭协作路由 (拒连 410 Gone), 不建房间、不写 yjs_updates。
-// 可触达协作消除 → 脑裂与膨胀风险随之消除。客户端 collab 死代码已清。
+// P0-F3/P1-A1/A2 fix: the real-time collaboration (Yjs) protocol layer is not implemented (client y-websocket binary vs
+// the server's original JSON relay), plus multi-instance in-memory split-brain (A1) + unbounded uncompacted yjs_updates replay (A2).
+// Enterprise-grade handling: explicitly disable collaboration routes (reject with 410 Gone), create no rooms, write no yjs_updates.
+// Removing reachable collaboration → removes the split-brain and bloat risks with it. Client collab dead code has been cleaned up.
 //
-// 启用协作须先实现 (列为企业级后续工程, 非当前发布阻断):
-//   1. 持久化 Yjs provider (服务端 yjs 库 + state 压缩/compaction, 解 A2)
-//   2. 跨实例消息总线 (Redis pub/sub 或 Yjs y-redis, 解 A1 多实例脑裂)
-//   3. 客户端重新接线 provider + 协作 UI
-// 原实现 (append-only 中继 + 房间) 见 git 历史, 此处仅保留路由禁用。
+// Enabling collaboration first requires (tracked as enterprise follow-up work, not a current release blocker):
+//   1. A persistent Yjs provider (server-side yjs library + state compaction, fixes A2)
+//   2. A cross-instance message bus (Redis pub/sub or Yjs y-redis, fixes A1 multi-instance split-brain)
+//   3. Client re-wiring of the provider + collaboration UI
+// The original implementation (append-only relay + rooms) is in git history; only the route disabling is kept here.
 // =============================================================================
 
 function register(app) {
@@ -18,15 +18,15 @@ function register(app) {
         console.log('[Collaboration] WebSocket not available, skipping');
         return;
     }
-    // 协作未发布: 拒绝一切连接 (410 Gone)
-    // issue #45: 即便未来启用, 亦须先校验 verified tid — 无租户上下文一律拒连 (红线2)
+    // Collaboration unreleased: reject all connections (410 Gone)
+    // issue #45: even if enabled in future, the verified tid must be checked first — reject any connection without tenant context (red line 2)
     app.ws('/ws/collab/:pageId', (ws, req) => {
         const tid = req.user?.tid;
-        const tidNote = tid ? `tid=${tid}` : '无租户上下文 (未验证 token)';
-        console.warn(`[Collaboration] 拒连未发布协作路由 page=${req.params.pageId} ${tidNote} (410 Gone)`);
-        try { ws.close(4011, 'collaboration is an unreleased feature'); } catch { /* socket 已断 */ }
+        const tidNote = tid ? `tid=${tid}` : 'no tenant context (unverified token)';
+        console.warn(`[Collaboration] rejected connection to unreleased collaboration route page=${req.params.pageId} ${tidNote} (410 Gone)`);
+        try { ws.close(4011, 'collaboration is an unreleased feature'); } catch { /* socket already closed */ }
     });
-    console.log('[Collaboration] 协作路由已关闭 (未发布特性, 拒连 410)');
+    console.log('[Collaboration] collaboration routes disabled (unreleased feature, rejecting with 410)');
 }
 
 module.exports = { register };

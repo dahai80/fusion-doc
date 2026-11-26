@@ -1,5 +1,5 @@
-// F8 修复: SPA 仅 3 路由缺设置页。设置页: 账号信息 + 系统状态 + 外观/语言偏好。
-// issue #58: 主题/语言双向 — 独立模式本地切换; 内嵌模式跟随 shell 宿主 (shell-bridge 同步)
+// F8 fix: the SPA had only 3 routes and no settings page. Settings page: account info + system status + appearance/language preferences.
+// issue #58: two-way theme/language — switched locally in standalone mode; follows the shell host in embedded mode (synced via shell-bridge)
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -22,34 +22,34 @@ export default function SettingsPage() {
     return (
         <div className="flex-1 overflow-auto p-8">
             <div className="max-w-2xl mx-auto">
-                <h1 className="text-3xl font-bold mb-6">{t('设置', 'Settings')}</h1>
+                <h1 className="text-3xl font-bold mb-6">{t('设置', 'Settings')}</h1>{/* i18n: user-facing */}
 
                 <div className="bg-surface-1 border border-surface-3 rounded-xl p-5 mb-4">
-                    <h2 className="text-lg font-semibold mb-3">{t('账号', 'Account')}</h2>
+                    <h2 className="text-lg font-semibold mb-3">{t('账号', 'Account')}</h2>{/* i18n: user-facing */}
                     <div className="space-y-1 text-sm text-gray-300">
-                        <div>{t('名称', 'Name')}: {user?.name || '-'}</div>
-                        <div>{t('邮箱', 'Email')}: {user?.email || '-'}</div>
-                        <div>{t('角色', 'Role')}: <span className="text-brand-400">{user?.role || 'user'}</span></div>
+                        <div>{t('名称', 'Name')}: {user?.name || '-'}</div>{/* i18n: user-facing */}
+                        <div>{t('邮箱', 'Email')}: {user?.email || '-'}</div>{/* i18n: user-facing */}
+                        <div>{t('角色', 'Role')}: <span className="text-brand-400">{user?.role || 'user'}</span></div>{/* i18n: user-facing */}
                     </div>
                 </div>
 
                 {health && (
                     <div className="bg-surface-1 border border-surface-3 rounded-xl p-5 mb-4">
-                        <h2 className="text-lg font-semibold mb-3">{t('系统状态', 'System Status')}</h2>
+                        <h2 className="text-lg font-semibold mb-3">{t('系统状态', 'System Status')}</h2>{/* i18n: user-facing */}
                         <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div>{t('服务', 'Service')}: <span className={health.status === 'ok' ? 'text-green-400' : 'text-yellow-400'}>{health.status}</span></div>
-                            <div>{t('版本', 'Version')}: {health.version || '-'}</div>
-                            <div>Fusion-MLX: <span className={health.checks?.mlx?.ok ? 'text-green-400' : 'text-yellow-400'}>{health.checks?.mlx?.ok ? t('已连接', 'connected') : t('未连接', 'disconnected')}</span></div>
+                            <div>{t('服务', 'Service')}: <span className={health.status === 'ok' ? 'text-green-400' : 'text-yellow-400'}>{health.status}</span></div>{/* i18n: user-facing */}
+                            <div>{t('版本', 'Version')}: {health.version || '-'}</div>{/* i18n: user-facing */}
+                            <div>Fusion-MLX: <span className={health.checks?.mlx?.ok ? 'text-green-400' : 'text-yellow-400'}>{health.checks?.mlx?.ok ? t('已连接', 'connected') : t('未连接', 'disconnected')}</span></div>{/* i18n: user-facing */}
                             <div>DB: <span className={health.checks?.db?.ok ? 'text-green-400' : 'text-red-400'}>{health.checks?.db?.mode || '-'}</span></div>
                         </div>
                     </div>
                 )}
 
                 <div className="bg-surface-1 border border-surface-3 rounded-xl p-5 mb-4">
-                    <h2 className="text-lg font-semibold mb-3">{t('外观', 'Appearance')}</h2>
+                    <h2 className="text-lg font-semibold mb-3">{t('外观', 'Appearance')}</h2>{/* i18n: user-facing */}
                     <div className="space-y-4 text-sm">
                         <div className="flex items-center gap-3">
-                            <span className="text-gray-400 w-16">{t('主题', 'Theme')}</span>
+                            <span className="text-gray-400 w-16">{t('主题', 'Theme')}</span>{/* i18n: user-facing */}
                             {['dark', 'light'].map((mode) => (
                                 <button
                                     key={mode}
@@ -60,12 +60,12 @@ export default function SettingsPage() {
                                             : 'bg-surface-0 border-surface-3 text-gray-400 hover:text-gray-200'
                                     }`}
                                 >
-                                    {mode === 'dark' ? t('暗色', 'Dark') : t('亮色', 'Light')}
+                                    {mode === 'dark' ? t('暗色', 'Dark') : t('亮色', 'Light')}{/* i18n: user-facing */}
                                 </button>
                             ))}
                         </div>
                         <div className="flex items-center gap-3">
-                            <span className="text-gray-400 w-16">{t('语言', 'Language')}</span>
+                            <span className="text-gray-400 w-16">{t('语言', 'Language')}</span>{/* i18n: user-facing */}
                             {['zh', 'en'].map((l) => (
                                 <button
                                     key={l}
@@ -76,12 +76,12 @@ export default function SettingsPage() {
                                             : 'bg-surface-0 border-surface-3 text-gray-400 hover:text-gray-200'
                                     }`}
                                 >
-                                    {l === 'zh' ? '中文' : 'English'}
+                                    {l === 'zh' ? '中文' : 'English'}{/* i18n: user-facing */}
                                 </button>
                             ))}
                         </div>
                         <div className="text-xs text-gray-500">
-                            {t('内嵌于 Fusion Shell 时以上设置自动跟随宿主。', 'When embedded in Fusion Shell, these follow the host automatically.')}
+                            {t('内嵌于 Fusion Shell 时以上设置自动跟随宿主。', 'When embedded in Fusion Shell, these follow the host automatically.')}{/* i18n: user-facing */}
                         </div>
                     </div>
                 </div>

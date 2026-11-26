@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 
-// E21 修复: pages 数组无上限, 大库长期运行 (createPage 累积) 会无限增长致前端 OOM。
-// 设硬上限, 超出按 FIFO 丢弃最旧项。
+// E21 fix: the pages array was unbounded; a large library running for a long time (accumulating createPage) grew without limit and caused frontend OOM.
+// Set a hard cap; beyond it, drop the oldest entries FIFO.
 const MAX_PAGES = 2000;
 function capPages(arr) {
     return arr.length > MAX_PAGES ? arr.slice(arr.length - MAX_PAGES) : arr;

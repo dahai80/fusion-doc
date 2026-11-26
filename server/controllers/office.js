@@ -13,17 +13,17 @@ const fs = require('fs');
 const os = require('os');
 const { officeImport, officeExport, officeMerge, getOfficeStatus } = require('../services/office');
 const { OfficeApiError } = require('../integrations/office-api');
-// S4 修复: export/preview 复用页读归属守卫, 杜绝非 owner 读他人私有页内容/产物 (IDOR)
+// S4 fix: export/preview reuse the page read-ownership guard so non-owners can't read others' private page content/artifacts (IDOR)
 const { canReadPage } = require('../middleware/authz');
 
-const SAFE_FILENAME_RE = /[^a-zA-Z0-9一-龥_.-]/g;
+const SAFE_FILENAME_RE = /[^a-zA-Z0-9一-龥_.-]/g; // i18n: user-facing
 
 // Map service errors to HTTP status (OfficeApiError carries .status)
 function errStatus(e) {
     return e instanceof OfficeApiError && e.status ? e.status : 500;
 }
 
-// Content-Disposition 文件名消毒 (剥 CRLF/引号, RFC 5987 编码)
+// Content-Disposition filename sanitization (strip CRLF/quotes, RFC 5987 encoding)
 function safeContentDisposition(name, ext) {
     const cleaned = (name || 'export').replace(SAFE_FILENAME_RE, '_').slice(0, 100) || 'export';
     const encoded = encodeURIComponent(cleaned);
@@ -49,10 +49,10 @@ function safePath(app, rawPath, label) {
     return resolved;
 }
 
-// F7 修复: 零依赖 multipart 解析 (仅取首个文件 + 简单文本字段), 落盘到 uploadDir。
-// 大小上限沿用 MAX_IMPORT_BYTES 防 OOM; 失败中途清理已写文件。
-const MAX_IMPORT_BYTES = 50 * 1024 * 1024; // 50MB 上限 (Office 文档)
-const SAFE_IMPORT_NAME = /[^a-zA-Z0-9一-龥._-]/g;
+// F7 fix: zero-dependency multipart parsing (first file + simple text fields only), written to uploadDir.
+// Size capped by MAX_IMPORT_BYTES to prevent OOM; partially written files are cleaned up on failure.
+const MAX_IMPORT_BYTES = 50 * 1024 * 1024; // 50MB limit (Office documents)
+const SAFE_IMPORT_NAME = /[^a-zA-Z0-9一-龥._-]/g; // i18n: user-facing
 function _saveMultipartUpload(req, boundary, uploadDir) {
     return new Promise((resolve, reject) => {
         const chunks = [];
@@ -70,7 +70,7 @@ function _saveMultipartUpload(req, boundary, uploadDir) {
                 aborted = true;
                 cleanup();
                 req.destroy();
-                reject(new Error('上传文件过大 (>50MB)'));
+                reject(new Error('Uploaded file too large (>50MB)'));
                 return;
             }
             chunks.push(c);
@@ -88,7 +88,7 @@ function _saveMultipartUpload(req, boundary, uploadDir) {
                     .filter((p) => p.length > 4 && !p.equals(Buffer.from('--')));
                 const result = { file: null, fields: {} };
                 for (const part of parts) {
-                    // 去首尾 CRLF
+                    // Strip leading/trailing CRLF
                     let body = part;
                     if (body[0] === 0x0d && body[1] === 0x0a) body = body.subarray(2);
                     if (body[body.length - 2] === 0x0d && body[body.length - 1] === 0x0a) body = body.subarray(0, body.length - 2);
@@ -101,19 +101,19 @@ function _saveMultipartUpload(req, boundary, uploadDir) {
                     const fieldName = nameMatch[1];
                     const fileMatch = headerStr.match(/filename="([^"]+)"/);
                     if (fileMatch) {
-                        // 安全文件名: 去路径, 仅留白名单字符
+                        // Safe filename: strip path, keep only allowlisted characters
                         const rawName = path.basename(fileMatch[1] || 'upload').replace(SAFE_IMPORT_NAME, '_').slice(0, 128);
                         const dest = path.join(uploadDir, `${Date.now()}-${rawName}`);
                         fs.writeFileSync(dest, value);
                         result.file = dest;
-                        console.log(`[Office] multipart 文件落盘: ${dest} (${(value.length / 1024).toFixed(1)} KB)`);
+                        console.log(`[Office] multipart file saved: ${dest} (${(value.length / 1024).toFixed(1)} KB)`);
                     } else {
                         result.fields[fieldName] = value.toString('utf-8');
                     }
                 }
                 resolve(result);
             } catch (e) {
-                reject(new Error(`multipart 解析失败: ${e.message}`));
+                reject(new Error(`multipart parse failed: ${e.message}`));
             }
         };
         const onErr = (e) => {
@@ -142,7 +142,7 @@ function register(app) {
         return error(res, 'create is not available: office-api has no document write endpoint yet (tracked in fusion-office upstream); use docx template fill via /api/office/merge instead', 422);
     });
 
-    // ── 导入 Office 文档 (admin only) ──────────────────────────────────
+    // ── Import Office document (admin only) ──────────────────────────────────
     app.registerRoute('POST', '/api/office/import', async (req, res) => {
         if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);
@@ -158,27 +158,27 @@ function register(app) {
         }
     });
 
-    // ── 上传并导入 Office 文档 (admin only, multipart) ────────────────
-    // F7 修复: 客户端 OfficePanel 走 multipart/form-data 上传文件, 但 /import 走 parseBody(JSON),
-    // 契约断裂致导入恒失败。新增 multipart 端点: 接收文件 → 落 storage 临时区 → 调 officeImport。
+    // ── Upload and import Office document (admin only, multipart) ────────────────
+    // F7 fix: client OfficePanel uploads via multipart/form-data, but /import uses parseBody(JSON),
+    // so the broken contract made imports always fail. New multipart endpoint: receive file → store in temp area → call officeImport.
     app.registerRoute('POST', '/api/office/upload-import', async (req, res) => {
         if (!requireAdmin(req, res)) return;
         const contentType = (req.headers['content-type'] || '').toLowerCase();
         if (!contentType.includes('multipart/form-data')) {
-            return error(res, '仅支持 multipart/form-data', 400);
+            return error(res, 'Only multipart/form-data is supported', 400);
         }
         try {
             const uploadDir = path.join(app.config.storage.dir, 'office-uploads');
             fs.mkdirSync(uploadDir, { recursive: true });
-            // 简易 multipart 边界解析 (零依赖, 仅取首个文件 + file_path 字段)
+            // Simple multipart boundary parsing (zero-dependency, first file + file_path field only)
             const boundaryMatch = contentType.match(/boundary=(.+)$/);
-            if (!boundaryMatch) return error(res, '无效 multipart boundary', 400);
+            if (!boundaryMatch) return error(res, 'Invalid multipart boundary', 400);
             const boundary = Buffer.from('--' + boundaryMatch[1].trim().replace(/^"|"$/g, ''));
             const saved = await _saveMultipartUpload(req, boundary, uploadDir);
-            if (!saved.file) return error(res, '未收到文件', 400);
-            // file_path 字段可选 (优先用文件名); book_id/chapter_id 经 form 字段传
+            if (!saved.file) return error(res, 'No file received', 400);
+            // file_path field is optional (filename preferred); book_id/chapter_id come via form fields
             const safeFilePath = safePath(app, saved.file, 'upload-import');
-            if (!safeFilePath) return error(res, '保存路径越界', 403);
+            if (!safeFilePath) return error(res, 'Save path out of bounds', 403);
             const result = await officeImport(app, {
                 file_path: safeFilePath,
                 book_id: saved.fields.book_id,
@@ -191,7 +191,7 @@ function register(app) {
         }
     });
 
-    // ── 导出页面为 Office 格式 ──────────────────────────────────────────
+    // ── Export page to Office format ──────────────────────────────────────────
     app.registerRoute('POST', '/api/office/export/:id', async (req, res) => {
         const { id } = req.params;
         const body = await parseBody(req);
@@ -199,7 +199,7 @@ function register(app) {
         try {
             const page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : null;
             if (!page) return error(res, 'Page not found', 404);
-            // S4 修复: 导出读页内容, 须校验归属, 否则任意用户导出他人私有页 (IDOR)
+            // S4 fix: export reads page content, so ownership must be checked, otherwise any user could export others' private pages (IDOR)
             if (!canReadPage(req, res, page)) return;
             const result = await officeExport(app, { page, format });
             if (result.file_path && fs.existsSync(result.file_path)) {
@@ -209,10 +209,10 @@ function register(app) {
                     'Content-Disposition': safeContentDisposition(page.title, ext),
                     'Content-Length': fs.statSync(result.file_path).size,
                 });
-                // E2 修复: 流式导出须挂 error 句柄, 否则底层 EPIPE/读错误抛 uncaught 杀进程
+                // E2 fix: streaming export needs an error handler, otherwise an underlying EPIPE/read error throws uncaught and kills the process
                 const stream = fs.createReadStream(result.file_path);
                 stream.on('error', (e) => {
-                    console.error(`[Office] 导出流错误: ${e.message}`);
+                    console.error(`[Office] Export stream error: ${e.message}`);
                     if (!res.writableEnded) res.end();
                 });
                 stream.pipe(res);
@@ -259,7 +259,7 @@ function register(app) {
         }
     });
 
-    // ── 批量导入目录 (admin only) ──────────────────────────────────────
+    // ── Batch import directory (admin only) ──────────────────────────────────────
     app.registerRoute('POST', '/api/office/import-dir', async (req, res) => {
         if (!requireAdmin(req, res)) return;
         const body = await parseBody(req);

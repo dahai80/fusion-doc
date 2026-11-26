@@ -1,37 +1,37 @@
 // =============================================================================
-// Fusion-Doc — 页面发布状态机 (A8 改名: workflow → page-state, 消除命名碰撞)
-// 文档发布工作流状态机 + 审批流程 (draft→review→published→archived)
+// Fusion-Doc — page publishing state machine (A8 rename: workflow → page-state, removes naming collision)
+// Document publishing workflow state machine + approval flow (draft→review→published→archived)
 // =============================================================================
-// A8 修复: 原名 services/workflow.js 与 services/workflow-engine.js 共用 "workflow" 一词,
-// 但二者是不同概念 — 本文件是页面发布状态机 (有限状态自动机), workflow-engine.js 是
-// YAML DAG 执行引擎。路由 /api/workflow/:id/transition (本) 与 /api/workflows/:id/run
-// (引擎) 仅一字母之差, 维护者极易混淆。改名 page-state 使语义明确, 路由保持不变 (客户端兼容)。
+// A8 fix: the old name services/workflow.js shared the word "workflow" with services/workflow-engine.js,
+// but they are different concepts — this file is the page publishing state machine (finite automaton), workflow-engine.js is the
+// YAML DAG execution engine. The routes /api/workflow/:id/transition (this one) and /api/workflows/:id/run
+// (engine) differ by a single letter, which maintainers easily confuse. Renaming to page-state clarifies semantics; routes unchanged (client compatibility).
 //
-// 修复 (metadata-column bug): 原实现 SELECT id, metadata FROM pages 并写 page.metadata.workflow,
-// 但 pages 表无 metadata 列 (路由报 no such column: metadata)。pages 的扩展属性存于独立
-// metadata 表 (id, page_id, key, value, type, created_at), 每页一行一 key。
-// 工作流状态用 key='workflow', value 存 JSON {state, history}。读写走 metadata 表,
-// 与 metadata.js 访问模式一致。
+// Fix (metadata-column bug): the old implementation did SELECT id, metadata FROM pages and wrote page.metadata.workflow,
+// but the pages table has no metadata column (route errored with no such column: metadata). Page extension attributes live in a separate
+// metadata table (id, page_id, key, value, type, created_at), one row per key per page.
+// Workflow state uses key='workflow', value stores JSON {state, history}. Reads/writes go through the metadata table,
+// consistent with the access pattern in metadata.js.
 
 const { uid } = require('../utils/helpers');
 
 const WORKFLOW_KEY = 'workflow';
 
 const STATES = {
-    draft: { label: '草稿', transitions: ['review', 'published'] },
-    review: { label: '审核中', transitions: ['draft', 'published'] },
-    published: { label: '已发布', transitions: ['draft', 'archived'] },
-    archived: { label: '归档', transitions: ['draft'] },
+    draft: { label: '草稿', transitions: ['review', 'published'] }, // i18n: user-facing
+    review: { label: '审核中', transitions: ['draft', 'published'] }, // i18n: user-facing
+    published: { label: '已发布', transitions: ['draft', 'archived'] }, // i18n: user-facing
+    archived: { label: '归档', transitions: ['draft'] }, // i18n: user-facing
 };
 
 function isValidTransition(from, to) {
     return STATES[from]?.transitions?.includes(to) || false;
 }
 
-// ── 读取页面工作流状态 (从 metadata 表 key='workflow') ─────────────────────────
+// ── Read page workflow state (from metadata table key='workflow') ─────────────────
 function getWorkflowStatus(db, pageId) {
     if (!db) return { state: 'draft', history: [] };
-    // 页面必须存在, 不存在返回 null (控制器据此 404)
+    // Page must exist; returns null if not (controller responds 404 accordingly)
     const page = db.prepare('SELECT id FROM pages WHERE id = ?').get(pageId);
     if (!page) return null;
     const row = db.prepare("SELECT value FROM metadata WHERE page_id = ? AND key = ?").get(pageId, WORKFLOW_KEY);
@@ -43,12 +43,12 @@ function getWorkflowStatus(db, pageId) {
             history: Array.isArray(parsed.history) ? parsed.history : [],
         };
     } catch (e) {
-        console.warn(`[Workflow] page ${pageId} workflow 元数据损坏, 回退 draft: ${e.message}`);
+        console.warn(`[Workflow] page ${pageId} workflow metadata corrupted, falling back to draft: ${e.message}`);
         return { state: 'draft', history: [] };
     }
 }
 
-// ── 写入页面工作流状态 (upsert metadata 表 key='workflow', 事务原子) ───────────
+// ── Write page workflow state (upsert metadata table key='workflow', atomic transaction) ──
 function saveWorkflowStatus(db, pageId, status) {
     const value = JSON.stringify(status);
     const existing = db.prepare("SELECT id FROM metadata WHERE page_id = ? AND key = ?").get(pageId, WORKFLOW_KEY);
@@ -82,7 +82,7 @@ async function transitionPage(db, pageId, newState, userId) {
         ],
     };
 
-    // 事务保证 状态+历史 原子写入 (避免半写: 状态改了历史丢)
+    // Transaction makes state+history an atomic write (avoids half-writes: state changed but history lost)
     const tx = db.transaction(() => saveWorkflowStatus(db, pageId, next));
     tx();
 

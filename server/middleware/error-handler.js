@@ -1,12 +1,12 @@
 // =============================================================================
-// Fusion-Doc — 错误处理工具
-// 仅导出 errorResponse / successResponse 工具函数 (供控制器/中间件使用)。
-// E11 修复: 原 errorHandler 中间件恒返回 false 为 no-op, 已从 app.js 移除注册。
-// 实际错误兜底: middleware/pipeline.js 的 catch (中间件异常) +
-// app.js _handleRequest 的 catch (路由异常), 两处均已在生产屏蔽 5xx 细节。
+// Fusion-Doc — error handling utilities
+// Only exports the errorResponse / successResponse helpers (used by controllers/middleware).
+// E11 fix: the old errorHandler middleware always returned false (a no-op) and has been unregistered from app.js.
+// Actual error fallback: the catch in middleware/pipeline.js (middleware exceptions) +
+// the catch in app.js _handleRequest (route exceptions); both hide 5xx details in production.
 // =============================================================================
 
-// 创建统一错误响应
+// Build a unified error response
 function errorResponse(res, statusCode, message, code = null) {
   if (res.writableEnded) return;
   res.writeHead(statusCode, { 'Content-Type': 'application/json' });
@@ -17,7 +17,7 @@ function errorResponse(res, statusCode, message, code = null) {
   }));
 }
 
-// 成功响应
+// Success response
 function successResponse(res, data, statusCode = 200) {
   if (res.writableEnded) return;
   res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });

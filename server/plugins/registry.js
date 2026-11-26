@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 插件注册表
-// 管理插件的注册、发现、依赖解析
+// Fusion-Doc — plugin registry
+// Manages plugin registration, discovery and dependency resolution
 // =============================================================================
 
 class PluginRegistry {
@@ -9,40 +9,40 @@ class PluginRegistry {
     this._hooks = new Map(); // hookName → [handler, ...]
   }
 
-  // 注册插件
+  // Register a plugin
   register(plugin) {
     if (this._plugins.has(plugin.name)) {
-      throw new Error(`插件 ${plugin.name} 已注册`);
+      throw new Error(`Plugin ${plugin.name} is already registered`);
     }
     this._plugins.set(plugin.name, plugin);
     return this;
   }
 
-  // 注销插件
+  // Unregister a plugin
   unregister(name) {
     const plugin = this._plugins.get(name);
     if (plugin && plugin.shutdown) {
       plugin.shutdown();
     }
     this._plugins.delete(name);
-    // 清理钩子
+    // Clean up hooks
     for (const [hookName, handlers] of this._hooks) {
       this._hooks.set(hookName, handlers.filter(h => h.plugin !== name));
     }
     return this;
   }
 
-  // 获取插件
+  // Get a plugin
   get(name) {
     return this._plugins.get(name);
   }
 
-  // 获取所有插件
+  // Get all plugins
   getAll() {
     return Array.from(this._plugins.values());
   }
 
-  // 注册钩子
+  // Register a hook
   on(hookName, handler, pluginName = 'anonymous') {
     if (!this._hooks.has(hookName)) {
       this._hooks.set(hookName, []);
@@ -51,7 +51,7 @@ class PluginRegistry {
     return this;
   }
 
-  // 触发钩子
+  // Trigger a hook
   async emit(hookName, ...args) {
     const handlers = this._hooks.get(hookName);
     if (!handlers) return [];
@@ -61,13 +61,13 @@ class PluginRegistry {
         const result = await handler(...args);
         results.push({ plugin, result });
       } catch (e) {
-        console.error(`[插件:${plugin}] 钩子 ${hookName} 错误: ${e.message}`);
+        console.error(`[Plugin:${plugin}] hook ${hookName} error: ${e.message}`);
       }
     }
     return results;
   }
 
-  // 检查依赖
+  // Check dependencies
   checkDependencies(plugin) {
     const deps = plugin.dependencies || [];
     const missing = deps.filter(dep => !this._plugins.has(dep));

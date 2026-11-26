@@ -1,6 +1,6 @@
 // =============================================================================
-// E8 修复: 行为测试 — 限流 LRU 淘汰 (R9)
-// 验证 Map 满载时不永久拒绝新 key, 而淘汰最早到期条目
+// E8 fix: behavior tests — rate limiter LRU eviction (R9)
+// Verifies that a full Map evicts the earliest-expiring entry instead of permanently rejecting new keys
 // =============================================================================
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,13 +17,13 @@ function mockRes() {
     return res;
 }
 
-test('R9: 未超限放行', () => {
+test('R9: allowed under the limit', () => {
     const lim = rateLimit({ windowMs: 60000, maxRequests: 5, tag: 't' });
     const blocked = lim(mockReq('10.0.0.1'), mockRes(), {});
     assert.equal(blocked, false);
 });
 
-test('R9: 超限触发 429', () => {
+test('R9: exceeding the limit returns 429', () => {
     const lim = rateLimit({ windowMs: 60000, maxRequests: 2, tag: 't2' });
     lim(mockReq('10.0.0.2'), mockRes(), {});
     lim(mockReq('10.0.0.2'), mockRes(), {});
@@ -34,20 +34,20 @@ test('R9: 超限触发 429', () => {
     assert.equal(res.headers['Retry-After'] !== undefined, true);
 });
 
-test('R9: 不同 IP 独立计数', () => {
+test('R9: different IPs are counted independently', () => {
     const lim = rateLimit({ windowMs: 60000, maxRequests: 1, tag: 't3' });
     lim(mockReq('10.0.0.3'), mockRes(), {});
-    // 不同 IP 不受第一个 IP 限流影响
+    // A different IP is not affected by the first IP's limit
     assert.equal(lim(mockReq('10.0.0.4'), mockRes(), {}), false);
-    // 第一个 IP 再来应被限
+    // The first IP should be limited on its next request
     assert.equal(lim(mockReq('10.0.0.3'), mockRes(), {}), true);
 });
 
-test('R9: 窗口过期后重置', () => {
+test('R9: resets after the window expires', () => {
     const lim = rateLimit({ windowMs: 1, maxRequests: 1, tag: 't4' });
     lim(mockReq('10.0.0.5'), mockRes(), {});
     assert.equal(lim(mockReq('10.0.0.5'), mockRes(), {}), true);
-    // 等窗口过期
+    // Wait for the window to expire
     const start = Date.now();
     while (Date.now() - start < 10) { /* spin */ }
     assert.equal(lim(mockReq('10.0.0.5'), mockRes(), {}), false);

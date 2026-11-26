@@ -1,38 +1,38 @@
 // =============================================================================
-// Fusion-Doc — Fusion-Trainer 集成
-// 通过子进程调用共享 .venv 的 fusion-trainer CLI, 基于本文档知识库微调模型
-// 镜像 fusion-mlx.js 的 fail-visible 风格
+// Fusion-Doc — Fusion-Trainer integration
+// Invokes the fusion-trainer CLI from the shared .venv as a subprocess to fine-tune models on this doc knowledge base
+// Mirrors the fail-visible style of fusion-mlx.js
 // =============================================================================
 //
 // fusion-trainer CLI: fusion-trainer sft --dataset <jsonl> --model <id> [--config] [--output-dir]
-// 默认 bin: /Users/dahai/fusion/.venv/bin/fusion-trainer (env FUSION_TRAINER_BIN 可覆盖)
+// Default bin: /Users/dahai/fusion/.venv/bin/fusion-trainer (overridable via env FUSION_TRAINER_BIN)
 // =============================================================================
 
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// S9 修复: 原硬编码机器绝对路径, 换机即断。优先 env, 否则 PATH 解析 'fusion-trainer',
-// 再降级到 monorepo 共享 venv (FUSION_VENV 环境变量或相对仓库根推导)。
+// S9 fix: previously a hardcoded machine-absolute path that broke on any other machine. Prefer env, else resolve 'fusion-trainer' on PATH,
+// then fall back to the monorepo shared venv (FUSION_VENV env var or derived relative to the repo root).
 function resolveDefaultBin() {
     if (process.env.FUSION_TRAINER_BIN) return process.env.FUSION_TRAINER_BIN;
-    // PATH 查找 (用户已 pip install -e fusion-trainer → 入 PATH)
+    // PATH lookup (user ran pip install -e fusion-trainer → on PATH)
     try {
         const out = execFileSync('which', ['fusion-trainer'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         if (out && fs.existsSync(out)) return out;
     } catch (_) { /* not in PATH, fall through */ }
-    // 共享 venv 推导: 从本文件向上找 .venv
+    // Derive shared venv: walk up from this file looking for .venv
     const venv = process.env.FUSION_VENV || require('path').resolve(__dirname, '../../.venv');
     const candidate = `${venv}/bin/fusion-trainer`;
     if (fs.existsSync(candidate)) return candidate;
-    console.warn('[Fusion-Trainer] 未找到 fusion-trainer CLI, 设 env FUSION_TRAINER_BIN 指向');
-    return 'fusion-trainer'; // 交由 spawn 报 fail-visible
+    console.warn('[Fusion-Trainer] fusion-trainer CLI not found; set env FUSION_TRAINER_BIN to point to it');
+    return 'fusion-trainer'; // Let spawn report it fail-visibly
 }
 const DEFAULT_BIN = resolveDefaultBin();
-const MAX_STDOUT = 256 * 1024; // 单 job stdout/stderr 上限 256KB
-const MAX_JOBS = 20; // 内存中保留的 job 上限
-const MAX_STATUS_OUTPUT = 4096; // 状态接口返回的输出截断长度
-// R8 修复: MLX 训练重内存重 GPU, 单节点只能跑 1-2 个; 硬上限防 admin 连发致 OOM 整机卡死
+const MAX_STDOUT = 256 * 1024; // Per-job stdout/stderr cap of 256KB
+const MAX_JOBS = 20; // Max jobs kept in memory
+const MAX_STATUS_OUTPUT = 4096; // Output truncation length for the status endpoint
+// R8 fix: MLX training is memory- and GPU-heavy; a single node can only run 1-2. Hard cap prevents an admin firing repeatedly and OOM-freezing the machine
 const MAX_RUNNING = parseInt(process.env.FUSION_TRAINER_MAX_RUNNING || '2', 10);
 
 const _jobs = new Map();
@@ -40,18 +40,18 @@ const _jobs = new Map();
 function _resolveBin(binPath) {
   const bin = binPath || DEFAULT_BIN;
   if (!fs.existsSync(bin)) {
-    throw new Error('fusion-trainer CLI 未找到: ' + bin + ' (请在共享 .venv 安装 fusion-trainer 或设置 FUSION_TRAINER_BIN)');
+    throw new Error('fusion-trainer CLI not found: ' + bin + ' (install fusion-trainer in the shared .venv or set FUSION_TRAINER_BIN)');
   }
   return bin;
 }
 
-// 限长累加, 防子进程输出爆内存
+// Length-capped accumulation to keep subprocess output from blowing up memory
 function _appendCapped(buf, chunk) {
   if (buf.length >= MAX_STDOUT) return buf;
   return (buf + chunk).slice(0, MAX_STDOUT);
 }
 
-// 清理已完成且超量的 job, 防内存泄漏
+// Prune finished jobs over the cap to prevent memory leaks
 function _gcJobs() {
   if (_jobs.size <= MAX_JOBS) return;
   const finished = [];
@@ -64,7 +64,7 @@ function _gcJobs() {
   }
 }
 
-// R8 修复: 统计运行中 job 数 (硬上限判定依据)
+// R8 fix: count running jobs (basis for the hard cap)
 function _runningCount() {
   let n = 0;
   for (const [, j] of _jobs) { if (j.status === 'running') n++; }
@@ -73,15 +73,15 @@ function _runningCount() {
 
 function startSft({ dataset, model, config, outputDir, binPath }) {
   if (!dataset) {
-    throw new Error('startSft 被拒绝: dataset 路径必填');
+    throw new Error('startSft rejected: dataset path is required');
   }
   if (!model) {
-    throw new Error('startSft 被拒绝: model 必填');
+    throw new Error('startSft rejected: model is required');
   }
-  // R8 修复: running 计数硬上限, 超限拒绝 (原设计无上限, admin 连发即 GPU OOM 整机卡死)
+  // R8 fix: hard cap on running count, reject when exceeded (original design had no cap; repeated admin requests caused GPU OOM freezing the machine)
   const runningCount = _runningCount();
   if (runningCount >= MAX_RUNNING) {
-    const err = new Error(`fusion-trainer 并发训练已达上限 ${MAX_RUNNING} (运行中 ${runningCount}), 请等待现有任务完成`);
+    const err = new Error(`fusion-trainer concurrent training limit reached ${MAX_RUNNING} (running ${runningCount}); wait for existing jobs to finish`);
     err.statusCode = 429;
     err.code = 'TRAINING_BUSY';
     throw err;
@@ -92,17 +92,17 @@ function startSft({ dataset, model, config, outputDir, binPath }) {
   if (outputDir) args.push('--output-dir', outputDir);
 
   const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env } });
-  // E14 修复: 用 crypto.randomUUID 替代 Date.now()+Math.random (防碰撞越权看他人日志)
+  // E14 fix: use crypto.randomUUID instead of Date.now()+Math.random (prevents collisions that allow viewing others' logs)
   const jobId = 'sft_' + crypto.randomUUID();
   const job = { jobId, status: 'running', exitCode: null, command: bin, args, startedAt: Date.now(), stdout: '', stderr: '', _child: child };
   _jobs.set(jobId, job);
   _gcJobs();
 
-  // E1 修复: 训练作业加超时, 防僵死子进程永占 GPU 槽位 (默认 30min, env 可调)。
+  // E1 fix: add a timeout to training jobs so a hung subprocess cannot hold a GPU slot forever (default 30min, env-tunable).
   const JOB_TIMEOUT_MS = parseInt(process.env.FUSION_TRAINER_TIMEOUT_MS || `${30 * 60 * 1000}`, 10);
   const timer = setTimeout(() => {
     if (job.status === 'running' && job._child) {
-      console.warn('[fusion-trainer] job %s 超时 %sms, SIGKILL', jobId, JOB_TIMEOUT_MS);
+      console.warn('[fusion-trainer] job %s timed out after %sms, SIGKILL', jobId, JOB_TIMEOUT_MS);
       job.status = 'timeout';
       job.error = `job timeout after ${JOB_TIMEOUT_MS}ms`;
       try { job._child.kill('SIGKILL'); } catch (_) { /* noop */ }
@@ -110,7 +110,7 @@ function startSft({ dataset, model, config, outputDir, binPath }) {
   }, JOB_TIMEOUT_MS);
   job._timer = timer;
 
-  // E13 修复: 达 cap 后解绑监听器 + destroy, 防 data 事件空转 CPU/GC 浪费
+  // E13 fix: after hitting the cap, detach listeners + destroy to avoid data events wasting CPU/GC
   child.stdout.on('data', (d) => {
     job.stdout = _appendCapped(job.stdout, d.toString());
     if (job.stdout.length >= MAX_STDOUT) { child.stdout.removeAllListeners('data'); child.stdout.destroy(); }
@@ -138,7 +138,7 @@ function startSft({ dataset, model, config, outputDir, binPath }) {
 function getJobStatus(jobId) {
   const job = _jobs.get(jobId);
   if (!job) return null;
-  // 不暴露内部 _child 引用; 截断输出防信息泄漏
+  // Do not expose the internal _child reference; truncate output to prevent information leaks
   return {
     jobId: job.jobId,
     status: job.status,
@@ -154,8 +154,8 @@ function getJobStatus(jobId) {
   };
 }
 
-// 关闭所有仍在运行的 job 子进程 (优雅关闭时调用)
-// R15 修复: SIGTERM 后等待 exit (带超时), 超时则 SIGKILL 兜底, 防 MLX 训练子进程变孤儿持续占 GPU。
+// Kill all still-running job subprocesses (called on graceful shutdown)
+// R15 fix: after SIGTERM wait for exit (with timeout), SIGKILL as fallback on timeout, so MLX training subprocesses never become orphans holding the GPU.
 async function stopAllJobs() {
   const SIGKILL_TIMEOUT_MS = 8000;
   const stops = [];
@@ -177,14 +177,14 @@ function _stopOneJob(job, timeoutMs) {
     child.once('error', done);
     try {
       child.kill('SIGTERM');
-      console.log('[fusion-trainer] SIGTERM job %s, 等待退出 (超时 %dms 后 SIGKILL)', job.jobId, timeoutMs);
+      console.log('[fusion-trainer] SIGTERM job %s, waiting for exit (SIGKILL after %dms timeout)', job.jobId, timeoutMs);
     } catch (_) { done(); return; }
-    // 超时未退则强杀
+    // Force-kill if not exited by the timeout
     const killer = setTimeout(() => {
       if (!settled) {
-        console.warn('[fusion-trainer] job %s SIGTERM 超时未退, SIGKILL 兜底', job.jobId);
+        console.warn('[fusion-trainer] job %s did not exit after SIGTERM timeout, falling back to SIGKILL', job.jobId);
         try { child.kill('SIGKILL'); } catch (_) { /* noop */ }
-        // SIGKILL 后再给 OS 一点回收时间
+        // Give the OS a little time to reclaim after SIGKILL
         setTimeout(done, 500);
       }
     }, timeoutMs);
@@ -198,13 +198,13 @@ async function info(binPath) {
     const child = spawn(bin, ['info'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env } });
     let out = '';
     let settled = false;
-    // E26 修复: info() 子进程无超时, hang 则 Promise 永挂。加 15s 超时 + SIGKILL。
+    // E26 fix: the info() subprocess had no timeout, so a hang left the Promise pending forever. Add a 15s timeout + SIGKILL.
     const killer = setTimeout(() => {
       if (settled) return;
       settled = true;
       try { child.kill('SIGKILL'); } catch (_) { /* already gone */ }
-      console.warn('[fusion-trainer] info 超时 15s, 已 SIGKILL');
-      resolve({ error: 'fusion-trainer info 超时' });
+      console.warn('[fusion-trainer] info timed out after 15s, sent SIGKILL');
+      resolve({ error: 'fusion-trainer info timed out' });
     }, 15000);
     killer.unref();
     child.stdout.on('data', (d) => { out = _appendCapped(out, d.toString()); });
@@ -213,7 +213,7 @@ async function info(binPath) {
       if (settled) return;
       settled = true;
       clearTimeout(killer);
-      resolve({ error: 'fusion-trainer info spawn 失败' });
+      resolve({ error: 'fusion-trainer info spawn failed' });
     });
     child.on('exit', (code) => {
       if (settled) return;
@@ -222,7 +222,7 @@ async function info(binPath) {
       if (code === 0) {
         resolve({ ok: true, output: out.trim() });
       } else {
-        resolve({ error: 'fusion-trainer info 退出码 ' + code, output: out.trim() });
+        resolve({ error: 'fusion-trainer info exit code ' + code, output: out.trim() });
       }
     });
   });

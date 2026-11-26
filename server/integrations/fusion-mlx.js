@@ -1,27 +1,27 @@
 // =============================================================================
-// Fusion-Doc — Fusion-MLX 深度集成
-// 负责与 Fusion-MLX 本地推理引擎的通信
-// 支持：聊天、流式聊天、嵌入、重排序、模型管理
+// Fusion-Doc — deep Fusion-MLX integration
+// Handles communication with the Fusion-MLX local inference engine
+// Supports: chat, streaming chat, embeddings, reranking, model management
 // =============================================================================
 //
-// Fusion-MLX 是 Apple Silicon 原生 MLX 推理引擎，提供 OpenAI 兼容 API
-// 默认端口: 11432 (经 fusion-gateway 统一组网; env 可覆盖回直连 11434)
-// 端点: /v1/chat/completions, /v1/embeddings, /v1/models, /v1/rerank
+// Fusion-MLX is an Apple Silicon native MLX inference engine exposing an OpenAI-compatible API
+// Default port: 11432 (unified networking via fusion-gateway; env can override back to direct 11434)
+// Endpoints: /v1/chat/completions, /v1/embeddings, /v1/models, /v1/rerank
 // =============================================================================
 
 const BASE_PATH = '/v1';
 const httpFetch = globalThis.fetch;
 const AbortCtrl = globalThis.AbortController;
 
-// R6 修复: 非流式调用超时上限 (原设计无 timeout, 引擎 stall 即 hang 全站 AI)
+// R6 fix: upper timeout for non-streaming calls (the original design had no timeout, so an engine stall hung all site AI)
 const CALL_TIMEOUT_MS = parseInt(process.env.FUSION_MLX_TIMEOUT_MS || '60000', 10);
 const CALL_MAX_RETRIES = parseInt(process.env.FUSION_MLX_RETRIES || '1', 10);
 
-// ── 通用请求 ──────────────────────────────────────────────────────────────
+// ── Generic request ─────────────────────────────────────────────────────
 async function callFusionMLX({ method, path, body, config }) {
-  // §2.2: key 未设置时 fail visibly, 禁止静默放行 (字面量亦禁止)
+  // §2.2: fail visibly when the key is unset; silent pass-through is forbidden (so are literal keys)
   if (!config.apiKey) {
-    throw new Error('Fusion-MLX 调用被拒绝: FUSION_CLIENT_KEY 未设置 (请在部署 env 注入)');
+    throw new Error('Fusion-MLX call rejected: FUSION_CLIENT_KEY not set (inject it via the deployment env)');
   }
   const url = `${config.url}${BASE_PATH}${path}`;
   const headers = {
@@ -29,7 +29,7 @@ async function callFusionMLX({ method, path, body, config }) {
     'Authorization': `Bearer ${config.apiKey}`,
   };
 
-  // R6 修复: timeout + 重试, 对比 healthCheck 有 3s timeout, 主路径此前缺失
+  // R6 fix: timeout + retries; healthCheck had a 3s timeout but the main path lacked one
   let lastErr = null;
   for (let attempt = 0; attempt <= CALL_MAX_RETRIES; attempt++) {
     const controller = new AbortCtrl();
@@ -44,28 +44,28 @@ async function callFusionMLX({ method, path, body, config }) {
       clearTimeout(timer);
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new Error(`Fusion-MLX API 错误 (${response.status}): ${text.slice(0, 200)}`);
+        throw new Error(`Fusion-MLX API error (${response.status}): ${text.slice(0, 200)}`);
       }
       return await response.json();
     } catch (err) {
       clearTimeout(timer);
       lastErr = err;
-      // 仅对超时/连接错误重试, 4xx 不重试
+      // Retry only on timeout/connection errors, never on 4xx
       const isAbort = err.name === 'AbortError';
       const isTransient = isAbort || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED';
       if (!isTransient || attempt === CALL_MAX_RETRIES) break;
-      console.warn(`[Fusion-MLX] callFusionMLX 重试 ${attempt + 1}/${CALL_MAX_RETRIES}: ${err.message}`);
+      console.warn(`[Fusion-MLX] callFusionMLX retry ${attempt + 1}/${CALL_MAX_RETRIES}: ${err.message}`);
     }
   }
-  throw lastErr || new Error('Fusion-MLX 调用失败');
+  throw lastErr || new Error('Fusion-MLX call failed');
 }
 
-// ── 流式请求（SSE） ───────────────────────────────────────────────────────
-// R7 修复: 接受外部 abortSignal, 客户端断开时真正中断上游 fetch (原设计 controller 闭包私有)
+// ── Streaming request (SSE) ─────────────────────────────────────────────
+// R7 fix: accept an external abortSignal so a client disconnect actually aborts the upstream fetch (originally the controller was closure-private)
 async function* callFusionMLXStream({ model, messages, config, timeoutMs = 120000, abortSignal }) {
-  // §2.2: key 未设置时 fail visibly, 禁止静默放行
+  // §2.2: fail visibly when the key is unset; silent pass-through is forbidden
   if (!config.apiKey) {
-    throw new Error('Fusion-MLX 流式调用被拒绝: FUSION_CLIENT_KEY 未设置 (请在部署 env 注入)');
+    throw new Error('Fusion-MLX streaming call rejected: FUSION_CLIENT_KEY not set (inject it via the deployment env)');
   }
   const url = `${config.url}${BASE_PATH}/chat/completions`;
   const headers = {
@@ -75,7 +75,7 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
 
   const controller = new AbortCtrl();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  // R7 修复: 外部 abortSignal 联动内部 controller
+  // R7 fix: link the external abortSignal to the internal controller
   const onExternalAbort = () => controller.abort();
   if (abortSignal) {
     if (abortSignal.aborted) { clearTimeout(timer); controller.abort(); }
@@ -97,7 +97,7 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
     clearTimeout(timer);
     if (abortSignal) abortSignal.removeEventListener('abort', onExternalAbort);
     const text = await response.text().catch(() => '');
-    throw new Error(`Fusion-MLX 流式请求错误 (${response.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Fusion-MLX streaming request error (${response.status}): ${text.slice(0, 200)}`);
   }
 
   const reader = response.body.getReader();
@@ -120,19 +120,19 @@ async function* callFusionMLXStream({ model, messages, config, timeoutMs = 12000
         if (data === '[DONE]') { clearTimeout(timer); return; }
         try {
           yield JSON.parse(data);
-        } catch (_) { /* 跳过无法解析的 chunk */ }
+        } catch (_) { /* skip unparseable chunks */ }
       }
     }
   } finally {
     clearTimeout(timer);
     if (abortSignal) abortSignal.removeEventListener('abort', onExternalAbort);
-    // R7 修复: cancel reader 释放上游 HTTP 响应体 (原仅 releaseLock, 连接不归还致 EMFILE)
+    // R7 fix: cancel the reader to release the upstream HTTP response body (originally only releaseLock, so connections were not returned, causing EMFILE)
     try { await reader.cancel(); } catch (_) { /* noop */ }
     reader.releaseLock();
   }
 }
 
-// ── 聊天 ──────────────────────────────────────────────────────────────────
+// ── Chat ────────────────────────────────────────────────────────────────
 async function chat({ model, messages, config, stream = false }) {
   if (stream) {
     return callFusionMLXStream({ model, messages, config });
@@ -144,7 +144,7 @@ async function chat({ model, messages, config, stream = false }) {
   });
 }
 
-// ── 嵌入 ──────────────────────────────────────────────────────────────────
+// ── Embeddings ──────────────────────────────────────────────────────────
 async function embeddings({ input, model, config }) {
   return callFusionMLX({
     method: 'POST', path: '/embeddings',
@@ -153,7 +153,7 @@ async function embeddings({ input, model, config }) {
   });
 }
 
-// ── 重排序 ────────────────────────────────────────────────────────────────
+// ── Rerank ──────────────────────────────────────────────────────────────
 async function rerank({ query, documents, model, config }) {
   return callFusionMLX({
     method: 'POST', path: '/rerank',
@@ -162,7 +162,7 @@ async function rerank({ query, documents, model, config }) {
   });
 }
 
-// ── 模型列表 ──────────────────────────────────────────────────────────────
+// ── Model list ──────────────────────────────────────────────────────────
 async function listModels(config) {
   return callFusionMLX({
     method: 'GET', path: '/models',
@@ -170,7 +170,7 @@ async function listModels(config) {
   });
 }
 
-// ── 健康检查 ──────────────────────────────────────────────────────────────
+// ── Health check ────────────────────────────────────────────────────────
 async function healthCheck(config) {
   const controller = new AbortCtrl();
   const timer = setTimeout(() => controller.abort(), 3000);

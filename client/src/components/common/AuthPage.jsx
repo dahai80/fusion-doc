@@ -1,5 +1,5 @@
-// P0-F1 修复: 登录/安装页。未认证或系统未安装时由 App 网关渲染。
-// mode='login' | 'setup'。setup 首次安装管理员, 之后走 login。
+// P0-F1 fix: login/setup page. Rendered by the App gate when unauthenticated or the system is not set up.
+// mode='login' | 'setup'. setup creates the first admin; afterwards it's login.
 import React, { useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useT } from '../../stores/langStore';
@@ -17,19 +17,19 @@ export default function AuthPage({ mode = 'login' }) {
         try {
             if (isSetup) await setup(email, name, password);
             else await login(email, password);
-        } catch (_) { /* error 已入 store */ }
+        } catch (_) { /* error already stored in the store */ }
     };
 
     return (
         <div className="h-screen flex items-center justify-center bg-surface-0">
             <form onSubmit={submit} className="w-full max-w-sm bg-surface-1 rounded-xl shadow-lg p-8 space-y-4">
                 <h1 className="text-xl font-semibold text-surface-fg">
-                    {isSetup ? t('初始化 Fusion-Doc 管理员', 'Initialize Fusion-Doc admin') : t('登录 Fusion-Doc', 'Sign in to Fusion-Doc')}
+                    {isSetup ? t('初始化 Fusion-Doc 管理员', 'Initialize Fusion-Doc admin') : t('登录 Fusion-Doc', 'Sign in to Fusion-Doc')}{/* i18n: user-facing */}
                 </h1>
                 {error && <div className="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 rounded p-2">{error}</div>}
                 <input
                     type="email"
-                    placeholder={t("邮箱", "Email")}
+                    placeholder={t("邮箱", "Email") /* i18n: user-facing */}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -38,7 +38,7 @@ export default function AuthPage({ mode = 'login' }) {
                 {isSetup && (
                     <input
                         type="text"
-                        placeholder={t("显示名称", "Display name")}
+                        placeholder={t("显示名称", "Display name") /* i18n: user-facing */}
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         className="w-full px-3 py-2 rounded border border-surface-2 bg-surface-0 text-surface-fg outline-none focus:border-primary"
@@ -46,7 +46,7 @@ export default function AuthPage({ mode = 'login' }) {
                 )}
                 <input
                     type="password"
-                    placeholder={isSetup ? t('密码 (至少 8 位)', 'Password (min 8 chars)') : t('密码', 'Password')}
+                    placeholder={isSetup ? t('密码 (至少 8 位)', 'Password (min 8 chars)') : t('密码', 'Password') /* i18n: user-facing */}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -57,7 +57,7 @@ export default function AuthPage({ mode = 'login' }) {
                     disabled={loading}
                     className="w-full py-2 rounded bg-primary text-white font-medium disabled:opacity-50"
                 >
-                    {loading ? t('处理中…', 'Working…') : (isSetup ? t('完成安装', 'Finish setup') : t('登录', 'Sign in'))}
+                    {loading ? t('处理中…', 'Working…') : (isSetup ? t('完成安装', 'Finish setup') : t('登录', 'Sign in'))}{/* i18n: user-facing */}
                 </button>
             </form>
         </div>

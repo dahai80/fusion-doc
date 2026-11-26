@@ -37,7 +37,7 @@ function ExportPanel() {
             {err && <div className="text-xs text-red-400">{err}</div>}
             {pages.map((p) => (
                 <div key={p.id} className="flex items-center justify-between border border-[var(--border-color)] rounded-lg px-3 py-2">
-                    <span className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{p.title || t('未命名', 'Untitled')}</span>
+                    <span className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{p.title || t('未命名', 'Untitled')}</span>{/* i18n: user-facing */}
                     <div className="flex gap-1">
                         {formats.map((f) => (
                             <button key={f} disabled={busyId === p.id}
@@ -79,11 +79,11 @@ function TagsPanel() {
             <div className="flex gap-2">
                 <input value={name} onChange={(e) => setName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && create()}
-                    placeholder={t('新标签名', 'New tag name')}
+                    placeholder={t('新标签名', 'New tag name')} // i18n: user-facing
                     className="bg-surface-0 border border-[var(--border-color)] rounded px-2 py-1 text-sm focus:outline-none focus:border-brand-500"
                     style={{ color: 'var(--text-primary)' }} />
                 <button onClick={create} className="bg-brand-600 hover:bg-brand-500 px-3 py-1 rounded-lg text-sm text-white transition-colors">
-                    {t('创建', 'Create')}
+                    {t('创建', 'Create')}{/* i18n: user-facing */}
                 </button>
             </div>
             {err && <div className="text-xs text-red-400">{err}</div>}
@@ -94,7 +94,7 @@ function TagsPanel() {
                         {tag.name}
                     </span>
                 ))}
-                {tags.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无标签', 'No tags')}</span>}
+                {tags.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无标签', 'No tags')}</span>}{/* i18n: user-facing */}
             </div>
         </div>
     );
@@ -121,7 +121,7 @@ function CommentsPanel() {
     return (
         <div className="space-y-2">
             {err && <div className="text-xs text-red-400">{err}</div>}
-            {comments.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无评论', 'No comments')}</span>}
+            {comments.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无评论', 'No comments')}</span>}{/* i18n: user-facing */}
             {comments.map((c) => (
                 <div key={c.id} className="flex items-start justify-between gap-3 border border-[var(--border-color)] rounded-lg px-3 py-2">
                     <div className="min-w-0">
@@ -130,7 +130,7 @@ function CommentsPanel() {
                     </div>
                     <button onClick={() => remove(c.id)}
                         className="text-xs px-2 py-1 rounded text-red-400 border border-red-400/30 hover:bg-red-400/10 transition-colors shrink-0">
-                        {t('删除', 'Delete')}
+                        {t('删除', 'Delete')}{/* i18n: user-facing */}
                     </button>
                 </div>
             ))}
@@ -151,7 +151,7 @@ function ActivityPanel() {
     return (
         <div className="space-y-1">
             {err && <div className="text-xs text-red-400">{err}</div>}
-            {items.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无动态', 'No activity')}</span>}
+            {items.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无动态', 'No activity')}</span>}{/* i18n: user-facing */}
             {items.map((a, i) => (
                 <div key={a.id || i} className="text-sm flex gap-2 py-1 border-b border-[var(--border-color)]" style={{ color: 'var(--text-secondary)' }}>
                     <span className="font-mono text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>{a.created_at}</span>
@@ -197,27 +197,27 @@ function CollectionsPanel() {
             <div className="flex gap-2">
                 <input value={name} onChange={(e) => setName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && create()}
-                    placeholder={t('新集合名', 'New collection name')}
+                    placeholder={t('新集合名', 'New collection name')} // i18n: user-facing
                     className="bg-surface-0 border border-[var(--border-color)] rounded px-2 py-1 text-sm focus:outline-none focus:border-brand-500"
                     style={{ color: 'var(--text-primary)' }} />
                 <button onClick={create} className="bg-brand-600 hover:bg-brand-500 px-3 py-1 rounded-lg text-sm text-white transition-colors">
-                    {t('创建', 'Create')}
+                    {t('创建', 'Create')}{/* i18n: user-facing */}
                 </button>
             </div>
             {err && <div className="text-xs text-red-400">{err}</div>}
-            {collections.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无集合', 'No collections')}</span>}
+            {collections.length === 0 && !err && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('暂无集合', 'No collections')}</span>}{/* i18n: user-facing */}
             {collections.map((c) => (
                 <div key={c.id} className="flex items-start justify-between gap-3 border border-[var(--border-color)] rounded-lg px-3 py-2">
                     <div className="min-w-0">
                         <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{c.name}</div>
                         {c.description && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{c.description}</div>}
                         <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
-                            {t('成员页', 'Members')}: {(c.page_ids || []).length}
+                            {t('成员页', 'Members')}: {(c.page_ids || []).length}{/* i18n: user-facing */}
                         </div>
                     </div>
                     <button onClick={() => remove(c.id)}
                         className="text-xs px-2 py-1 rounded text-red-400 border border-red-400/30 hover:bg-red-400/10 transition-colors shrink-0">
-                        {t('删除', 'Delete')}
+                        {t('删除', 'Delete')}{/* i18n: user-facing */}
                     </button>
                 </div>
             ))}
@@ -226,11 +226,11 @@ function CollectionsPanel() {
 }
 
 const TABS = [
-    { key: 'export', labelKey: '导出', labelKeyEn: 'Export', comp: ExportPanel },
-    { key: 'collections', labelKey: '集合', labelKeyEn: 'Collections', comp: CollectionsPanel },
-    { key: 'tags', labelKey: '标签', labelKeyEn: 'Tags', comp: TagsPanel },
-    { key: 'comments', labelKey: '评论', labelKeyEn: 'Comments', comp: CommentsPanel },
-    { key: 'activity', labelKey: '动态', labelKeyEn: 'Activity', comp: ActivityPanel },
+    { key: 'export', labelKey: '导出', labelKeyEn: 'Export', comp: ExportPanel }, // i18n: user-facing
+    { key: 'collections', labelKey: '集合', labelKeyEn: 'Collections', comp: CollectionsPanel }, // i18n: user-facing
+    { key: 'tags', labelKey: '标签', labelKeyEn: 'Tags', comp: TagsPanel }, // i18n: user-facing
+    { key: 'comments', labelKey: '评论', labelKeyEn: 'Comments', comp: CommentsPanel }, // i18n: user-facing
+    { key: 'activity', labelKey: '动态', labelKeyEn: 'Activity', comp: ActivityPanel }, // i18n: user-facing
 ];
 
 export default function ManagePage() {
@@ -240,7 +240,7 @@ export default function ManagePage() {
     return (
         <div className="flex-1 overflow-auto p-6">
             <h1 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
-                {t('管理面板', 'Management')}
+                {t('管理面板', 'Management')}{/* i18n: user-facing */}
             </h1>
             <div className="flex gap-1 mb-4 border-b border-[var(--border-color)] pb-2">
                 {TABS.map((x) => (

@@ -1,7 +1,7 @@
 // =============================================================================
-// Fusion-Doc — Fusion-Studio JSON-RPC 桥接
-// 通过 Unix Domain Socket 与 Fusion-Studio 桌面端通信
-// 协议: JSON-RPC 2.0 over Unix Domain Socket
+// Fusion-Doc — Fusion-Studio JSON-RPC bridge
+// Communicates with the Fusion-Studio desktop app over a Unix Domain Socket
+// Protocol: JSON-RPC 2.0 over Unix Domain Socket
 // =============================================================================
 
 const net = require('net');
@@ -47,8 +47,8 @@ class FusionStudioBridge {
 
     async _send(message) {
         return new Promise((resolve, reject) => {
-            // P2-E12 修复: createConnection 对端无响应会永久挂起 (无连接超时), 且 call 的 10s
-            // 请求超时 reject 后 socket 仍打开 → fd 泄漏。加连接超时 + 统一 destroy 兜底。
+            // P2-E12 fix: createConnection hangs forever if the peer never responds (no connect timeout), and after call's 10s
+            // request timeout rejects the socket stays open → fd leak. Add a connect timeout + a unified destroy fallback.
             let settled = false;
             const done = () => {
                 if (settled) return;
@@ -56,7 +56,7 @@ class FusionStudioBridge {
                 try { socket.destroy(); } catch (_) { /* noop */ }
             };
             const connectTimer = setTimeout(() => {
-                reject(new Error('Fusion-Studio socket 连接超时'));
+                reject(new Error('Fusion-Studio socket connect timeout'));
                 done();
             }, REQUEST_TIMEOUT);
             const socket = net.createConnection(this.socketPath, () => {
@@ -64,9 +64,9 @@ class FusionStudioBridge {
                 socket.write(message + '\n');
                 resolve();
             });
-            // R17 修复: 跨 chunk 行缓冲。JSON-RPC 响应可能跨多个 TCP 段到达,
-            // 逐 data 事件 split('\n') 直接 JSON.parse 会因半行抛错被吞 → pending 永不 resolve。
-            // 用 socket 级 buffer 累积, 仅解析完整行, 半行留待下一段拼接。
+            // R17 fix: line buffering across chunks. A JSON-RPC response may arrive across multiple TCP segments;
+            // split('\n') + JSON.parse per data event throws on half lines and gets swallowed → pending never resolves.
+            // Accumulate in a socket-level buffer, parse only complete lines, keep half lines for the next segment.
             if (!socket._fdBuffer) socket._fdBuffer = '';
             socket.on('error', (e) => {
                 clearTimeout(connectTimer);
@@ -91,14 +91,14 @@ class FusionStudioBridge {
                             done();
                         }
                     } catch (e) {
-                        console.warn(`[Fusion-Studio] 解析响应行失败 (已缓冲跨段): ${e.message}`);
+                        console.warn(`[Fusion-Studio] failed to parse response line (buffered across segments): ${e.message}`);
                     }
                 }
-                // R17: 不在首个 data 即 socket.end() — 多响应/流式场景需保持连接直到对方关闭或超时
+                // R17: do not socket.end() on the first data event — multi-response/streaming cases must keep the connection until the peer closes or times out
             });
             socket.on('end', () => {
                 if (socket._fdBuffer && socket._fdBuffer.trim()) {
-                    // 连接关闭时残留半行: 尝试解析最后一次响应
+                    // Leftover half line when the connection closes: try to parse the final response
                     try {
                         const resp = JSON.parse(socket._fdBuffer.trim());
                         if (resp.id && this._pending.has(resp.id)) {
@@ -108,7 +108,7 @@ class FusionStudioBridge {
                             if (resp.error) j(new Error(resp.error.message || 'RPC error'));
                             else r(resp.result);
                         }
-                    } catch (_) { /* 残留非 JSON, 忽略 */ }
+                    } catch (_) { /* leftover is not JSON, ignore */ }
                 }
                 done();
             });

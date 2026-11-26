@@ -33,7 +33,7 @@ export default function Sidebar() {
     }
 
     const handleNewPage = async () => {
-        const page = await createPage({ title: t('未命名文档', 'Untitled document'), content: '' });
+        const page = await createPage({ title: t('未命名文档', 'Untitled document'), content: '' }); // i18n: user-facing
         navigate(`/page/${page.id}`);
     };
 
@@ -43,12 +43,12 @@ export default function Sidebar() {
                 <div className="flex items-center justify-between mb-2">
                     <span className="font-semibold text-sm">📚 Fusion-Doc</span>
                     <button onClick={handleNewPage} className="text-xs bg-brand-600 hover:bg-brand-500 px-2 py-1 rounded text-white">
-                        {t('+ 新建', '+ New')}
+                        {t('+ 新建', '+ New')}{/* i18n: user-facing */}
                     </button>
                 </div>
                 <input
                     type="text"
-                    placeholder={t("搜索文档...", "Search docs...")}
+                    placeholder={t("搜索文档...", "Search docs...")} // i18n: user-facing
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full bg-surface-0 border border-[var(--border-color)] rounded px-2 py-1 text-xs focus:outline-none focus:border-brand-500"
@@ -76,7 +76,7 @@ export default function Sidebar() {
                                 style={activePageId !== page.id ? { color: 'var(--text-primary)' } : {}}
                             >
                                 <span>📄</span>
-                                <span className="truncate">{page.title || t('未命名', 'Untitled')}</span>
+                                <span className="truncate">{page.title || t('未命名', 'Untitled')}</span>{/* i18n: user-facing */}
                             </button>
                         ))}
                     </div>
@@ -84,7 +84,7 @@ export default function Sidebar() {
 
                 {grouped.unfiled && grouped.unfiled.pages.length > 0 && !grouped.unfiled.book && (
                     <div className="mb-2">
-                        <div className="text-xs font-semibold px-2 py-1" style={{ color: 'var(--text-muted)' }}>{t('未分类', 'Unfiled')}</div>
+                        <div className="text-xs font-semibold px-2 py-1" style={{ color: 'var(--text-muted)' }}>{t('未分类', 'Unfiled')}</div>{/* i18n: user-facing */}
                         {grouped.unfiled.pages.map((page) => (
                             <button
                                 key={page.id}
@@ -97,7 +97,7 @@ export default function Sidebar() {
                                 style={activePageId !== page.id ? { color: 'var(--text-primary)' } : {}}
                             >
                                 <span>📄</span>
-                                <span className="truncate">{page.title || t('未命名', 'Untitled')}</span>
+                                <span className="truncate">{page.title || t('未命名', 'Untitled')}</span>{/* i18n: user-facing */}
                             </button>
                         ))}
                     </div>
@@ -112,7 +112,7 @@ export default function Sidebar() {
                     onMouseEnter={(e) => e.target.style.color = 'var(--text-primary)'}
                     onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
                 >
-                    <span>🕸️</span> {t('知识图谱', 'Knowledge Graph')}
+                    <span>🕸️</span> {t('知识图谱', 'Knowledge Graph')}{/* i18n: user-facing */}
                 </button>
                 <button
                     onClick={() => navigate('/manage')}
@@ -121,7 +121,7 @@ export default function Sidebar() {
                     onMouseEnter={(e) => e.target.style.color = 'var(--text-primary)'}
                     onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
                 >
-                    <span>🛠️</span> {t('管理面板', 'Management')}
+                    <span>🛠️</span> {t('管理面板', 'Management')}{/* i18n: user-facing */}
                 </button>
                 <button
                     onClick={toggleTheme}
@@ -130,7 +130,7 @@ export default function Sidebar() {
                     onMouseEnter={(e) => e.target.style.color = 'var(--text-primary)'}
                     onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
                 >
-                    <span>{theme === 'dark' ? '☀️' : '🌙'}</span> {theme === 'dark' ? t('亮色模式', 'Light mode') : t('暗色模式', 'Dark mode')}
+                    <span>{theme === 'dark' ? '☀️' : '🌙'}</span> {theme === 'dark' ? t('亮色模式', 'Light mode') : t('暗色模式', 'Dark mode')}{/* i18n: user-facing */}
                 </button>
             </div>
         </aside>

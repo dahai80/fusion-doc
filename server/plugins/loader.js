@@ -1,52 +1,52 @@
 // =============================================================================
-// Fusion-Doc — 插件加载器
-// 动态加载插件目录中的所有插件，管理插件生命周期
-// 参考 Wiki.js 模块化插件架构设计
+// Fusion-Doc — plugin loader
+// Dynamically loads every plugin in the plugins directory and manages plugin lifecycle
+// Modeled on the Wiki.js modular plugin architecture
 // =============================================================================
 
 const fs = require('fs');
 const path = require('path');
 const SKIP_FILES = new Set(['loader.js', 'registry.js']);
 
-// ── 加载插件 ──────────────────────────────────────────────────────────────
+// ── Load plugins ──────────────────────────────────────────────────────────────
 async function loadPlugins(app) {
   const plugins = [];
   const pluginsDir = app.config.pluginsDir;
 
-  // 确保插件目录存在
+  // Make sure the plugins directory exists
   try {
     fs.mkdirSync(pluginsDir, { recursive: true });
   } catch (e) { /* ignore */ }
 
-  // 扫描插件目录
+  // Scan the plugins directory
   let entries;
   try {
     entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
   } catch (e) {
-    console.log(`  [插件] 插件目录不可用: ${pluginsDir}`);
+    console.log(`  [plugin] Plugins directory unavailable: ${pluginsDir}`);
     return plugins;
   }
 
   for (const entry of entries) {
     const pluginPath = path.join(pluginsDir, entry.name);
 
-    // 只加载目录或 .js 文件（跳过基础设施文件）
+    // Only load directories or .js files (skip infrastructure files)
     if (SKIP_FILES.has(entry.name)) continue;
     if (!entry.isDirectory() && !entry.name.endsWith('.js')) continue;
 
     try {
       let plugin;
       if (entry.isDirectory()) {
-        // 目录插件（package.json 或 index.js）
+        // Directory plugin (package.json or index.js)
         const pkgPath = path.join(pluginPath, 'package.json');
         const indexJsPath = path.join(pluginPath, 'index.js');
         if (fs.existsSync(pkgPath)) {
           const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-          // A6 修复: main 字段路径围栏。path.join 不约束边界, pkg.main="../../server/app.js"
-          // 可穿越到任意 .js 以服务权限执行 (RCE)。解析后必须落在 pluginPath 内。
+          // A6 fix: fence the main field path. path.join does not enforce boundaries, so pkg.main="../../server/app.js"
+          // could traverse to any .js and run it with server privileges (RCE). The resolved path must stay inside pluginPath.
           const mainPath = path.resolve(pluginPath, pkg.main || 'index.js');
           if (mainPath !== pluginPath && !mainPath.startsWith(pluginPath + path.sep)) {
-            console.error(`  [插件] ✗ ${entry.name}: main 字段越界 (${pkg.main}), 拒绝加载`);
+            console.error(`  [plugin] ✗ ${entry.name}: main field escapes plugin dir (${pkg.main}), refusing to load`);
             continue;
           }
           if (fs.existsSync(mainPath)) {
@@ -56,16 +56,16 @@ async function loadPlugins(app) {
           plugin = require(indexJsPath);
         }
       } else {
-        // 单文件插件
+        // Single-file plugin
         plugin = require(pluginPath);
       }
 
       if (!plugin || typeof plugin.activate !== 'function') {
-        console.log(`  [插件] 跳过 ${entry.name}: 缺少 activate() 方法`);
+        console.log(`  [plugin] Skipping ${entry.name}: missing activate() method`);
         continue;
       }
 
-      // 激活插件
+      // Activate plugin
       const instance = await plugin.activate(app);
       const pluginInfo = {
         name: plugin.name || entry.name,
@@ -78,67 +78,67 @@ async function loadPlugins(app) {
       };
 
       plugins.push(pluginInfo);
-      console.log(`  [插件] ✓ ${pluginInfo.name} v${pluginInfo.version}`);
+      console.log(`  [plugin] ✓ ${pluginInfo.name} v${pluginInfo.version}`);
 
-      // 注册插件钩子
+      // Register plugin hooks
       if (plugin.hooks) {
         registerPluginHooks(app, pluginInfo);
       }
     } catch (e) {
-      console.log(`  [插件] ✗ ${entry.name}: ${e.message}`);
+      console.log(`  [plugin] ✗ ${entry.name}: ${e.message}`);
     }
   }
 
   return plugins;
 }
 
-// ── 注册插件钩子 ──────────────────────────────────────────────────────────
+// ── Register plugin hooks ──────────────────────────────────────────────────────────
 function registerPluginHooks(app, plugin) {
   const hooks = plugin.hooks;
   if (!hooks) return;
 
-  // 路由钩子
+  // Route hooks
   if (hooks.routes && typeof hooks.routes === 'function') {
     try {
       hooks.routes(app);
-      console.log(`  [插件]   ✓ 路由已注册`);
+      console.log(`  [plugin]   ✓ Routes registered`);
     } catch (e) {
-      console.log(`  [插件]   ✗ 路由注册失败: ${e.message}`);
+      console.log(`  [plugin]   ✗ Route registration failed: ${e.message}`);
     }
   }
 
-  // 中间件钩子
+  // Middleware hooks
   if (hooks.middleware && typeof hooks.middleware === 'function') {
     try {
       const middleware = hooks.middleware(app);
       if (middleware) {
         app.middleware.use(`plugin:${plugin.name}`, middleware, 50);
-        console.log(`  [插件]   ✓ 中间件已注册`);
+        console.log(`  [plugin]   ✓ Middleware registered`);
       }
     } catch (e) {
-      console.log(`  [插件]   ✗ 中间件注册失败: ${e.message}`);
+      console.log(`  [plugin]   ✗ Middleware registration failed: ${e.message}`);
     }
   }
 
-  // 事件钩子
+  // Event hooks
   if (hooks.events && typeof hooks.events === 'function') {
     try {
       hooks.events(app);
-      console.log(`  [插件]   ✓ 事件监听已注册`);
+      console.log(`  [plugin]   ✓ Event listeners registered`);
     } catch (e) {
-      console.log(`  [插件]   ✗ 事件注册失败: ${e.message}`);
+      console.log(`  [plugin]   ✗ Event registration failed: ${e.message}`);
     }
   }
 }
 
-// ── 创建插件骨架 ──────────────────────────────────────────────────────────
+// ── Create plugin skeleton ──────────────────────────────────────────────────────────
 function createPluginSkeleton(name, version = '0.1.0', description = '') {
   return {
     name,
     version,
     description,
     async activate(app) {
-      console.log(`  [${name}] 插件已激活`);
+      console.log(`  [${name}] Plugin activated`);
       return { app };
     },
     hooks: {
@@ -147,7 +147,7 @@ function createPluginSkeleton(name, version = '0.1.0', description = '') {
       events(app) {},
     },
     shutdown() {
-      console.log(`  [${name}] 插件已关闭`);
+      console.log(`  [${name}] Plugin shut down`);
     },
   };
 }

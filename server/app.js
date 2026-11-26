@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 应用核心
-// 生命周期管理、中间件栈、插件加载、路由注册
+// Fusion-Doc — application core
+// Lifecycle management, middleware stack, plugin loading, route registration
 // =============================================================================
 
 const http = require('http');
@@ -19,10 +19,10 @@ const { seedTemplates } = require('./services/seed-templates');
 let WebSocketServer;
 try { WebSocketServer = require('ws').WebSocketServer; } catch { WebSocketServer = null; }
 
-// ── issue #60: SPA fallback <base> 计算 ──────────────────────────────────────
-// 构建产物资源为相对路径 (./assets), 深链 (如 /page/<uuid>) 下浏览器解析到错误
-// 目录。根部署深链注入 '/', 网关 shell 代理请求 (Bearer = 模块服务凭证, 网关
-// 剥离挂载前缀后转发) 注入 '/shell/<manifest-id>/'。
+// ── issue #60: SPA fallback <base> computation ─────────────────────────────
+// Build assets use relative paths (./assets); under deep links (e.g. /page/<uuid>) the browser resolves them to
+// the wrong directory. Root-deployed deep links get '/', gateway shell proxy requests (Bearer = module service credential, gateway
+// strips the mount prefix before forwarding) get '/shell/<manifest-id>/'.
 let _cachedManifestId = null;
 function shellManifestId() {
     if (_cachedManifestId) return _cachedManifestId;
@@ -31,7 +31,7 @@ function shellManifestId() {
             fs.readFileSync(path.join(__dirname, '..', 'client', 'manifest.json'), 'utf8')
         ).id || 'fusion-doc';
     } catch (e) {
-        console.warn('[Fusion-Doc] manifest.json 读取失败, shell base 回退 fusion-doc:', e.message);
+        console.warn('[Fusion-Doc] failed to read manifest.json, shell base falls back to fusion-doc:', e.message);
         _cachedManifestId = 'fusion-doc';
     }
     return _cachedManifestId;
@@ -72,70 +72,70 @@ class FusionDocApp {
     this._sockets = new Set();
   }
 
-  // ── 初始化 ──────────────────────────────────────────────────────────────
+  // ── Initialization ──────────────────────────────────────────────────────
   async init() {
     console.log(`
   ╔══════════════════════════════════════════╗
   ║         Fusion-Doc V${APP_VERSION}                ║
-  ║   Apple Silicon 原生离线智能文档知识库    ║
+  ║   Apple Silicon native offline doc KB    ║
   ╚══════════════════════════════════════════╝
     `);
 
-    // 1. 初始化数据库
-    console.log('  [1/4] 初始化数据库...');
+    // 1. Initialize database
+    console.log('  [1/4] Initializing database...');
     this.db = initDB();
     if (this.db) seedTemplates(this.db);
-    console.log(`  [✓] 数据库: ${this.db ? 'SQLite' : 'JSON 文件存储'}`);
+    console.log(`  [✓] Database: ${this.db ? 'SQLite' : 'JSON file storage'}`);
 
-    // 多实例加固: 角色 (primary|replica, 默认 primary)。
-    // replica 只接请求, 跳过单实例职责 (E8 僵尸清扫、自动备份), 防多进程重复执行 / 惊群。
-    // primary 担运维单点; 数据共享靠 SQLite WAL (同机多进程)。
+    // Multi-instance hardening: role (primary|replica, default primary).
+    // replica only serves requests and skips single-instance duties (E8 zombie sweep, auto backup) to avoid duplicate runs / thundering herd.
+    // primary owns the ops singleton duties; data is shared via SQLite WAL (multiple processes on one host).
     this._role = (process.env.FUSION_DOC_ROLE || 'primary').toLowerCase();
-    console.log(`  [i] 实例角色: ${this._role}${this._role === 'replica' ? ' (跳过 E8 清扫/自动备份)' : ''}`);
+    console.log(`  [i] Instance role: ${this._role}${this._role === 'replica' ? ' (skipping E8 sweep/auto backup)' : ''}`);
 
-    // E8 修复: 上次进程崩溃 (SIGKILL/掉电) 会留下 status='running' 的僵尸工作流运行,
-    // 永不结算, 用户侧表现为"卡死无法再跑"。启动时清扫: running → failed (标记为崩溃中断)。
-    // 多实例: 仅 primary 清扫, 避免多进程并发 UPDATE 同行 (replica 不动, primary 独担)。
+    // E8 fix: a previous process crash (SIGKILL/power loss) leaves zombie workflow runs with status='running',
+    // which never settle; users see them as "stuck, cannot run again". Sweep at startup: running → failed (marked as crash-interrupted).
+    // Multi-instance: only primary sweeps, avoiding concurrent UPDATEs of the same rows across processes (replica leaves them alone).
     if (this._role === 'primary' && this.db && typeof this.db.prepare === 'function') {
         try {
             const swept = this.db.prepare(
                 "UPDATE workflow_runs SET status = 'failed', error = ?, completed_at = ? WHERE status = 'running'"
-            ).run('进程重启中断 (E8 启动清扫)', new Date().toISOString());
+            ).run('Interrupted by process restart (E8 startup sweep)', new Date().toISOString());
             if (swept.changes > 0) {
                 this.db.prepare("UPDATE workflows SET status = 'idle' WHERE status = 'running'")
                     .run();
-                console.log(`  [✓] E8 清扫 ${swept.changes} 个僵尸工作流运行 → failed`);
+                console.log(`  [✓] E8 swept ${swept.changes} zombie workflow runs → failed`);
             }
-        } catch (e) { console.warn(`  [⚠] E8 工作流清扫失败: ${e.message}`); }
+        } catch (e) { console.warn(`  [⚠] E8 workflow sweep failed: ${e.message}`); }
     }
 
-    // 2. 注册内置中间件
-    console.log('  [2/4] 加载中间件...');
+    // 2. Register built-in middleware
+    console.log('  [2/4] Loading middleware...');
     this._registerBuiltinMiddleware();
-    console.log('  [✓] 中间件已加载');
+    console.log('  [✓] Middleware loaded');
 
-    // 3. 注册路由（控制器）
-    console.log('  [3/4] 注册路由...');
+    // 3. Register routes (controllers)
+    console.log('  [3/4] Registering routes...');
     registerRoutes(this);
-    console.log(`  [✓] 路由已注册: ${this.routes.length} 条`);
+    console.log(`  [✓] Routes registered: ${this.routes.length}`);
 
-    // 4. 加载插件
-    console.log('  [4/4] 加载插件...');
+    // 4. Load plugins
+    console.log('  [4/4] Loading plugins...');
     this.plugins = await loadPlugins(this);
-    console.log(`  [✓] 插件已加载: ${this.plugins.length} 个`);
+    console.log(`  [✓] Plugins loaded: ${this.plugins.length}`);
 
-    // issue #51: Union Web shell 模块自注册 (PRD R-6)
-    // fire-and-forget — 网关不可达只告警, 绝不阻断启动; 多实例仅 primary 注册。
+    // issue #51: Union Web shell module self-registration (PRD R-6)
+    // fire-and-forget — an unreachable gateway only warns, never blocks startup; with multiple instances only primary registers.
     if (this._role === 'primary') {
         const { startShellRegistration } = require('./services/shell-register');
         startShellRegistration(this.config).catch((e) => {
-            console.warn(`  [⚠] Shell 注册编排异常 (不影响服务): ${e.message}`);
+            console.warn(`  [⚠] Shell registration orchestration error (service unaffected): ${e.message}`);
         });
     }
 
-    // P1-O2 修复: 自动定时备份 (原仅手动备份无调度)。间隔由 env AUTO_BACKUP_HOURS 控制 (默认 24, <=0 关闭)。
-    // 单实例内存定时器, 触发 backupDB(); 失败仅记日志不中断服务。退出时清理。
-    // 多实例加固: 仅 primary 跑备份 (replica 跳过, 避免多进程并发 .backup() 抢同一目标文件)。
+    // P1-O2 fix: scheduled automatic backups (previously manual only, no scheduler). Interval set by env AUTO_BACKUP_HOURS (default 24, <=0 disables).
+    // In-process memory timer that triggers backupDB(); failures are only logged and never interrupt the service. Cleared on exit.
+    // Multi-instance hardening: only primary runs backups (replica skips, avoiding concurrent .backup() calls racing for the same target file).
     this._backupIntervalHours = Number(process.env.AUTO_BACKUP_HOURS ?? 24);
     if (this._role === 'primary' && this._backupIntervalHours > 0) {
         const { backupDB } = require('./db');
@@ -143,22 +143,22 @@ class FusionDocApp {
             try {
                 const dest = await backupDB();
                 this._lastAutoBackupAt = new Date().toISOString();
-                console.log(`  [System] 自动备份完成: ${path.basename(dest)}`);
+                console.log(`  [System] Auto backup completed: ${path.basename(dest)}`);
             } catch (e) {
-                console.error(`  [System] 自动备份失败: ${e.message}`);
+                console.error(`  [System] Auto backup failed: ${e.message}`);
             }
         };
         this._backupTimer = setInterval(runBackup, this._backupIntervalHours * 3600 * 1000);
-        // 不阻止进程退出
+        // Do not keep the process alive
         if (this._backupTimer.unref) this._backupTimer.unref();
-        console.log(`  [✓] 自动备份调度: 每 ${this._backupIntervalHours} 小时`);
+        console.log(`  [✓] Auto backup scheduled: every ${this._backupIntervalHours} hours`);
     }
 
     this._startTime = Date.now();
     return this;
   }
 
-  // ── 内置中间件 ──────────────────────────────────────────────────────────
+  // ── Built-in middleware ─────────────────────────────────────────────────
   _registerBuiltinMiddleware() {
     const { cors } = require('./middleware/cors');
     const { logger } = require('./middleware/logger');
@@ -167,39 +167,39 @@ class FusionDocApp {
 
     this.middleware.use('cors', cors, 0);
     this.middleware.use('logger', logger, 10);
-    this.middleware.use('rateLimit', globalRateLimit, 15); // 认证前限流, 防爆破
+    this.middleware.use('rateLimit', globalRateLimit, 15); // rate limit before auth, against brute force
     this.middleware.use('auth', auth, 20);
-    // E11 修复: 原 errorHandler 中间件恒返回 false (no-op), 注册却永不拦截 —
-    // 既不在路由错误路径上 (管道在 _matchRoute 之前结束), 又给读者"有兜底"的错觉。
-    // 实际兜底在两处: pipeline.run 的 catch (中间件异常) + _handleRequest 的 catch (路由异常)。
-    // 故移除该死注册, 保留 error-handler.js 仅供 errorResponse/successResponse 工具函数。
+    // E11 fix: the old errorHandler middleware always returned false (no-op); it was registered but never intercepted anything —
+    // it was not on the route error path (the pipeline ends before _matchRoute), and it gave readers a false sense of a safety net.
+    // The real safety nets are two: the catch in pipeline.run (middleware errors) + the catch in _handleRequest (route errors).
+    // So the dead registration was removed; error-handler.js is kept only for the errorResponse/successResponse helpers.
   }
 
-  // ── 注册路由 ────────────────────────────────────────────────────────────
+  // ── Route registration ──────────────────────────────────────────────────
   registerRoute(method, pathname, handler, options = {}) {
     this.routes.push({ method, pathname, handler, options });
   }
 
-  // ── 注册 WebSocket 路由 ────────────────────────────────────────────────
+  // ── WebSocket route registration ───────────────────────────────────────
   ws(pathname, handler) {
     this._wsRoutes.push({ pathname, handler });
   }
 
-  // ── 请求处理 ────────────────────────────────────────────────────────────
+  // ── Request handling ────────────────────────────────────────────────────
   async _handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
     const method = req.method;
 
-    // 注入上下文
+    // Inject context
     req.ctx = { app: this, db: this.db, config: this.config, url };
 
-    // 执行中间件管道
+    // Run the middleware pipeline
     const pipelineDone = await this.middleware.run(req, res);
-    if (pipelineDone) return; // 中间件已处理响应（如 CORS OPTIONS）
+    if (pipelineDone) return; // middleware already handled the response (e.g. CORS OPTIONS)
 
     try {
-      // 路由匹配
+      // Route matching
       const handled = await this._matchRoute(method, pathname, req, res);
       if (handled) return;
 
@@ -210,10 +210,10 @@ class FusionDocApp {
         return;
       }
 
-      // 静态文件
+      // Static files
       const assetPaths = ['/assets/', '/icons/', '/manifest.json', '/vite.svg', '/locales/', '/branding/'];
       if (assetPaths.some(p => pathname.startsWith(p))) {
-        // R1 修复: 解码后剔除 .. 段, 再交由 serveStatic 二次沙箱校验 (双重防护)
+        // R1 fix: decode then reject .. segments, then let serveStatic re-check the sandbox (defense in depth)
         let cleanPath = pathname;
         try { cleanPath = decodeURIComponent(pathname); } catch (_) { cleanPath = ''; }
         if (cleanPath.includes('..') || cleanPath.includes('\0')) {
@@ -224,11 +224,11 @@ class FusionDocApp {
         return serveStatic(res, path.join(config.publicDir, cleanPath), config.publicDir);
       }
 
-      // SPA fallback (issue #60: 按请求来源注入 <base> 修复深链相对资源解析)
+      // SPA fallback (issue #60: inject <base> per request origin to fix relative asset resolution on deep links)
       serveSPA(res, config.publicDir, spaBaseHref(req, pathname, config));
     } catch (err) {
       const status = err.statusCode || 500;
-      console.error(`[Fusion-Doc] 错误 (${status}): ${err.message}`);
+      console.error(`[Fusion-Doc] Error (${status}): ${err.message}`);
       if (!res.headersSent) {
         const isProd = process.env.NODE_ENV === 'production';
         const message = (status >= 500 && isProd)
@@ -244,9 +244,9 @@ class FusionDocApp {
     }
   }
 
-  // ── 路由匹配 ────────────────────────────────────────────────────────────
+  // ── Route matching ──────────────────────────────────────────────────────
   async _matchRoute(method, pathname, req, res) {
-    // 第一遍：精确匹配（优先）
+    // Pass 1: exact match (takes priority)
     for (const route of this.routes) {
       if (route.method !== method && route.method !== 'ALL') continue;
       if (route.pathname === pathname) {
@@ -256,10 +256,10 @@ class FusionDocApp {
       }
     }
 
-    // 第二遍：参数化匹配（如 /api/pages/:id）
+    // Pass 2: parameterized match (e.g. /api/pages/:id)
     for (const route of this.routes) {
       if (route.method !== method && route.method !== 'ALL') continue;
-      // 跳过非参数化路由（已在第一遍精确匹配过）
+      // Skip non-parameterized routes (already exact-matched in pass 1)
       if (!route.pathname.includes(':')) continue;
 
       const routeParts = route.pathname.split('/');
@@ -285,40 +285,40 @@ class FusionDocApp {
     return false;
   }
 
-  // ── 构建 TLS 配置 (内置 HTTPS, 解裸暴露) ────────────────────────────────
-  // certPath/keyPath 任一设 → 启用 HTTPS; 两者须同时提供且文件存在, 否则 fail visibly。
-  // 不静默降级回 HTTP (会暴露明文凭证)。caPath 可选 (mTLS 双向认证)。
+  // ── Build TLS config (built-in HTTPS, fixes bare exposure) ──────────────
+  // Setting either certPath/keyPath → enables HTTPS; both must be provided and the files must exist, otherwise fail visibly.
+  // Never silently fall back to HTTP (that would expose credentials in plaintext). caPath is optional (mTLS mutual auth).
   _buildTlsOptions() {
     const { certPath, keyPath, caPath } = config.tls;
     if (!certPath && !keyPath) return null;
     if (!certPath || !keyPath) {
-      console.error('  [✗] TLS 半配置: FUSION_DOC_TLS_CERT 与 FUSION_DOC_TLS_KEY 须同时提供');
+      console.error('  [✗] Partial TLS config: FUSION_DOC_TLS_CERT and FUSION_DOC_TLS_KEY must be provided together');
       process.exit(1);
     }
     const readCert = (p, label) => {
       try { return fs.readFileSync(p); }
       catch (e) {
-        console.error(`  [✗] TLS ${label} 文件不可读: ${p} (${e.message})`);
+        console.error(`  [✗] TLS ${label} file unreadable: ${p} (${e.message})`);
         process.exit(1);
       }
     };
     const opts = { cert: readCert(certPath, 'cert'), key: readCert(keyPath, 'key') };
     if (caPath) opts.ca = readCert(caPath, 'ca');
-    // 启用现代安全默认: 拒绝旧 TLS 版本, 优先服务端 cipher 顺序
+    // Enable modern secure defaults: reject old TLS versions, prefer server cipher order
     opts.minVersion = 'TLSv1.2';
     opts.honorCipherOrder = true;
     this._tlsEnabled = true;
-    console.log(`  [✓] TLS 已启用: cert=${path.basename(certPath)}`);
+    console.log(`  [✓] TLS enabled: cert=${path.basename(certPath)}`);
     return opts;
   }
 
-  // ── 启动 ────────────────────────────────────────────────────────────────
+  // ── Startup ─────────────────────────────────────────────────────────────
   async start() {
     await this.init();
 
     const tlsOpts = this._buildTlsOptions();
     const requestHandler = (req, res) => {
-      // HTTPS 模式: 注入 HSTS 强制后续连接走 TLS (防降级)
+      // HTTPS mode: inject HSTS to force subsequent connections over TLS (anti-downgrade)
       if (this._tlsEnabled) {
         res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
       }
@@ -328,20 +328,20 @@ class FusionDocApp {
       ? https.createServer(tlsOpts, requestHandler)
       : http.createServer(requestHandler);
 
-    // TLS 已启用但绑 0.0.0.0: 可直接对外 (无需反代终结 TLS), 裸暴露问题已解
-    // TLS 关闭且绑 0.0.0.0: 仍需前置反代 + TLS (保留原有告警)
+    // TLS enabled and bound to 0.0.0.0: can be exposed directly (no reverse proxy needed to terminate TLS), bare exposure resolved
+    // TLS disabled and bound to 0.0.0.0: still needs a fronting reverse proxy + TLS (original warning kept)
 
-    // 跟踪连接以便优雅关闭时强制销毁 keep-alive
+    // Track connections so graceful shutdown can force-destroy keep-alive sockets
     this.server.on('connection', (socket) => {
       this._sockets.add(socket);
       socket.on('close', () => this._sockets.delete(socket));
     });
 
-    // WebSocket 支持
+    // WebSocket support
     if (WebSocketServer && this._wsRoutes.length > 0) {
-      // E3 修复: 设 maxPayload 上限 2MB, 拒巨型 WS 帧 OOM (Yjs update 远小于此)
+      // E3 fix: cap maxPayload at 2MB to reject giant WS frames causing OOM (Yjs updates are far smaller)
       this.wsServer = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
-      // R1 修复: handler 抛错隔离为单连接关闭, 不杀全进程 (全员断连丢稿)
+      // R1 fix: isolate handler exceptions to closing that one connection instead of killing the whole process (disconnecting everyone, losing drafts)
       this.wsServer.on('connection', (ws, req) => {
         try {
           const route = req._wsRoute;
@@ -351,7 +351,7 @@ class FusionDocApp {
           try { ws.close(1011, 'internal error'); } catch (_) { /* noop */ }
         }
       });
-      // R1 修复: 全局 WS error 兜底, 防未捕获 error 事件杀进程
+      // R1 fix: global WS error fallback so an uncaught error event cannot kill the process
       this.wsServer.on('error', (err) => {
         console.error('[WS] server error:', err.message);
       });
@@ -394,9 +394,9 @@ class FusionDocApp {
         }
       });
 
-      console.log(`  [✓] WebSocket: ${this._wsRoutes.length} 条路由`);
+      console.log(`  [✓] WebSocket: ${this._wsRoutes.length} routes`);
     } else {
-      console.log('  [i] WebSocket: 未安装 ws 或无路由');
+      console.log('  [i] WebSocket: ws not installed or no routes');
     }
 
     return new Promise((resolve) => {
@@ -405,32 +405,32 @@ class FusionDocApp {
         const displayHost = config.host === '0.0.0.0' ? 'localhost' : config.host;
         const scheme = this._tlsEnabled ? 'https' : 'http';
         console.log(`  ─────────────────────────────────────────`);
-        console.log(`  📍  ${scheme}://${displayHost}:${config.port}  (绑定 ${config.host}${this._tlsEnabled ? ', TLS' : ''})`);
+        console.log(`  📍  ${scheme}://${displayHost}:${config.port}  (bound to ${config.host}${this._tlsEnabled ? ', TLS' : ''})`);
         if (!this._tlsEnabled && config.host === '0.0.0.0') {
-          console.warn('  [⚠] 监听 0.0.0.0 + 未启 TLS: 明文暴露, 须前置反向代理 + TLS 或配置 FUSION_DOC_TLS_CERT/KEY');
+          console.warn('  [⚠] Listening on 0.0.0.0 without TLS: plaintext exposure; put a reverse proxy + TLS in front or set FUSION_DOC_TLS_CERT/KEY');
         } else if (this._tlsEnabled) {
-          console.log('  [✓] 内置 TLS: 裸暴露问题已解, 可直接对外 (无需反代终结 TLS)');
+          console.log('  [✓] Built-in TLS: bare exposure resolved, can be exposed directly (no reverse proxy needed to terminate TLS)');
         }
         console.log(`  🧠  AI: ${config.fusionMlx.url}`);
-        console.log(`  💾  存储: ${this.db ? 'SQLite' : 'JSON'}`);
-        console.log(`  ⚡  启动耗时: ${elapsed}s`);
+        console.log(`  💾  Storage: ${this.db ? 'SQLite' : 'JSON'}`);
+        console.log(`  ⚡  Startup time: ${elapsed}s`);
         console.log(`  ─────────────────────────────────────────`);
-        console.log(`  整合特性:`);
-        console.log(`  ✅ DocMost    → TipTap 编辑器 + Yjs 协作`);
-        console.log(`  ✅ Wiki.js    → 模块化架构 + 多认证`);
-        console.log(`  ✅ BookStack  → 三层结构 + 导出`);
-        console.log(`  ✅ Teedy      → OCR + 标签 + 工作流`);
-        console.log(`  ✅ Zettlr     → 双向链接 + 知识图谱`);
-        console.log(`  ✅ MacDown    → macOS 原生体验`);
-        console.log(`  ✅ LibreOffice→ Office 格式转换`);
-        console.log(`  ✅ Fusion-MLX → 本地 AI 推理`);
-        console.log(`  ✅ Fusion-Coder → AI 编码辅助`);
+        console.log(`  Integrated features:`);
+        console.log(`  ✅ DocMost    → TipTap editor + Yjs collaboration`);
+        console.log(`  ✅ Wiki.js    → Modular architecture + multiple auth`);
+        console.log(`  ✅ BookStack  → Three-level structure + export`);
+        console.log(`  ✅ Teedy      → OCR + tags + workflows`);
+        console.log(`  ✅ Zettlr     → Bidirectional links + knowledge graph`);
+        console.log(`  ✅ MacDown    → Native macOS experience`);
+        console.log(`  ✅ LibreOffice→ Office format conversion`);
+        console.log(`  ✅ Fusion-MLX → Local AI inference`);
+        console.log(`  ✅ Fusion-Coder → AI coding assistance`);
         console.log(`  ─────────────────────────────────────────`);
         resolve(this);
 
-        // TLS 模式下的 HTTP→HTTPS 跳转 (防用户误用 http:// 访问致明文凭证暴露)
-        // 仅当 TLS 启用 + redirectHttp 开启时起。独立端口 (env FUSION_DOC_HTTP_PORT, 默认 11448)。
-        // 置于 listen 回调内, 确保主 HTTPS 先就绪再起跳转, 且不被 return 提前短路。
+        // HTTP→HTTPS redirect in TLS mode (keeps users who mistakenly visit http:// from exposing credentials in plaintext)
+        // Started only when TLS is enabled + redirectHttp is on. Separate port (env FUSION_DOC_HTTP_PORT, default 11448).
+        // Placed inside the listen callback so the main HTTPS server is ready before the redirect starts, and an early return cannot short-circuit it.
         if (this._tlsEnabled && config.tls.redirectHttp) {
           const httpPort = parseInt(process.env.FUSION_DOC_HTTP_PORT || '11448', 10);
           this._redirectServer = http.createServer((req, res) => {
@@ -440,59 +440,59 @@ class FusionDocApp {
             res.end(`Redirecting to ${target}`);
           });
           this._redirectServer.on('error', (err) => {
-            console.warn(`  [⚠] HTTP→HTTPS 跳转端口 ${httpPort} 不可用 (忽略, 主 HTTPS 不受影响): ${err.message}`);
+            console.warn(`  [⚠] HTTP→HTTPS redirect port ${httpPort} unavailable (ignored, main HTTPS unaffected): ${err.message}`);
           });
           this._redirectServer.listen(httpPort, config.host, () => {
-            console.log(`  [✓] HTTP→HTTPS 跳转: :${httpPort} → https://:${config.port}`);
+            console.log(`  [✓] HTTP→HTTPS redirect: :${httpPort} → https://:${config.port}`);
           });
         }
       });
     });
   }
 
-  // ── 优雅关闭 ────────────────────────────────────────────────────────────
+  // ── Graceful shutdown ───────────────────────────────────────────────────
   async shutdown() {
-    console.log('\n  [Fusion-Doc] 正在关闭...');
+    console.log('\n  [Fusion-Doc] Shutting down...');
 
-    // P1-O2: 停自动备份定时器
+    // P1-O2: stop the auto backup timer
     if (this._backupTimer) {
       clearInterval(this._backupTimer);
       this._backupTimer = null;
-      console.log('  [✓] 自动备份调度已停止');
+      console.log('  [✓] Auto backup schedule stopped');
     }
 
-    // 杀 trainer 子进程 (R15: 等待退出 + SIGKILL 兜底, 防 GPU 孤儿)
+    // Kill trainer child processes (R15: wait for exit + SIGKILL fallback, prevents orphaned GPU processes)
     try {
       const trainer = require('./integrations/fusion-trainer');
       if (trainer.stopAllJobs) await trainer.stopAllJobs();
-    } catch (_) { /* trainer 未加载 */ }
+    } catch (_) { /* trainer not loaded */ }
 
-    // 插件关闭
+    // Shut down plugins
     for (const plugin of this.plugins) {
       if (plugin.shutdown) await plugin.shutdown();
     }
 
-    // WebSocket 关闭
+    // Close WebSocket
     if (this.wsServer) {
       this.wsServer.close();
-      console.log('  [✓] WebSocket 已关闭');
+      console.log('  [✓] WebSocket closed');
     }
 
-    // 数据库关闭
+    // Close database
     if (this.db && typeof this.db.close === 'function') {
       this.db.close();
     }
 
-    // 服务器关闭: 强制关闭 keep-alive 连接, 加超时兜底
+    // Close servers: force-close keep-alive connections, with a timeout fallback
     if (this._redirectServer) {
       try { this._redirectServer.close(); } catch (_) { /* noop */ }
       this._redirectServer = null;
-      console.log('  [✓] HTTP→HTTPS 跳转服务已关闭');
+      console.log('  [✓] HTTP→HTTPS redirect server closed');
     }
     if (this.server) {
       return new Promise((resolve) => {
         const forceTimer = setTimeout(() => {
-          console.warn('  [⚠] 关闭超时, 强制结束剩余连接');
+          console.warn('  [⚠] Shutdown timed out, force-closing remaining connections');
           for (const socket of this._sockets) {
             try { socket.destroy(); } catch (_) { /* noop */ }
           }
@@ -502,11 +502,11 @@ class FusionDocApp {
 
         this.server.close(() => {
           clearTimeout(forceTimer);
-          console.log('  [Fusion-Doc] 已安全关闭');
+          console.log('  [Fusion-Doc] Shut down safely');
           resolve();
         });
 
-        // 立即销毁所有空闲 keep-alive 连接
+        // Immediately destroy all idle keep-alive connections
         for (const socket of this._sockets) {
           if (socket.writable && socket.bytesWritten === 0) {
             try { socket.destroy(); } catch (_) { /* noop */ }

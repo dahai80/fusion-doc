@@ -1,5 +1,5 @@
-// P0-F1 修复: 客户端鉴权对接。原 api.js 不带 Authorization, 生产模式全量 401, 产品不可用。
-// authStore 管理 token (localStorage 持久), 提供 login/setup/logout/me, 供 api.js 与 App 网关使用。
+// P0-F1 fix: client auth integration. The original api.js sent no Authorization header, so production returned 401 for everything and the product was unusable.
+// authStore manages the token (persisted in localStorage) and provides login/setup/logout/me for api.js and the App gateway.
 import { create } from 'zustand';
 import { api } from '../lib/api';
 
@@ -22,7 +22,7 @@ export const useAuthStore = create((set, get) => ({
     loading: false,
     error: null,
 
-    // 启动探测: 已安装? 有 token 验证 /api/users/me
+    // Startup probe: installed? If a token exists, verify via /api/users/me
     async bootstrap() {
         set({ loading: true, error: null });
         try {
@@ -36,7 +36,7 @@ export const useAuthStore = create((set, get) => ({
                     set({ user: me?.data || me, loading: false });
                     return { needsSetup: false };
                 } catch (e) {
-                    // token 失效, 清除
+                    // Token invalid, clear it
                     get().logout();
                     set({ loading: false });
                     return { needsSetup: false };
@@ -56,7 +56,7 @@ export const useAuthStore = create((set, get) => ({
             const data = await api('POST', '/auth/login', { email, password });
             const token = data?.token;
             const user = data?.user;
-            if (!token) throw new Error('登录响应缺 token');
+            if (!token) throw new Error('Login response missing token');
             try {
                 localStorage.setItem(TOKEN_KEY, token);
                 localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -75,7 +75,7 @@ export const useAuthStore = create((set, get) => ({
             const data = await api('POST', '/auth/setup', { email, name, password });
             const token = data?.token;
             const user = data?.user;
-            if (!token) throw new Error('安装响应缺 token');
+            if (!token) throw new Error('Setup response missing token');
             try {
                 localStorage.setItem(TOKEN_KEY, token);
                 localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -97,7 +97,7 @@ export const useAuthStore = create((set, get) => ({
     },
 }));
 
-// 非 React 读取 (供 api.js 同步取 token 拼头)
+// Non-React accessor (lets api.js read the token synchronously to build headers)
 export function getAuthToken() {
     try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
 }

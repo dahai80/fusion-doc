@@ -1,16 +1,16 @@
 // =============================================================================
-// Fusion-Doc — 管理员权限守卫 (共享中间件)
-// 所有高危写操作 (office command/training/backup) 复用, 杜绝各控制器各自实现
+// Fusion-Doc — admin permission guard (shared middleware)
+// Reused by all high-risk write operations (office command/training/backup) so controllers don't each reimplement it
 // =============================================================================
 
 const { errorResponse } = require('./error-handler');
 
-// 返回 true 表示放行, false 表示已写响应 (调用方须 return)
-// issue #45: role 映射为 4 统一角色; admin 网关用 tenant_admin (兼容 legacy admin)
+// Returns true if allowed, false if a response was already written (caller must return)
+// issue #45: roles map to 4 unified roles; the admin gate uses tenant_admin (legacy admin still accepted)
 function requireAdmin(req, res) {
     const role = req.user?.role;
     if (role !== 'admin' && role !== 'tenant_admin') {
-        errorResponse(res, 403, '需要管理员权限', 'FORBIDDEN');
+        errorResponse(res, 403, 'Admin permission required', 'FORBIDDEN');
         return false;
     }
     return true;

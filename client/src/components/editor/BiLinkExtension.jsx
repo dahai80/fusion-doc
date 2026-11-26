@@ -82,7 +82,7 @@ const BiLinkSuggestionList = forwardRef(function BiLinkSuggestionList({ items, c
         },
     }));
 
-    if (!items.length) return <div className="text-xs text-gray-500 p-2">{t('无匹配页面', 'No matching pages')}</div>;
+    if (!items.length) return <div className="text-xs text-gray-500 p-2">{t('无匹配页面', 'No matching pages')}</div>; // i18n: user-facing
 
     return (
         <div className="bg-surface-1 border border-surface-2 rounded-lg shadow-2xl py-1 w-64 max-h-48 overflow-y-auto">
@@ -108,7 +108,7 @@ export const BiLinkExtension = Extension.create({
     addOptions() {
         return {
             suggestion: {
-                // v3: 与 aiSlashSuggestion 区分, 避免 'suggestion$' keyed plugin 冲突
+                // v3: distinct from aiSlashSuggestion, avoiding a 'suggestion$' keyed plugin conflict
                 pluginKey: new PluginKey('biLinkSuggestion'),
                 char: '[[',
                 command: ({ editor, range, props }) => {
@@ -122,7 +122,7 @@ export const BiLinkExtension = Extension.create({
                 items: async ({ query }) => {
                     try {
                         const data = await api('GET', `/search?q=${encodeURIComponent(query)}`);
-                        // F4 修复: /api/search 经 list() 返回 { data: [...] }, 非 results。读错字段致下拉恒空。
+                        // F4 fix: /api/search returns { data: [...] } via list(), not results. Reading the wrong field left the dropdown always empty.
                         const rows = Array.isArray(data) ? data : (data.data || data.results || []);
                         return rows.slice(0, 8).map(p => ({
                             pageId: p.id,

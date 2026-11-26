@@ -1,14 +1,14 @@
 // =============================================================================
-// Fusion-Doc — /metrics 端点 (P2-O5 修复)
-// 原无指标端点, 运维无法接 Prometheus 抓取。暴露最小可用 Prometheus 文本格式:
-// 进程 uptime、内存堆、请求计数 (按状态码桶)、活跃页/书/用户数、磁盘占用。
-// 公开读 (与 /api/health 同级, 不含敏感数据); 生产可经反代加 auth。
+// Fusion-Doc — /metrics endpoint (P2-O5 fix)
+// There was no metrics endpoint, so ops could not scrape with Prometheus. Exposes a minimal Prometheus text format:
+// process uptime, memory heap, request counts (bucketed by status code), page/book/user counts, disk usage.
+// Publicly readable (same level as /api/health, no sensitive data); production can add auth via a reverse proxy.
 // =============================================================================
 
 const os = require('os');
 
 function register(app) {
-    // 请求计数器挂 app, 中间件管道首启时初始化
+    // Request counters live on app, initialized when the middleware pipeline first starts
     if (!app._metrics) {
         app._metrics = { requests: 0, byStatus: {}, errors: 0 };
     }
@@ -18,14 +18,14 @@ function register(app) {
         const mem = process.memoryUsage();
         const uptime = Math.floor((Date.now() - (app._startTime || Date.now())) / 1000);
 
-        // 业务计数 (DB 可用时)
+        // Business counts (when the DB is available)
         let pages = 0, books = 0, users = 0;
         if (app.db && typeof app.db.prepare === 'function') {
             try {
                 pages = (app.db.prepare('SELECT COUNT(*) c FROM pages').get() || {}).c || 0;
                 books = (app.db.prepare('SELECT COUNT(*) c FROM books').get() || {}).c || 0;
                 users = (app.db.prepare('SELECT COUNT(*) c FROM users').get() || {}).c || 0;
-            } catch (e) { /* 表缺失忽略 */ }
+            } catch (e) { /* ignore missing tables */ }
         }
 
         const lines = [

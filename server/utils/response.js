@@ -1,23 +1,23 @@
 // =============================================================================
-// Fusion-Doc — 统一响应工具函数
-// 消除控制器中重复的 json() 内联函数
+// Fusion-Doc — unified response helpers
+// Removes the json() inline functions duplicated across controllers
 // =============================================================================
 
-// ── JSON 成功响应 ─────────────────────────────────────────────────────────
+// ── JSON success response ─────────────────────────────────────────────────────────
 function json(res, data, status = 200) {
   if (res.writableEnded) return;
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(data));
 }
 
-// ── 成功响应（带 data 包装） ──────────────────────────────────────────────
+// ── Success response (with data wrapper) ──────────────────────────────────────────────
 function success(res, data, status = 200) {
   return json(res, data, status);
 }
 
-// ── 错误响应 ──────────────────────────────────────────────────────────────
-// R21 修复: 生产环境 5xx 屏蔽内部错误细节 (SQL 片段/上游 URL/堆栈),
-// 仅回通用信息; 4xx 保留 message (多为用户可读的校验提示)。dev 全量回显便于排障。
+// ── Error response ──────────────────────────────────────────────────────────────
+// R21 fix: in production, 5xx responses hide internal error details (SQL fragments/upstream URLs/stacks)
+// and return a generic message; 4xx keep the message (usually a user-readable validation hint). Dev echoes everything for debugging.
 function error(res, message, status = 500, code = null) {
   const isProd = process.env.NODE_ENV === 'production';
   const safeMessage = (status >= 500 && isProd) ? 'Internal Server Error' : message;
@@ -28,17 +28,17 @@ function error(res, message, status = 500, code = null) {
   }, status);
 }
 
-// ── 404 响应 ──────────────────────────────────────────────────────────────
+// ── 404 response ──────────────────────────────────────────────────────────────
 function notFound(res, message = 'Not found') {
   return error(res, message, 404, 'NOT_FOUND');
 }
 
-// ── 创建响应（201） ───────────────────────────────────────────────────────
+// ── Created response (201) ───────────────────────────────────────────────────────
 function created(res, data) {
   return json(res, data, 201);
 }
 
-// ── 列表响应（带 data 包装） ──────────────────────────────────────────────
+// ── List response (with data wrapper) ──────────────────────────────────────────────
 function list(res, items) {
   return json(res, { data: items });
 }

@@ -1,7 +1,7 @@
 // =============================================================================
-// Fusion-Doc — issue #48 密码哈希硬化 单元测试
-// 零外部依赖 (node:test + node:assert)。覆盖: verifyPassword 拒绝明文/畸形存储,
-// JSON 模式下旧哈希自动升级并持久化回文件, scrypt 往返正确。
+// Fusion-Doc — issue #48 password hash hardening unit tests
+// Zero external dependencies (node:test + node:assert). Covers: verifyPassword rejects plaintext/malformed stored values,
+// legacy hashes in JSON mode are auto-upgraded and persisted back to file, scrypt round-trip is correct.
 // =============================================================================
 
 const test = require('node:test');
@@ -11,8 +11,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// ── AuthService 构造: 最小 app 桩 ───────────────────────────────────────
-// auth.js 在构造时读 app.db / app.config.auth, login 里按 this.db 分支。
+// ── AuthService construction: minimal app stub ──────────────────────────
+// auth.js reads app.db / app.config.auth at construction; login branches on this.db.
 const AuthService = require('../../server/services/auth');
 
 function makeSvc({ db = null, jwtSecret = 'test-secret', sessionExpiry = 3600 } = {}) {
@@ -20,7 +20,7 @@ function makeSvc({ db = null, jwtSecret = 'test-secret', sessionExpiry = 3600 } 
 }
 
 // ── verifyPassword ───────────────────────────────────────────────────────
-test('issue#48: scrypt 往返 verifyPassword 命中', () => {
+test('issue#48: scrypt round-trip verifyPassword matches', () => {
     const svc = makeSvc();
     const stored = svc.hashPassword('correct-horse-battery');
     assert.ok(stored.startsWith('scrypt:'));
@@ -28,17 +28,17 @@ test('issue#48: scrypt 往返 verifyPassword 命中', () => {
     assert.strictEqual(svc.verifyPassword('wrong-password', stored), false);
 });
 
-test('issue#48: 明文存储被拒绝 (不再走 HMAC 误判/抛错)', () => {
+test('issue#48: plaintext stored value is rejected (no longer HMAC misjudgment/throw)', () => {
     const svc = makeSvc();
-    // 纯明文: 无冒号分隔 → 旧逻辑 split(':') 得单元素, salt=undefined 抛错
+    // Pure plaintext: no colon separator → old logic split(':') yields one element, salt=undefined throws
     assert.strictEqual(svc.verifyPassword('admin123', 'admin123'), false);
-    // 明文带冒号但仍非合法哈希: 第 2 段非 hex 长度不匹配 → false
+    // Plaintext with a colon but still not a valid hash: second segment is not hex / length mismatch → false
     assert.strictEqual(svc.verifyPassword('x', 'plain:text'), false);
-    // 空字符串
+    // Empty string
     assert.strictEqual(svc.verifyPassword('x', ''), false);
 });
 
-test('issue#48: 合法旧版 HMAC-SHA256 哈希仍兼容 (不误杀存量)', () => {
+test('issue#48: valid legacy HMAC-SHA256 hash still supported (existing users not broken)', () => {
     const svc = makeSvc();
     const salt = 'oldsalt';
     const hash = crypto.createHmac('sha256', salt).update('legacy-pass').digest('hex');
@@ -47,14 +47,14 @@ test('issue#48: 合法旧版 HMAC-SHA256 哈希仍兼容 (不误杀存量)', () 
     assert.strictEqual(svc.verifyPassword('wrong', stored), false);
 });
 
-// ── JSON 模式自动升级 ────────────────────────────────────────────────────
-test('issue#48: JSON 模式旧哈希登录后自动升级并持久化', () => {
-    // 临时 users 目录桩: 拦截 writeJSON, 记录写入
+// ── JSON mode auto-upgrade ───────────────────────────────────────────────
+test('issue#48: legacy hash in JSON mode is auto-upgraded and persisted after login', () => {
+    // Temp users directory stub: intercept writeJSON and record writes
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-auth-'));
     const usersDir = path.join(tmpDir, 'users');
     fs.mkdirSync(usersDir, { recursive: true });
 
-    // 桩 db 模块 (auth.js 用 require('../db'))
+    // Stub the db module (auth.js uses require('../db'))
     const dbPath = require.resolve('../../server/db');
     const origDb = require.cache[dbPath];
     delete require.cache[dbPath];
@@ -67,12 +67,12 @@ test('issue#48: JSON 模式旧哈希登录后自动升级并持久化', () => {
     };
     require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: dbStub };
 
-    // 重新 require auth (它 require ../db 拿到桩) — 先清缓存
+    // Re-require auth (its require ../db gets the stub) — clear the cache first
     const authPath = require.resolve('../../server/services/auth');
     delete require.cache[authPath];
     const AuthServiceFresh = require(authPath);
 
-    // 预置一个旧版 HMAC 用户到 JSON 存储
+    // Seed a legacy HMAC user into JSON storage
     const userId = 'user-legacy-1';
     const salt = 'oldsalt';
     const hash = crypto.createHmac('sha256', salt).update('legacy-pass').digest('hex');
@@ -86,25 +86,25 @@ test('issue#48: JSON 模式旧哈希登录后自动升级并持久化', () => {
     };
 
     const svc = new AuthServiceFresh({
-        db: null, // JSON 模式
+        db: null, // JSON mode
         config: { auth: { jwtSecret: 't', sessionExpiry: 3600 } },
     });
 
     const result = svc.login('legacy@fusion.local', 'legacy-pass');
-    assert.ok(result.token, 'login 应返回 token');
-    assert.ok(written[userId].password.startsWith('scrypt:'), '密码应已升级为 scrypt 并写回 JSON');
-    assert.ok(written[userId].password !== `${salt}:${hash}`, '存储哈希确实变化');
+    assert.ok(result.token, 'login should return a token');
+    assert.ok(written[userId].password.startsWith('scrypt:'), 'password should be upgraded to scrypt and written back to JSON');
+    assert.ok(written[userId].password !== `${salt}:${hash}`, 'stored hash actually changed');
 
-    // 还原 require 缓存
+    // Restore the require cache
     delete require.cache[authPath];
     delete require.cache[dbPath];
     if (origDb) require.cache[dbPath] = origDb;
 
-    // 清理临时目录
+    // Clean up the temp directory
     fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test('issue#48: JSON 模式明文种子登录被拒 (不升级不返回 token)', () => {
+test('issue#48: plaintext seed login in JSON mode is rejected (no upgrade, no token)', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-auth-2-'));
     const usersDir = path.join(tmpDir, 'users');
     fs.mkdirSync(usersDir, { recursive: true });
@@ -130,7 +130,7 @@ test('issue#48: JSON 模式明文种子登录被拒 (不升级不返回 token)',
         id: userId,
         email: 'admin@fusion.local',
         name: 'Admin',
-        password: 'admin123', // 明文
+        password: 'admin123', // plaintext
         role: 'admin',
         created_at: '2026-07-15T14:33:33.000Z',
     };
@@ -141,9 +141,9 @@ test('issue#48: JSON 模式明文种子登录被拒 (不升级不返回 token)',
     });
 
     const result = svc.login('admin@fusion.local', 'admin123');
-    assert.ok(result.error, '明文种子应登录失败');
-    assert.strictEqual(result.token, undefined, '不应签发 token');
-    assert.strictEqual(written[userId].password, 'admin123', '明文不应被改写 (verify 已先拒绝)');
+    assert.ok(result.error, 'plaintext seed login should fail');
+    assert.strictEqual(result.token, undefined, 'should not issue a token');
+    assert.strictEqual(written[userId].password, 'admin123', 'plaintext should not be rewritten (verify rejects first)');
 
     delete require.cache[authPath];
     delete require.cache[dbPath];

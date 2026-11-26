@@ -1,4 +1,4 @@
-// issue #60: SPA fallback 深链修复 — serveSPA 注入 <base>, 修复 ./assets 相对解析
+// issue #60: SPA fallback deep-link fix — serveSPA injects <base> to fix relative ./assets resolution
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -54,7 +54,7 @@ test('traversal-looking base href is rejected, no injection', async () => {
     const res = await fetchSPA(dir, '/a/../../etc');
     assert.equal(res.headers.status, 200);
     assert.doesNotMatch(res.body, /<base href/);
-    // 危险值被拒, 页面仍可服务 (退回原相对行为)
+    // Dangerous value is rejected; the page is still served (falls back to the original relative behavior)
     assert.match(res.body, /<html>/);
     fs.rmSync(dir, { recursive: true, force: true });
 });

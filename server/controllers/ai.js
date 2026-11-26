@@ -1,7 +1,7 @@
 // =============================================================================
-// Fusion-Doc — AI 控制器（Fusion-MLX 深度集成）
-// 支持聊天、嵌入、RAG、Streaming
-// 商用级: SSE 客户端断开中止上游流, RAG 检索限量防 OOM
+// Fusion-Doc — AI controller (deep Fusion-MLX integration)
+// Supports chat, embeddings, RAG, streaming
+// Production-grade: SSE client disconnect aborts the upstream stream; RAG retrieval is capped to prevent OOM
 // =============================================================================
 /* global AbortController */
 
@@ -9,16 +9,16 @@ const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLX, callFusionMLXStream } = require('../integrations/fusion-mlx');
 const { askKb } = require('../integrations/fusion-kb');
 const { json, error, notFound } = require('../utils/response');
-// A8 修复: RAG 统一到 rag-hybrid 单存储 (rag_chunks), 不再内联写 rag_index 表。
-// issue #84: in-document QA 检索改走 fusion-rag (单一知识层); rag-hybrid 仅剩
-// 工作流 rag.search 步骤与非 UI API (/api/rag/*) 使用。
+// A8 fix: RAG unified onto the single rag-hybrid store (rag_chunks); no more inline writes to the rag_index table.
+// issue #84: in-document QA retrieval now goes through fusion-rag (single knowledge layer); rag-hybrid is only
+// used by the workflow rag.search step and non-UI APIs (/api/rag/*).
 const ragHybrid = require('../services/rag-hybrid');
-// S3 修复: 索引重建为重操作 (全页 embedding 调用), 仅 admin 可触发, 杜绝普通用户消耗算力
+// S3 fix: index rebuild is heavy (embedding calls over whole pages), so only admin can trigger it, preventing regular users from burning compute
 const { requireAdmin } = require('../middleware/require-admin');
-// issue #45: AI token 用量上报 fusion-identity (fire-and-forget, 永不阻塞响应)
+// issue #45: report AI token usage to fusion-identity (fire-and-forget, never blocks the response)
 const identity = require('../integrations/fusion-identity');
 
-// issue #45: 归一化 mlx usage → identity 上报体。mlx 返回 {prompt_tokens,completion_tokens,total_tokens}
+// issue #45: normalize mlx usage → identity report body. mlx returns {prompt_tokens,completion_tokens,total_tokens}
 function _normalizeUsage(u) {
   if (!u || typeof u !== 'object') return null;
   const tokens = Number(u.total_tokens) || 0;
@@ -26,7 +26,7 @@ function _normalizeUsage(u) {
   return { tokens, prompt_tokens: Number(u.prompt_tokens) || 0, completion_tokens: Number(u.completion_tokens) || 0 };
 }
 
-// fire-and-forget 上报 (tid 缺失静默跳过, local-auth 旁路不上报)
+// fire-and-forget report (silently skipped when tid is missing; not reported under the local-auth bypass)
 function _reportUsage(req, app, usage) {
   const tid = req.user?.tid;
   if (!tid || tid === 'local-tenant') return;
@@ -35,26 +35,26 @@ function _reportUsage(req, app, usage) {
   identity.reportUsage({ tid, usage: norm, config: app.config.fusionIdentity }).catch(() => {});
 }
 
-// issue #84: 可见页过滤随内嵌 RAG QA 一起退役 — 检索权限由 fusion-rag KB ACL 承担。
+// issue #84: visible-page filtering retired along with the embedded RAG QA — retrieval permissions are enforced by the fusion-rag KB ACL.
 const MAX_QUERY_LEN = 2000;
 
 function register(app) {
   const { db } = app;
 
-  // ── AI 聊天 ──────────────────────────────────────────────────────────
+  // ── AI chat ──────────────────────────────────────────────────────────
   app.registerRoute('POST', '/api/ai/chat', async (req, res) => {
     const body = await parseBody(req);
     const stream = body.stream === true;
 
     if (stream) {
-      // SSE 流式响应
+      // SSE streaming response
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
       });
-      // 客户端断开时中止上游流, 防 KV/连接泄漏 (P2-22 + R7 修复: 真正 abort 上游)
-      // E23 修复: 监听 res close (流式响应客户端断开优先触发 res close), 与 ai-copilot.js 统一
+      // Abort the upstream stream when the client disconnects, preventing KV/connection leaks (P2-22 + R7 fix: really abort upstream)
+      // E23 fix: listen for res close (a client disconnect on a streaming response fires res close first), consistent with ai-copilot.js
       let aborted = false;
       let lastUsage = null;
       const abortController = new AbortController();
@@ -83,7 +83,7 @@ function register(app) {
         res.off('close', onClose);
       }
     } else {
-      // 非流式响应
+      // Non-streaming response
       try {
         const data = await callFusionMLX({
           method: 'POST',
@@ -99,7 +99,7 @@ function register(app) {
     }
   });
 
-  // ── AI 嵌入 ──────────────────────────────────────────────────────────
+  // ── AI embeddings ──────────────────────────────────────────────────────────
   app.registerRoute('POST', '/api/ai/embeddings', async (req, res) => {
     const body = await parseBody(req);
     try {
@@ -115,9 +115,9 @@ function register(app) {
     }
   });
 
-  // ── RAG 文档索引 (A8 修复: 委托 rag-hybrid 统一存储 rag_chunks, 不再写 rag_index) ──
+  // ── RAG document indexing (A8 fix: delegate to the unified rag-hybrid rag_chunks store, no more rag_index writes) ──
   app.registerRoute('POST', '/api/rag/index', async (req, res) => {
-    // S3 修复: 索引重建调 embedding 算力大, 仅 admin 可触发
+    // S3 fix: index rebuild calls embeddings and is compute-heavy; admin only
     if (!requireAdmin(req, res)) return;
     const body = await parseBody(req);
     const pageId = body.page_id;
@@ -125,7 +125,7 @@ function register(app) {
     if (!page) return notFound(res, 'Page not found');
 
     try {
-      // 统一走 rag-hybrid.reindexPage: 段落切分 + embedding + 事务原子写 rag_chunks 单表
+      // Always go through rag-hybrid.reindexPage: paragraph chunking + embedding + atomic transactional write to the single rag_chunks table
       const result = await ragHybrid.reindexPage(app, pageId);
       json(res, { indexed: true, chunks: result.chunks });
     } catch (e) {
@@ -133,9 +133,9 @@ function register(app) {
     }
   });
 
-  // ── RAG 查询 (issue #84: 单一知识层 — QA 检索/作答委托 fusion-rag kb_ask) ──
-  // 原 A8 实现在内嵌 rag_chunks 上检索 + 自行调 MLX 生成, 与 fusion-rag 重复。
-  // 现直接调 /kb/bases/{kbId}/ask, 答案由 fusion-rag 生成 (可经其请求日志/指标验证)。
+  // ── RAG query (issue #84: single knowledge layer — QA retrieval/answering delegated to fusion-rag kb_ask) ──
+  // The old A8 implementation retrieved from embedded rag_chunks and called MLX itself, duplicating fusion-rag.
+  // Now calls /kb/bases/{kbId}/ask directly; the answer is generated by fusion-rag (verifiable via its request logs/metrics).
   app.registerRoute('POST', '/api/rag/query', async (req, res) => {
     const body = await parseBody(req);
     const question = (typeof body.question === 'string' ? body.question : '').slice(0, MAX_QUERY_LEN);

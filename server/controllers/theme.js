@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 主题控制器（BookStack 主题管理）
-// 商用级: 白名单键 + 校验, 防 mass assignment 与磁盘耗尽
+// Fusion-Doc — theme controller (BookStack theme management)
+// Production-grade: allowlisted keys + validation, prevents mass assignment and disk exhaustion
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
@@ -8,7 +8,7 @@ const { json, error } = require('../utils/response');
 
 const DEFAULT_THEME = { primary: '#6366f1', secondary: '#06b6d4', background: '#0f172a', surface: '#1e293b', text: '#f1f5f9', mode: 'dark' };
 
-// 允许的主题键及其校验
+// Allowed theme keys and their validators
 const THEME_KEYS = {
     primary: { type: 'hex' },
     secondary: { type: 'hex' },
@@ -38,7 +38,7 @@ function validateTheme(body) {
 function register(app) {
     const { db } = app;
 
-    // ── 读取主题 (公开, 仅返回白名单键) ────────────────────────────────
+    // ── Read theme (public, returns allowlisted keys only) ────────────────────────────────
     app.registerRoute('GET', '/api/theme', (req, res) => {
         let theme = { ...DEFAULT_THEME };
         if (db) {
@@ -46,32 +46,32 @@ function register(app) {
             if (row) {
                 try {
                     const stored = JSON.parse(row.value);
-                    // 仅透传白名单键, 防历史脏数据泄漏
+                    // Pass through allowlisted keys only, so legacy dirty data doesn't leak
                     for (const k of Object.keys(THEME_KEYS)) {
                         if (k in stored) theme[k] = stored[k];
                     }
-                } catch (_) { /* 坏数据用默认 */ }
+                } catch (_) { /* bad data: use defaults */ }
             }
         }
         json(res, theme);
     });
 
-    // ── 保存主题 (须认证, 白名单校验) ──────────────────────────────────
+    // ── Save theme (auth required, allowlist validation) ──────────────────────────────────
     app.registerRoute('POST', '/api/theme', async (req, res) => {
         const body = await parseBody(req);
         const check = validateTheme(body);
         if (!check.ok) return error(res, `invalid theme: ${check.reason}`, 400);
         if (db) {
-            // 合并已有主题, 部分更新
+            // Merge with the existing theme (partial update)
             const existing = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get();
             let merged = { ...DEFAULT_THEME };
             if (existing) {
-                try { merged = { ...DEFAULT_THEME, ...JSON.parse(existing.value) }; } catch (_) { /* 用默认 */ }
+                try { merged = { ...DEFAULT_THEME, ...JSON.parse(existing.value) }; } catch (_) { /* use defaults */ }
             }
             Object.assign(merged, check.value);
             db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', ?)").run(JSON.stringify(merged));
         }
-        console.log(`  [Theme] 主题已更新 by ${req.user?.id || 'anon'}: ${Object.keys(check.value).join(',')}`);
+        console.log(`  [Theme] Theme updated by ${req.user?.id || 'anon'}: ${Object.keys(check.value).join(',')}`);
         json(res, { saved: true });
     });
 }

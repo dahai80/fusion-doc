@@ -1,5 +1,5 @@
 // =============================================================================
-// Fusion-Doc — YAML 工作流引擎
+// Fusion-Doc — YAML workflow engine
 // parseYAML → validateWorkflow → executeWorkflow → executeStep
 // =============================================================================
 
@@ -82,8 +82,8 @@ function parseYAML(yamlStr) {
     return def;
 }
 
-// A4 修复: 规范化 depends_on。自研 YAML 解析把 "depends_on: [outline, draft]" 存为字符串
-// "[outline, draft]", 后续 Array.isArray 检查失败, 依赖图失效。统一解析为数组。
+// A4 fix: normalize depends_on. The home-grown YAML parser stores "depends_on: [outline, draft]" as the string
+// "[outline, draft]", so later Array.isArray checks fail and the dependency graph breaks. Always parse to an array.
 function normalizeDeps(dep) {
     if (!dep) return [];
     if (Array.isArray(dep)) return dep.map(d => String(d).trim()).filter(Boolean);
@@ -157,10 +157,10 @@ function detectCycle(step, allSteps, visited, stack) {
     return false;
 }
 
-// E30 修复: 按依赖图拓扑序编排执行, 不再依赖 YAML 声明顺序 (Object.values/数组序)。
-// 原设计 for (const step of def.steps) 按 YAML 出现顺序跑, 若 step 声明在其依赖之前,
-// previousResults 中无上游结果, {{dep}} 模板变量原样残留传入 LLM, 输出错乱。
-// DFS 后序逆序 = 合法拓扑序; 无依赖步保持原相对序 (声明序) 稳定插入。
+// E30 fix: execute in topological order of the dependency graph instead of YAML declaration order (Object.values/array order).
+// The old for (const step of def.steps) ran steps in YAML order; if a step was declared before its dependency,
+// previousResults had no upstream result, {{dep}} template variables were passed to the LLM verbatim, and output was garbled.
+// Reversed DFS post-order = valid topological order; steps without dependencies keep their relative (declaration) order.
 function topologicalSort(def) {
     const order = [];
     const visited = new Set();
@@ -168,7 +168,7 @@ function topologicalSort(def) {
     function dfs(step) {
         const key = step.id || step.name;
         if (visited.has(key)) return;
-        if (inStack.has(key)) return; // cycle — detectCycle 已先拦, 此处防御
+        if (inStack.has(key)) return; // cycle — detectCycle already rejects this; defensive guard
         inStack.add(key);
         if (step.depends_on) {
             const deps = normalizeDeps(step.depends_on);
@@ -215,12 +215,12 @@ async function executeWorkflow(app, workflowId, input) {
     let finalOutput;
 
     try {
-        // E30 修复: 拓扑序执行, 上游步先于依赖步跑, previousResults 解析可靠。
+        // E30 fix: run in topological order so upstream steps run before dependents and previousResults resolves reliably.
         const orderedSteps = topologicalSort(def);
         for (const step of orderedSteps) {
             const stepResult = await executeStep(app, step, stepResults, input);
-            // A4 修复: 结果同时以 name 和 id 为键, 让 depends_on 引用 name 时能解析。
-            // 原设计仅以 step.id ("step_N") 为键, 而 depends_on 引用 step.name ("outline") 永不命中。
+            // A4 fix: key results by both name and id so depends_on references by name resolve.
+            // Originally keyed only by step.id ("step_N"), while depends_on references step.name ("outline") and never matched.
             if (step.name) stepResults[step.name] = stepResult;
             stepResults[step.id || step.name] = stepResult;
             stepStatuses.push({
@@ -422,12 +422,12 @@ function executeTransform(step, context) {
         case 'join': return Array.isArray(input) ? input.join(step.separator || '\n') : input;
         case 'extract':
             try {
-                // 防 ReDoS: 用户模式须受限 (P2-25). 拒绝嵌套量词/回溯陷阱; 强制超时不可用, 故用模式复杂度上限
+                // ReDoS guard: user patterns must be restricted (P2-25). Reject nested quantifiers/backtracking traps; no enforced timeout is available, so cap pattern complexity
                 const pat = String(step.pattern || '(.+)');
                 if (pat.length > 200) return input;
-                // 检测典型回溯灾难: 量词紧随量词 (如 (a+)+ ) 或 .+ 在分组内重复
+                // Detect classic catastrophic backtracking: quantifier right after quantifier (e.g. (a+)+ ) or repeated .+ inside a group
                 if (/(\\.|[\w)\]])\?*\+\+|\(.*[+*].*[+*].*\)/.test(pat)) {
-                    console.warn('[WorkflowEngine] extract pattern 疑似 ReDoS, 拒绝:', pat);
+                    console.warn('[WorkflowEngine] extract pattern looks like ReDoS, rejected:', pat);
                     return input;
                 }
                 const re = new RegExp(pat);
@@ -467,143 +467,9 @@ function executeCondition(step, context) {
 }
 
 // ── Preset workflow YAML definitions ────────────────────────────────────
-const PRESET_WORKFLOWS = [
-    {
-        name: '报告生成',
-        description: 'outline → sections → content → charts → summary',
-        yaml_def: `name: 报告生成
-description: 从大纲到完整报告的自动化生成流程
-steps:
-  - name: outline
-    type: ai.generate
-    prompt: "根据以下主题生成报告大纲：{{topic}}"
-  - name: sections
-    type: ai.generate
-    prompt: "根据大纲展开各章节要点：{{outline}}"
-    depends_on: [outline]
-  - name: content
-    type: ai.generate
-    prompt: "根据章节要点撰写完整报告内容：{{sections}}"
-    max_tokens: 4000
-    depends_on: [sections]
-  - name: summary
-    type: ai.summarize
-    prompt: "为以下报告生成执行摘要：{{content}}"
-    depends_on: [content]
-  - name: save
-    type: page.create
-    title: "报告：{{topic}}"
-    content: "{{content}}"
-    depends_on: [content]`,
-    },
-    {
-        name: '文档翻译',
-        description: 'extract → segment → translate → proofread → format',
-        yaml_def: `name: 文档翻译
-description: 分段翻译+校对+格式化的文档翻译流程
-steps:
-  - name: extract
-    type: page.search
-    query: "{{source_title}}"
-  - name: translate
-    type: ai.translate
-    prompt: "将以下内容翻译为{{target_lang}}，保持格式：{{extract}}"
-    depends_on: [extract]
-  - name: proofread
-    type: ai.generate
-    prompt: "校对以下翻译，修正语法和术语错误：{{translate}}"
-    depends_on: [translate]
-  - name: save
-    type: page.create
-    title: "翻译：{{source_title}}"
-    content: "{{proofread}}"
-    depends_on: [proofread]`,
-    },
-    {
-        name: '知识提取',
-        description: 'parse → entity recognition → relation extraction → card generation',
-        yaml_def: `name: 知识提取
-description: 从文档中提取实体、关系并生成知识卡片
-steps:
-  - name: parse
-    type: rag.query
-    query: "{{topic}}"
-    top_k: 5
-  - name: entities
-    type: ai.generate
-    prompt: "从以下文本中提取所有实体（人名、组织、概念、术语），以JSON数组输出：{{parse}}"
-    depends_on: [parse]
-  - name: relations
-    type: ai.generate
-    prompt: "分析以下实体间的关系，输出为三元组JSON数组：{{entities}}"
-    depends_on: [entities]
-  - name: cards
-    type: ai.generate
-    prompt: "根据实体和关系生成知识卡片Markdown：{{entities}} {{relations}}"
-    depends_on: [relations]
-  - name: save
-    type: page.create
-    title: "知识卡片：{{topic}}"
-    content: "{{cards}}"
-    depends_on: [cards]`,
-    },
-    {
-        name: '周报生成',
-        description: 'collect → classify → summarize → write → format',
-        yaml_def: `name: 周报生成
-description: 自动汇总周工作内容并生成周报
-steps:
-  - name: collect
-    type: page.search
-    query: "{{week_range}}"
-  - name: classify
-    type: ai.generate
-    prompt: "将以下工作内容按类别分类（完成/进行中/计划/问题）：{{collect}}"
-    depends_on: [collect]
-  - name: summarize
-    type: ai.summarize
-    prompt: "为每个类别生成简明摘要：{{classify}}"
-    depends_on: [classify]
-  - name: write
-    type: ai.generate
-    prompt: "根据分类和摘要撰写正式周报Markdown：{{summarize}}"
-    max_tokens: 3000
-    depends_on: [summarize]
-  - name: save
-    type: page.create
-    title: "周报 {{week_range}}"
-    content: "{{write}}"
-    depends_on: [write]`,
-    },
-    {
-        name: '论文审阅',
-        description: 'parse → structure analysis → logic check → suggestions',
-        yaml_def: `name: 论文审阅
-description: 自动化论文审阅：结构分析+逻辑检查+改进建议
-steps:
-  - name: parse
-    type: rag.query
-    query: "{{paper_title}}"
-    top_k: 10
-  - name: structure
-    type: ai.generate
-    prompt: "分析以下论文的结构完整性，检查是否包含：摘要、引言、方法、实验、结论：{{parse}}"
-    depends_on: [parse]
-  - name: logic
-    type: ai.generate
-    prompt: "检查论文逻辑连贯性，识别论点支撑不足之处：{{parse}}"
-    depends_on: [parse]
-  - name: suggestions
-    type: ai.generate
-    prompt: "综合结构和逻辑分析，给出具体改进建议：{{structure}} {{logic}}"
-    depends_on: [structure, logic]
-  - name: save
-    type: page.create
-    title: "审阅：{{paper_title}}"
-    content: "{{suggestions}}"
-    depends_on: [suggestions]`,
-    },
-];
+// Preset names and YAML bodies (step prompts, default page titles) are user-facing
+// product content (Chinese), kept as data in preset-workflows.json rather than in source.
+const PRESET_WORKFLOWS = require('./preset-workflows.json');
 
 function seedPresetWorkflows(db) {
     if (!db) return;

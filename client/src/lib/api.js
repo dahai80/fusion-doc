@@ -1,8 +1,8 @@
-// E20 修复: 所有 fetch 加超时 + AbortController, 防后端卡死时前端无限挂起。
-// 超时默认 20s, 可经第四参 opts.timeout 覆盖 (0/负值 = 不超时, 供流式调用)。
-// P0-F1 修复: 自动附 Authorization: Bearer <token> (从 localStorage 读), 处理 401 清 token 触发登录。
-// issue #51: shell 内嵌模式 — API 走 /shell/<id>/api 同源代理 (网关注入服务凭证),
-// 客户端不附 token, 401 不触发本地登出 (会话归 shell 宿主管)。
+// E20 fix: every fetch gets a timeout + AbortController, so the frontend never hangs forever when the backend stalls.
+// Default timeout is 20s, overridable via the fourth arg opts.timeout (0/negative = no timeout, for streaming calls).
+// P0-F1 fix: automatically attach Authorization: Bearer <token> (read from localStorage); on 401 clear the token to trigger login.
+// issue #51: shell embedded mode — API goes through the same-origin /shell/<id>/api proxy (gateway injects the service key);
+// the client attaches no token, and 401 does not trigger a local logout (the session belongs to the shell host).
 import { isEmbedded, shellBasePath } from './embedded';
 
 const API_BASE = isEmbedded ? `${shellBasePath()}/api` : '/api';
@@ -14,12 +14,12 @@ function getToken() {
 }
 
 function clearTokenOn401() {
-    if (isEmbedded) return; // issue #51: 内嵌会话归 shell 宿主, 不做本地登出跳转
+    if (isEmbedded) return; // issue #51: embedded session belongs to the shell host, no local logout redirect
     try {
         if (localStorage.getItem(TOKEN_KEY)) {
             localStorage.removeItem(TOKEN_KEY);
             localStorage.removeItem('fusion-doc-user');
-            // 触发刷新让 App 网关回到登录页
+            // Trigger a refresh so the App gate returns to the login page
             window.dispatchEvent(new Event('fusion-doc-logout'));
         }
     } catch {}
@@ -39,8 +39,8 @@ function withTimeout(opts, timeout) {
 
 export async function api(method, path, body = null, reqOpts = {}) {
     const headers = { 'Content-Type': 'application/json', ...(reqOpts.headers || {}) };
-    // P0-F1: 认证路径自身不带 token (登录/setup); 其余路径自动附 Bearer
-    // issue #51: 内嵌模式零 token — 网关 /shell/ 代理注入服务凭证
+    // P0-F1: auth paths themselves carry no token (login/setup); all other paths get Bearer automatically
+    // issue #51: zero tokens in embedded mode — the gateway /shell/ proxy injects the service key
     const isAuthPath = path.startsWith('/auth/') || path.startsWith('/system/setup');
     if (!isAuthPath && !isEmbedded) {
         const token = getToken();
@@ -56,12 +56,12 @@ export async function api(method, path, body = null, reqOpts = {}) {
         res = await fetch(`${API_BASE}${path}`, timed);
     } catch (e) {
         if (timed._timer) clearTimeout(timed._timer);
-        if (e.name === 'AbortError') throw new Error(`请求超时 (${reqOpts.timeout ?? DEFAULT_TIMEOUT}ms): ${method} ${path}`);
+        if (e.name === 'AbortError') throw new Error(`Request timed out (${reqOpts.timeout ?? DEFAULT_TIMEOUT}ms): ${method} ${path}`);
         throw e;
     }
     if (timed._timer) clearTimeout(timed._timer);
     if (!res.ok) {
-        // P0-F1: 401 清 token, 让 App 网关回到登录页
+        // P0-F1: on 401 clear the token so the App gate returns to the login page
         if (res.status === 401 && !isAuthPath) clearTokenOn401();
         const err = await res.json().catch(() => ({ message: res.statusText }));
         throw new Error(err.message || `API ${res.status}`);
@@ -92,8 +92,8 @@ export async function apiBlob(path, timeoutMs = 60000) {
     }
 }
 
-// E20 修复: 流式支持外部 AbortController (reqOpts.signal), 加空闲心跳:
-// 连续 IDLE_MS 无数据视为后端卡死, abort 防永久挂起。
+// E20 fix: streaming supports an external AbortController (reqOpts.signal), plus an idle heartbeat:
+// no data for IDLE_MS in a row is treated as a stalled backend and aborted to avoid hanging forever.
 export async function apiStream(path, body, onChunk, onDone, reqOpts = {}) {
     const IDLE_MS = reqOpts.idleTimeout ?? 60000;
     const controller = new AbortController();
@@ -120,12 +120,12 @@ export async function apiStream(path, body, onChunk, onDone, reqOpts = {}) {
         });
     } catch (e) {
         if (idleTimer) clearTimeout(idleTimer);
-        if (e.name === 'AbortError') throw new Error(`流式请求超时/取消: ${path}`);
+        if (e.name === 'AbortError') throw new Error(`Streaming request timed out/cancelled: ${path}`);
         throw e;
     }
     if (!res.ok) {
         if (idleTimer) clearTimeout(idleTimer);
-        // issue #69: 透传后端错误体 message (如 SELECTION_TOO_LONG 可操作提示), 不再裸抛状态码
+        // issue #69: pass through the backend error body message (e.g. the actionable SELECTION_TOO_LONG hint) instead of a bare status code
         const err = await res.json().catch(() => ({ message: `API ${res.status}` }));
         throw new Error(err.message || `API ${res.status}`);
     }

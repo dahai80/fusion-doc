@@ -1,5 +1,5 @@
 // =============================================================================
-// 知识图谱可视化 — D3.js Force-Directed Layout
+// Knowledge graph visualization — D3.js Force-Directed Layout
 // =============================================================================
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
@@ -131,23 +131,23 @@ export default function GraphPage() {
     return (
         <div className="flex-1 flex flex-col bg-surface-0">
             <div className="border-b border-surface-3 px-4 py-3 flex items-center gap-4">
-                <h2 className="text-lg font-semibold text-gray-200">{t('知识图谱', 'Knowledge Graph')}</h2>
+                <h2 className="text-lg font-semibold text-gray-200">{t('知识图谱', 'Knowledge Graph')}</h2>{/* i18n: user-facing */}
                 <form onSubmit={handleSearch} className="flex gap-2">
                     <input
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={t("语义搜索...", "Semantic search...")}
+                        placeholder={t("语义搜索...", "Semantic search...")} // i18n: user-facing
                         className="bg-surface-1 border border-surface-3 rounded-lg px-3 py-1 text-sm text-gray-300 outline-none focus:border-brand-500"
                     />
                     <button type="submit" className="px-3 py-1 text-sm bg-brand-600 hover:bg-brand-500 rounded-lg">
-                        {t('搜索', 'Search')}
+                        {t('搜索', 'Search')}{/* i18n: user-facing */}
                     </button>
                 </form>
                 <button onClick={() => { setSearchQuery(''); loadGraph(); }} className="text-sm text-gray-400 hover:text-gray-200">
-                    {t('重置', 'Reset')}
+                    {t('重置', 'Reset')}{/* i18n: user-facing */}
                 </button>
                 <div className="ml-auto text-xs text-gray-500">
-                    {stats.nodes} {t('节点', 'nodes')} · {stats.edges} {t('连接', 'edges')}
+                    {stats.nodes} {t('节点', 'nodes')} · {stats.edges} {t('连接', 'edges')}{/* i18n: user-facing */}
                 </div>
             </div>
             <svg ref={svgRef} className="flex-1 w-full" style={{ minHeight: 600 }} />

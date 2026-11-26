@@ -1,5 +1,5 @@
 // =============================================================================
-// Fusion-Doc — 章节控制器（BookStack 中层结构）
+// Fusion-Doc — chapter controller (BookStack middle tier)
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
@@ -13,7 +13,7 @@ const MAX_DESC = 2000;
 function register(app) {
   const { db } = app;
 
-  // issue #45: 跨租户访问一律 404 (不泄露存在性)
+  // issue #45: cross-tenant access always returns 404 (does not leak existence)
   function _chapterTenantOk(req, res, chapter) {
     if (!chapter) { notFound(res, 'Chapter not found'); return false; }
     const tid = req.user?.tid;
@@ -23,9 +23,9 @@ function register(app) {
 
   app.registerRoute('GET', '/api/chapters', (req, res) => {
     const bookId = req.ctx.url.searchParams.get('bookId');
-    // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+    // A6 fix: list page-size cap, preventing an unbounded full-table pull and OOM
     const { size, offset } = parsePaging(req);
-    // issue #45: 租户隔离 (medium tier)
+    // issue #45: tenant isolation (medium tier)
     const tid = tenantId(req);
     let data = db ? db.prepare('SELECT * FROM chapters WHERE tenant_id = ? AND book_id = ? ORDER BY sort_order LIMIT ? OFFSET ?').all(tid, bookId, size, offset) : require('../db').listJSON('chapters').filter(c => c.tenant_id === tid && c.book_id === bookId).slice(offset, offset + size);
     list(res, data);
@@ -34,7 +34,7 @@ function register(app) {
   app.registerRoute('POST', '/api/chapters', async (req, res) => {
     const body = await parseBody(req);
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-    if (!name) return error(res, 'name 不能为空', 400);
+    if (!name) return error(res, 'name must not be empty', 400);
     const ch = {
       id: uid(), tenant_id: tenantId(req), book_id: body.book_id || null, name,
       slug: slugify(name),
@@ -46,7 +46,7 @@ function register(app) {
       if (db) { db.prepare('INSERT INTO chapters (id, tenant_id, book_id, name, slug, description, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(ch.id, ch.tenant_id, ch.book_id, ch.name, ch.slug, ch.description, ch.sort_order, ch.created_at, ch.updated_at); }
       else { require('../db').writeJSON('chapters', ch.id, ch); }
     } catch (e) {
-      if (String(e.message).includes('FOREIGN KEY')) return error(res, '指定的 book 不存在', 400);
+      if (String(e.message).includes('FOREIGN KEY')) return error(res, 'The specified book does not exist', 400);
       throw e;
     }
     created(res, ch);
@@ -59,7 +59,7 @@ function register(app) {
     json(res, chapter);
   });
 
-  // ── 改/删章节: admin 闸 (结构级操作) ─────────────────────────────────
+  // ── Update/delete chapter: admin gate (structural operation) ──────────
   app.registerRoute('PUT', '/api/chapters/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { id } = req.params;
@@ -78,8 +78,8 @@ function register(app) {
     const { id } = req.params;
     const chapter = db ? db.prepare('SELECT * FROM chapters WHERE id = ?').get(id) : require('../db').readJSON('chapters', id);
     if (!_chapterTenantOk(req, res, chapter)) return;
-    // E4 修复: 原 DELETE chapters 触发 FK constraint failed (pages.chapter_id 引用未级联)。
-    // 单事务内先收集该章全部 page_id, 级联删 page 子表 + pages + chapters, 失败回滚。
+    // E4 fix: DELETE chapters used to fail with FK constraint failed (pages.chapter_id references were not cascaded).
+    // In a single transaction, collect all page_ids of the chapter first, cascade-delete page child tables + pages + chapters, rolling back on failure.
     if (db) {
       const tx = db.transaction(() => {
         const pageIds = db.prepare('SELECT id FROM pages WHERE chapter_id = ?').all(id).map(r => r.id);
@@ -102,8 +102,8 @@ function register(app) {
       });
       try { tx(); }
       catch (e) {
-        console.error(`[Chapter] DELETE 级联失败 ${id}: ${e.message}`);
-        return error(res, `删除失败: ${e.message}`, 500);
+        console.error(`[Chapter] DELETE cascade failed ${id}: ${e.message}`);
+        return error(res, `Delete failed: ${e.message}`, 500);
       }
     } else { require('../db').deleteJSON('chapters', id); }
     json(res, { deleted: true });
