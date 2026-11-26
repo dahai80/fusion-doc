@@ -1,9 +1,9 @@
 // =============================================================================
-// Fusion-Doc — RAG 向量检索 worker (P0-P1/P0-P2 修复)
-// 原 vectorSearch 把 "JSON.parse + 余弦 × 候选行" 跑在主线程, 阻塞事件循环,
-// 串行化全部请求 (高并发企业级场景塌陷)。offload 此 CPU 重活到 worker_thread:
-// 主线程仅 await embedding(HTTP) + 同步 DB 快查, CPU 扫描移出事件循环。
-// 零新依赖 (worker_threads 为 Node 标准库)。worker 失败降级回主线程原逻辑。
+// Fusion-Doc — RAG vector search worker (P0-P1/P0-P2 fix)
+// The old vectorSearch ran "JSON.parse + cosine × candidate rows" on the main thread, blocking the event loop
+// and serializing all requests (collapses under high-concurrency enterprise load). This CPU-heavy work is offloaded to a worker_thread:
+// the main thread only awaits the embedding (HTTP) + a quick synchronous DB query; CPU scanning moves off the event loop.
+// Zero new dependencies (worker_threads is in the Node standard library). On worker failure it falls back to the original main-thread logic.
 // =============================================================================
 
 const { parentPort } = require('worker_threads');
@@ -20,7 +20,7 @@ function cosineSimilarity(a, b) {
     return d === 0 ? 0 : dot / d;
 }
 
-// ── worker 入口: 接收候选行 + queryVec, 解析向量 + 余弦 + 排序, 返回 topK ──
+// ── worker entry: receives candidate rows + queryVec, parses vectors + cosine + sort, returns topK ──
 function scoreRows(rows, queryVec, topK, weight) {
     const scored = [];
     for (const r of rows) {

@@ -1,7 +1,7 @@
 // =============================================================================
-// Fusion-Doc — Fusion-Cowork DAG 工作流桥接
-// 连接 Fusion-Cowork 协作引擎，支持 DAG 工作流编排
-// 默认端口: 11437
+// Fusion-Doc — Fusion-Cowork DAG workflow bridge
+// Connects to the Fusion-Cowork collaboration engine for DAG workflow orchestration
+// Default port: 11437
 // =============================================================================
 
 const httpFetch = globalThis.fetch;
@@ -10,8 +10,8 @@ const { fetchWithRetry } = require('./http-retry');
 
 const DEFAULT_URL = 'http://localhost:11437';
 
-// E19 修复: 兄弟服务瞬时抖动加指数退避重试。
-// retries 可由调用方覆盖: 写操作 (runWorkflow) 传 0 防止重放致 DAG 重复执行。
+// E19 fix: exponential backoff retries for transient sibling-service hiccups.
+// Callers can override retries: write operations (runWorkflow) pass 0 so a replay cannot run the DAG twice.
 async function callFusionCowork({ method, path, body, config, retries }) {
     const baseUrl = config?.url || DEFAULT_URL;
     const url = `${baseUrl}${path}`;
@@ -47,7 +47,7 @@ async function getWorkflow(config, workflowId) {
 }
 
 async function runWorkflow(config, workflowId, input) {
-    // 写操作不重试, 防止 5xx 后重放致 DAG 重复执行
+    // Write operations are not retried, so a replay after a 5xx cannot run the DAG twice
     return callFusionCowork({
         method: 'POST',
         path: `/api/workflows/${workflowId}/run`,

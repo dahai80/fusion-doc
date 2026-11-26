@@ -1,8 +1,8 @@
 // =============================================================================
-// Fusion-Doc — Fusion-Gateway Union Web shell 集成 (issue #51, PRD R-6)
-// manifest 自注册 + 心跳: POST /api/v1/shell/manifests
-// 鉴权: Authorization: Bearer <FUSION_ADMIN_KEY> (master/admin-key 面)
-// 默认端口: 11432
+// Fusion-Doc — Fusion-Gateway Union Web shell integration (issue #51, PRD R-6)
+// Manifest self-registration + heartbeat: POST /api/v1/shell/manifests
+// Auth: Authorization: Bearer <FUSION_ADMIN_KEY> (master/admin-key surface)
+// Default port: 11432
 // =============================================================================
 
 const httpFetch = globalThis.fetch;
@@ -16,9 +16,9 @@ async function callGateway({ method, path, body, config, retries, timeoutMs }) {
     const adminKey = config?.adminKey || '';
     const url = `${baseUrl}${path}`;
     if (!adminKey) {
-        throw new Error('FUSION_ADMIN_KEY 未设置, 无法调用 gateway shell API');
+        throw new Error('FUSION_ADMIN_KEY not set, cannot call gateway shell API');
     }
-    // 注册/心跳幂等, 瞬时抖动可重试 (网络错误/5xx); 4xx 立即失败
+    // Registration/heartbeat are idempotent, so transient blips may be retried (network errors/5xx); 4xx fails immediately
     const resp = await fetchWithRetry(() => {
         const controller = new AbortCtrl();
         const timer = setTimeout(() => controller.abort(), timeoutMs || 10000);
@@ -35,7 +35,7 @@ async function callGateway({ method, path, body, config, retries, timeoutMs }) {
     return await resp.json();
 }
 
-// manifest 自注册 (幂等, 按 id upsert)
+// Manifest self-registration (idempotent, upsert by id)
 async function registerManifest({ config, manifest }) {
     return callGateway({
         method: 'POST',
@@ -45,7 +45,7 @@ async function registerManifest({ config, manifest }) {
     });
 }
 
-// 模块心跳 (网关侧健康探测补充; admin-key 面)
+// Module heartbeat (supplements gateway-side health probing; admin-key surface)
 async function sendHeartbeat({ config, moduleId }) {
     return callGateway({
         method: 'POST',

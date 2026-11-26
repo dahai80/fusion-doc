@@ -1,32 +1,32 @@
 // =============================================================================
-// E8 修复: 行为测试 — 工具函数 (uid 唯一性, slugify)
+// E8 fix: behavior tests — utility functions (uid uniqueness, slugify)
 // =============================================================================
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { uid, now, slugify } = require('../../server/utils/helpers');
 
-test('uid: 生成唯一且不重复', () => {
+test('uid: generates unique, non-repeating ids', () => {
     const set = new Set();
     for (let i = 0; i < 1000; i++) set.add(uid());
-    assert.equal(set.size, 1000, '1000 个 uid 全部唯一');
+    assert.equal(set.size, 1000, 'all 1000 uids are unique');
 });
 
-test('uid: 长度非空', () => {
+test('uid: non-empty length', () => {
     const id = uid();
-    assert.ok(id && id.length >= 16, `uid 过短: ${id}`);
+    assert.ok(id && id.length >= 16, `uid too short: ${id}`);
 });
 
-test('now: ISO8601 格式', () => {
+test('now: ISO8601 format', () => {
     const t = now();
     assert.match(t, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
 });
 
-test('slugify: 转小写连字符', () => {
+test('slugify: lowercases and hyphenates', () => {
     assert.equal(slugify('Hello World'), 'hello-world');
     assert.equal(slugify('My Doc Title 2'), 'my-doc-title-2');
 });
 
-test('slugify: 剥离特殊字符', () => {
+test('slugify: strips special characters', () => {
     assert.equal(slugify('A/B\\C?D=E'), 'abcde');
     assert.equal(slugify('  spaces  '), '-spaces-');
     assert.equal(slugify(''), '');

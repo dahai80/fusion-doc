@@ -1,9 +1,9 @@
-// ── Shell 桥接 (issue #58 → #62): 内嵌 fusion-web-shell 时跟随宿主主题/语言 ──
-// #62 起改用 vendored @fusion/web-sdk v0.1.2 (client/src/vendor/fusion-web-sdk.js),
-// 不再手写 postMessage 协议: 心跳 ping/pong、theme 后台补拉 (宿主 mount 时 push
-// 可能落在 about:blank 上丢失, fusion-web-shell#77)、origin 校验均由 SDK 内部处理。
-// 消费方式见 fusion-web-shell docs/module-integration-notes.md §2:
-//   theme.get() 同步一次性读 (可能滞后), theme.subscribe() 为唯一事实来源。
+// ── Shell bridge (issue #58 → #62): follow the host theme/language when embedded in fusion-web-shell ──
+// Since #62 this uses the vendored @fusion/web-sdk v0.1.2 (client/src/vendor/fusion-web-sdk.js)
+// instead of a hand-written postMessage protocol: heartbeat ping/pong, background theme re-fetch (a push at host mount
+// can land on about:blank and be lost, fusion-web-shell#77), and origin checks are all handled inside the SDK.
+// Usage: see fusion-web-shell docs/module-integration-notes.md §2:
+//   theme.get() is a one-off synchronous read (may lag); theme.subscribe() is the single source of truth.
 import { isEmbedded } from './embedded';
 import { createShellSdk } from '../vendor/fusion-web-sdk';
 import { useUIStore } from '../stores/uiStore';
@@ -31,15 +31,15 @@ export function initShellSync() {
 
     const sdk = createShellSdk();
 
-    // 主题: 首帧仍用模块自身初始绘制 (中性兜底), 订阅宿主变化为唯一事实来源;
-    // SDK 内部后台拉取宿主真实值, 与首帧不一致时订阅回调会纠正。
+    // Theme: the first frame still uses the module's own initial paint (neutral fallback); host changes via subscribe are the single source of truth;
+    // the SDK fetches the host's real value in the background, and the subscribe callback corrects it if it differs from the first frame.
     applyTheme(sdk.theme.get());
     sdk.theme.subscribe(applyTheme);
 
-    // 语言: 走 SDK i18n 通道 (宿主 lang 事件 → subscribe 回调), 与标签标题同步机制一致
+    // Language: goes through the SDK i18n channel (host lang event → subscribe callback), same sync mechanism as tab titles
     applyLang(sdk.i18n.lang());
     sdk.i18n.subscribe(applyLang);
 
-    // 心跳 ping/pong 由 SDK 应答, 宿主 liveness 检测标记本模块存活
+    // Heartbeat ping/pong is answered by the SDK; the host's liveness check marks this module alive
     console.log('[ShellBridge] host sync initialized via @fusion/web-sdk (embedded mode)');
 }

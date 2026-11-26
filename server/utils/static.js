@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 静态文件服务
-// 参考 MacDown 的 macOS 原生响应设计
+// Fusion-Doc — static file serving
+// Modeled on MacDown's native macOS response design
 // =============================================================================
 
 const fs = require('fs');
@@ -17,8 +17,8 @@ const MIME = {
   '.pdf': 'application/pdf',
 };
 
-// R1 修复: 路径沙箱。所有静态请求必须落在 publicDir 内, 拒绝 .. 越界与符号链接逃逸。
-// 原设计 path.join(publicDir, '/branding/../../.env') 直读项目根 .env 窃取密钥。
+// R1 fix: path sandbox. Every static request must resolve inside publicDir; reject .. traversal and symlink escapes.
+// The old design let path.join(publicDir, '/branding/../../.env') read the project-root .env and leak secrets.
 function isPathSafe(publicDir, targetPath) {
   const root = path.resolve(publicDir);
   const resolved = path.resolve(targetPath);
@@ -26,8 +26,8 @@ function isPathSafe(publicDir, targetPath) {
     return false;
   }
   try {
-    // 关键: publicDir 本身可能含符号链接 (如 macOS /tmp → /private/tmp),
-    // 必须用 realRoot 比较, 否则合法根路径被误判越界。
+    // Key point: publicDir itself may contain symlinks (e.g. macOS /tmp → /private/tmp),
+    // so compare against realRoot, otherwise legitimate root paths are misjudged as escaping.
     const realRoot = fs.realpathSync(root);
     const real = fs.realpathSync(resolved);
     if (real !== realRoot && !real.startsWith(realRoot + path.sep)) return false;
@@ -39,7 +39,7 @@ function isPathSafe(publicDir, targetPath) {
 
 function serveStatic(res, filePath, publicDir) {
   if (!publicDir || !isPathSafe(publicDir, filePath)) {
-    console.error(`[static] 拒绝越界路径: ${filePath}`);
+    console.error(`[static] Rejected path outside public dir: ${filePath}`);
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Forbidden' }));
     return;
@@ -58,10 +58,10 @@ function serveStatic(res, filePath, publicDir) {
   });
 }
 
-// issue #60: 深链修复。构建产物 base 为 './' (根部署 + /shell/ 子路径共用一份),
-// 直接访问 /page/<uuid> 时浏览器把 ./assets 解析到 /page/assets/ — 又落回 SPA
-// fallback 拿到 text/html, MIME 报错白屏。由调用方计算正确的挂载根
-// (根部署深链为 '/', 网关 shell 代理为 /shell/<id>/), 此处只负责安全注入。
+// issue #60: deep-link fix. The build output uses base './' (one build shared by root deployment and the /shell/ subpath),
+// so visiting /page/<uuid> directly makes the browser resolve ./assets to /page/assets/ — which falls back to the SPA
+// fallback, gets text/html, and shows a blank page on MIME errors. The caller computes the correct mount root
+// ('/' for root-deployment deep links, /shell/<id>/ behind the gateway shell proxy); this function only injects it safely.
 function serveSPA(res, publicDir, baseHref) {
     const indexPath = path.join(publicDir, 'index.html');
     fs.readFile(indexPath, (_, data) => {
@@ -70,7 +70,7 @@ function serveSPA(res, publicDir, baseHref) {
             res.end(JSON.stringify({ error: 'SPA index.html not found' }));
             return;
         }
-        // 只接受安全前缀: 以 / 开头的纯路径段序列 (含单独 '/'), 拒绝 .. 段 / 编码注入
+        // Only accept safe prefixes: plain path segment sequences starting with / (including a bare '/'); reject .. segments / encoded injection
         const safeHref = typeof baseHref === 'string'
             && /^\/(?:[A-Za-z0-9\-._]+\/)*$/.test(baseHref)
             && !/(^|\/)\.\.(\/|$)/.test(baseHref)

@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — AI Copilot 控制器
-// 编辑器内嵌 AI 操作：续写、改写、翻译、摘要、命令面板
+// Fusion-Doc — AI Copilot controller
+// In-editor AI actions: continue, rewrite, translate, summarize, command palette
 // =============================================================================
 /* global AbortController */
 
@@ -8,20 +8,20 @@ const { parseBody } = require('../middleware/body-parser');
 const { callFusionMLXStream } = require('../integrations/fusion-mlx');
 const { json, error } = require('../utils/response');
 const { buildContext, buildSystemPrompt, truncateAtBoundary, MAX_SELECTION_CHARS } = require('../services/ai-copilot');
-// S5 修复: Copilot 读页内容须校验归属, 杜绝以他人私有页内容续写/改写/翻译 (IDOR)
+// S5 fix: Copilot must verify ownership before reading page content, preventing continue/rewrite/translate on others' private pages (IDOR)
 const { canReadPage } = require('../middleware/authz');
-// issue #45: AI token 用量上报 fusion-identity (fire-and-forget)
+// issue #45: report AI token usage to fusion-identity (fire-and-forget)
 const identity = require('../integrations/fusion-identity');
 
 function register(app) {
     const { db } = app;
 
-    // S5: 校验 page_id 归属读权限。返 { allowed: bool }。无 page_id 视为允许 (仅用用户自传文本)。
-    // issue #45: 叠加租户边界 — 跨租户页一律拒读 (红线2)
+    // S5: verify read permission on page_id ownership. Returns { allowed: bool }. No page_id counts as allowed (only user-supplied text is used).
+    // issue #45: tenant boundary on top — cross-tenant pages are always denied (red line 2)
     function canReadCopilotPage(req, page_id) {
         if (!page_id || !db) return true;
         const page = db.prepare('SELECT id, tenant_id, is_published, created_by FROM pages WHERE id = ?').get(page_id);
-        if (!page) return true; // 不存在页 → buildContext 自身取不到, 无泄露面
+        if (!page) return true; // nonexistent page → buildContext cannot fetch it either, no leak surface
         const tid = req.user?.tid;
         if (tid && page.tenant_id && page.tenant_id !== tid) return false;
         if (req.user?.role === 'admin' || req.user?.role === 'tenant_admin') return true;
@@ -31,94 +31,94 @@ function register(app) {
         return owner === (req.user?.id || 'local');
     }
 
-    // issue #69 P1: 选区大小上限服务端强校验。超限 413 + 可操作提示 (先摘要/分段),
-    // 50k 全选不再直达 LLM (上下文窗口爆/网关超时/租户 token 账单失控)。
+    // issue #69 P1: strict server-side cap on selection size. Over the cap → 413 + actionable hint (summarize/split first),
+    // so a 50k select-all no longer reaches the LLM (blown context window / gateway timeout / runaway tenant token bill).
     function checkSelectionSize(res, selected_text) {
         if (selected_text && selected_text.length > MAX_SELECTION_CHARS) {
             console.warn(`[AI Copilot] selection too long: ${selected_text.length} chars > ${MAX_SELECTION_CHARS}`);
-            error(res, `选中内容过长 (${selected_text.length} 字符, 上限 ${MAX_SELECTION_CHARS})，请先摘要或分段处理`, 413, 'SELECTION_TOO_LONG');
+            error(res, `Selection too long (${selected_text.length} chars, limit ${MAX_SELECTION_CHARS}); summarize or split it first`, 413, 'SELECTION_TOO_LONG');
             return false;
         }
         return true;
     }
 
-    // ── 内联续写 ────────────────────────────────────────────────────────
+    // ── Inline continuation ────────────────────────────────────────────────────────
     app.registerRoute('POST', '/api/copilot/complete', async (req, res) => {
         const body = await parseBody(req);
         const { page_id, text_before, text_after } = body;
-        if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!canReadCopilotPage(req, page_id)) return error(res, 'No permission to read this page', 403, 'FORBIDDEN');
         const context = await buildContext(db, page_id, text_before, '', text_after);
         streamCopilotResponse(req, app, res, context, 'complete');
     });
 
-    // ── 改写 ────────────────────────────────────────────────────────────
+    // ── Rewrite ────────────────────────────────────────────────────────────
     app.registerRoute('POST', '/api/copilot/rewrite', async (req, res) => {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after, instruction } = body;
-        if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!canReadCopilotPage(req, page_id)) return error(res, 'No permission to read this page', 403, 'FORBIDDEN');
         if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'rewrite', instruction);
     });
 
-    // ── 翻译 ────────────────────────────────────────────────────────────
+    // ── Translate ────────────────────────────────────────────────────────────
     app.registerRoute('POST', '/api/copilot/translate', async (req, res) => {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after, language } = body;
-        if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!canReadCopilotPage(req, page_id)) return error(res, 'No permission to read this page', 403, 'FORBIDDEN');
         if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'translate', language);
     });
 
-    // ── 摘要 ────────────────────────────────────────────────────────────
+    // ── Summarize ────────────────────────────────────────────────────────────
     app.registerRoute('POST', '/api/copilot/summarize', async (req, res) => {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after } = body;
-        if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!canReadCopilotPage(req, page_id)) return error(res, 'No permission to read this page', 403, 'FORBIDDEN');
         if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'summarize');
     });
 
-    // ── 扩展 ────────────────────────────────────────────────────────────
+    // ── Expand ────────────────────────────────────────────────────────────
     app.registerRoute('POST', '/api/copilot/expand', async (req, res) => {
         const body = await parseBody(req);
         const { page_id, text_before, selected_text, text_after } = body;
-        if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!canReadCopilotPage(req, page_id)) return error(res, 'No permission to read this page', 403, 'FORBIDDEN');
         if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text, text_after);
         streamCopilotResponse(req, app, res, context, 'expand');
     });
 
-    // ── 命令面板 ────────────────────────────────────────────────────────
+    // ── Command palette ────────────────────────────────────────────────────────
     app.registerRoute('POST', '/api/copilot/command', async (req, res) => {
         const body = await parseBody(req);
         const { page_id, command, prompt, text_before, selected_text, text_after } = body;
-        if (!canReadCopilotPage(req, page_id)) return error(res, '无权读取该页面', 403, 'FORBIDDEN');
+        if (!canReadCopilotPage(req, page_id)) return error(res, 'No permission to read this page', 403, 'FORBIDDEN');
         if (!checkSelectionSize(res, selected_text)) return;
         const context = await buildContext(db, page_id, text_before, selected_text || '', text_after);
         const systemPrompt = buildSystemPrompt(command, prompt);
         streamCopilotResponse(req, app, res, context, command, prompt);
     });
 
-    // ── 获取页面上下文 (S5: 加读归属校验) ─────────────────────────────
+    // ── Get page context (S5: read ownership check added) ─────────────────────────────
     app.registerRoute('GET', '/api/copilot/context/:id', async (req, res) => {
         const { id } = req.params;
         try {
             let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : null;
             if (!page) return json(res, { context: '' });
             if (!canReadPage(req, res, page)) return;
-            // issue #69 P2: 边界感知截断代替盲切
+            // issue #69 P2: boundary-aware truncation instead of blind cutting
             const content = truncateAtBoundary((page.content || '').replace(/<[^>]+>/g, ''), 3000);
-            json(res, { context: `文档: ${page.title}\n${content}` });
+            json(res, { context: `文档: ${page.title}\n${content}` }); // i18n: user-facing
         } catch (e) {
             error(res, `Context fetch failed: ${e.message}`, 500);
         }
     });
 }
 
-// ── SSE 流式响应 ────────────────────────────────────────────────────────────
+// ── SSE streaming response ────────────────────────────────────────────────────────────
 async function streamCopilotResponse(req, app, res, context, action, extra) {
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -132,7 +132,7 @@ async function streamCopilotResponse(req, app, res, context, action, extra) {
         { role: 'user', content: context },
     ];
 
-    // R7 修复: 客户端断开时真正 abort 上游 MLX 流 (原设计零 close 监听, 连接泄漏致 EMFILE)
+    // R7 fix: actually abort the upstream MLX stream on client disconnect (original design had no close listener; leaked connections caused EMFILE)
     let aborted = false;
     let lastUsage = null;
     const abortController = new AbortController();
@@ -151,7 +151,7 @@ async function streamCopilotResponse(req, app, res, context, action, extra) {
         }
         res.write('data: [DONE]\n\n');
         res.end();
-        // issue #45: 流结束后 fire-and-forget 上报 token 用量
+        // issue #45: fire-and-forget token usage report after the stream ends
         const _tid = req?.user?.tid;
         if (_tid && _tid !== 'local-tenant' && lastUsage) {
             const _t = Number(lastUsage.total_tokens) || 0;

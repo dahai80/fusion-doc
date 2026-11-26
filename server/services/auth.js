@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 服务层：认证服务
-// 业务逻辑：密码哈希、Token 管理、多认证策略
+// Fusion-Doc — service layer: authentication service
+// Business logic: password hashing, token management, multiple auth strategies
 // =============================================================================
 
 const crypto = require('crypto');
@@ -13,8 +13,8 @@ class AuthService {
     this.config = app.config.auth;
   }
 
-  // 密码哈希（scrypt 慢哈希, 抗离线爆破; 商用级）
-  // 格式: scrypt:N:r:p:salt:hash (N=2^15, r=8, p=1, salt=16B, keyLen=64B)
+  // Password hashing (scrypt slow hash, resists offline brute force; production-grade)
+  // Format: scrypt:N:r:p:salt:hash (N=2^15, r=8, p=1, salt=16B, keyLen=64B)
   hashPassword(password) {
     const salt = crypto.randomBytes(16);
     const keyLen = 64;
@@ -23,7 +23,7 @@ class AuthService {
     return `scrypt:32768:8:1:${salt.toString('hex')}:${hash.toString('hex')}`;
   }
 
-  // 验证密码 (兼容旧版 SHA-256 哈希, 命中时自动升级到 scrypt)
+  // Verify password (compatible with legacy SHA-256 hashes, auto-upgraded to scrypt on match)
   verifyPassword(password, stored) {
     if (stored.startsWith('scrypt:')) {
       const [_algo, N, r, p, saltHex, hashHex] = stored.split(':');
@@ -33,11 +33,11 @@ class AuthService {
       const computed = crypto.scryptSync(password, salt, keyLen, opts);
       return crypto.timingSafeEqual(computed, Buffer.from(hashHex, 'hex'));
     }
-    // 旧版 HMAC-SHA256 (兼容已存量数据) — 恒定时间比较
-    // issue #48: 拒绝非哈希格式 (明文/畸形), 杜绝 createHmac(undefined) 抛错
+    // Legacy HMAC-SHA256 (compatible with existing data) — constant-time comparison
+    // issue #48: reject non-hash formats (plaintext/malformed) to prevent createHmac(undefined) from throwing
     const parts = stored.split(':');
     if (parts.length < 2 || !parts[0] || !parts[1]) {
-      console.warn('[Auth] verifyPassword: 拒绝非哈希存储格式 (疑似明文)');
+      console.warn('[Auth] verifyPassword: rejected non-hash stored format (likely plaintext)');
       return false;
     }
     const salt = parts[0];
@@ -49,17 +49,17 @@ class AuthService {
     return crypto.timingSafeEqual(a, b);
   }
 
-  // 登录
+  // Login
   login(email, password) {
     let user = this.db
       ? this.db.prepare('SELECT * FROM users WHERE email = ?').get(email)
       : require('../db').listJSON('users').find(u => u.email === email);
-    // 统一错误信息, 杜绝用户名枚举 oracle
-    const GENERIC = '邮箱或密码错误';
+    // Uniform error message to prevent a username-enumeration oracle
+    const GENERIC = 'Invalid email or password';
     if (!user) return { error: GENERIC };
     if (!this.verifyPassword(password, user.password)) return { error: GENERIC };
-    // 旧版哈希自动升级到 scrypt (透明迁移, 仅在命中旧格式时触发)
-    // issue #48: JSON 模式同样升级并持久化, 之前仅 SQLite 升级导致明文种子永不迁移
+    // Auto-upgrade legacy hashes to scrypt (transparent migration, only triggered on a legacy-format match)
+    // issue #48: JSON mode is upgraded and persisted too; previously only SQLite was upgraded, so plaintext seeds never migrated
     if (!user.password.startsWith('scrypt:')) {
       const upgraded = this.hashPassword(password);
       if (this.db) {
@@ -68,13 +68,13 @@ class AuthService {
         const { writeJSON } = require('../db');
         writeJSON('users', user.id, { ...user, password: upgraded });
       }
-      console.log(`  [Auth] 用户 ${email} 密码哈希已升级到 scrypt`);
+      console.log(`  [Auth] Password hash for user ${email} upgraded to scrypt`);
     }
     const token = createToken({ id: user.id, role: user.role }, this.config.jwtSecret, this.config.sessionExpiry);
     return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
   }
 
-  // 注册
+  // Register
   register(email, name, password, role = 'user') {
     const { uid, now } = require('../utils/helpers');
     const userId = uid();

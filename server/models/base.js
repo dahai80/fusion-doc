@@ -1,21 +1,21 @@
 // =============================================================================
-// Fusion-Doc — 模型层基类
-// 封装 SQLite 查询构建器，支持 JSON 文件降级
-// 参考 DocMost Prisma + BookStack Eloquent 设计
+// Fusion-Doc — model layer base class
+// Wraps a SQLite query builder, with JSON file fallback
+// Modeled on DocMost Prisma + BookStack Eloquent
 //
-// ⚠️ P3-27 维护性: 孤儿层, 当前未被引用 (见 ./index.js 说明)。
-//    其中 WHERE 字段名/ORDER BY 直接插值, 接入时须对 identifier 做白名单校验。
+// ⚠️ P3-27 maintainability: orphan layer, currently unreferenced (see notes in ./index.js).
+//    WHERE field names/ORDER BY are interpolated directly; identifiers must be whitelist-validated when wiring this in.
 // =============================================================================
 
 const { uid, now } = require('../utils/helpers');
 
-// S8 修复: identifier (表名/字段名/ORDER BY 列) 直接插值入 SQL 有注入风险。
-// 虽本层当前为孤儿层未被引用, 但接入时若传用户可控字段名即可复活注入。
-// 这里加白名单守卫: identifier 仅允许 [A-Za-z0-9_] 且非空, 杜绝引号/分号/空格注入。
+// S8 fix: interpolating identifiers (table names/field names/ORDER BY columns) directly into SQL is an injection risk.
+// Although this layer is currently an unreferenced orphan, passing user-controlled field names once it is wired in would revive the injection.
+// Whitelist guard here: identifiers may only contain [A-Za-z0-9_] and must be non-empty, ruling out quote/semicolon/space injection.
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function assertIdentifier(name, label) {
     if (typeof name !== 'string' || !IDENT_RE.test(name)) {
-        throw new Error(`[Model] 非法 identifier (${label}): ${String(name)}`);
+        throw new Error(`[Model] Invalid identifier (${label}): ${String(name)}`);
     }
     return name;
 }
@@ -27,7 +27,7 @@ class Model {
     this.jsonDir = jsonDir || tableName;
   }
 
-  // ── 查询全部 ──────────────────────────────────────────────────────────
+  // ── Find all ──────────────────────────────────────────────────────────
   all(options = {}) {
     const { orderBy = null, orderDir = 'ASC', limit = null, offset = null } = options;
     if (this.db) {
@@ -40,7 +40,7 @@ class Model {
     return this._listJSON();
   }
 
-  // ── 按 ID 查询 ────────────────────────────────────────────────────────
+  // ── Find by ID ────────────────────────────────────────────────────────
   find(id) {
     if (this.db) {
       return this.db.prepare(`SELECT * FROM ${this.tableName} WHERE id = ?`).get(id);
@@ -48,7 +48,7 @@ class Model {
     return this._readJSON(id);
   }
 
-  // ── 按条件查询（单条） ─────────────────────────────────────────────────
+  // ── Find by condition (single) ────────────────────────────────────────
   findBy(field, value) {
     if (this.db) {
       assertIdentifier(field, 'findBy.field');
@@ -57,7 +57,7 @@ class Model {
     return this._listJSON().find(item => item[field] === value) || null;
   }
 
-  // ── 按条件查询（多条） ─────────────────────────────────────────────────
+  // ── Find by condition (multiple) ──────────────────────────────────────
   where(field, value) {
     if (this.db) {
       assertIdentifier(field, 'where.field');
@@ -66,7 +66,7 @@ class Model {
     return this._listJSON().filter(item => item[field] === value);
   }
 
-  // ── 自定义查询 ─────────────────────────────────────────────────────────
+  // ── Custom query ──────────────────────────────────────────────────────
   query(sql, params = []) {
     if (this.db) {
       return this.db.prepare(sql).all(...params);
@@ -74,14 +74,14 @@ class Model {
     return [];
   }
 
-  // ── 创建 ───────────────────────────────────────────────────────────────
+  // ── Create ────────────────────────────────────────────────────────────
   create(data) {
     const id = data.id || uid();
     const record = { id, ...data, created_at: data.created_at || now(), updated_at: data.updated_at || now() };
 
     if (this.db) {
       const keys = Object.keys(record);
-      // S8: 校验全部列名合法, 防 data 键注入列名
+      // S8: validate that all column names are legal, preventing column-name injection via data keys
       keys.forEach(k => assertIdentifier(k, 'create.key'));
       const placeholders = keys.map(() => '?').join(', ');
       const values = keys.map(k => record[k]);
@@ -92,7 +92,7 @@ class Model {
     return record;
   }
 
-  // ── 更新 ───────────────────────────────────────────────────────────────
+  // ── Update ────────────────────────────────────────────────────────────
   update(id, data) {
     const record = { ...data, updated_at: now() };
 
@@ -112,7 +112,7 @@ class Model {
     return { ...this.find(id), updated: true };
   }
 
-  // ── 删除 ───────────────────────────────────────────────────────────────
+  // ── Delete ────────────────────────────────────────────────────────────
   delete(id) {
     if (this.db) {
       this.db.prepare(`DELETE FROM ${this.tableName} WHERE id = ?`).run(id);
@@ -122,7 +122,7 @@ class Model {
     return { deleted: true, id };
   }
 
-  // ── 计数 ───────────────────────────────────────────────────────────────
+  // ── Count ─────────────────────────────────────────────────────────────
   count(where = null) {
     if (this.db) {
       if (where) {
@@ -134,7 +134,7 @@ class Model {
     return this._listJSON().length;
   }
 
-  // ── JSON 降级存储 ──────────────────────────────────────────────────────
+  // ── JSON fallback storage ─────────────────────────────────────────────
   _readJSON(id) {
     const { readJSON } = require('../db');
     return readJSON(this.jsonDir, id);

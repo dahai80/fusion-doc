@@ -1,34 +1,34 @@
 # =============================================================================
-# Fusion-Doc V0.1 — MaxKB 自定义改造补丁
+# Fusion-Doc V0.1 — MaxKB customization patch
 # =============================================================================
-# 改造内容：
-# 1. 移除所有云端模型依赖，仅保留本地模型
-# 2. 对接 Fusion-MLX 本地推理接口
-# 3. 新增代码文档分块策略
-# 4. 适配 MLX Embedding 推理
-# 5. 优化 Apple Silicon 显存调度
+# Changes:
+# 1. Remove all cloud model dependencies, keep only local models
+# 2. Integrate the Fusion-MLX local inference API
+# 3. Add a chunking strategy for code documents
+# 4. Adapt MLX embedding inference
+# 5. Optimize Apple Silicon memory scheduling
 # =============================================================================
 
-# ── settings.py 修改 ──────────────────────────────────────────────────────
-# 移除所有云端模型供应商，仅保留本地模型
-# 原: MODEL_PROVIDERS = ['openai', 'anthropic', 'azure', 'ollama', ...]
-# 改为:
-# 仅保留本地模型供应商
+# ── settings.py changes ───────────────────────────────────────────────────
+# Remove all cloud model providers, keep only local models
+# Before: MODEL_PROVIDERS = ['openai', 'anthropic', 'azure', 'ollama', ...]
+# After:
+# Keep only local model providers
 
-# ── 新增 fusion_mlx 模型适配器 ──────────────────────────────────────────
-# 文件: apps/server/model_providers/fusion_mlx/__init__.py
+# ── New fusion_mlx model adapter ────────────────────────────────────────
+# File: apps/server/model_providers/fusion_mlx/__init__.py
 
 import os
 import httpx
 from typing import Any
 
-# 默认经 fusion-gateway 11432 统一组网 (方案B); env 可覆盖回直连 11434
+# Defaults to the unified fusion-gateway network on 11432 (option B); env can override back to direct 11434
 FUSION_MLX_URL = os.environ.get("FUSION_MLX_URL", "http://localhost:11432")
-# key 由部署 env 注入, 严禁字面量默认值; 空则调用时报错 (fail visibly)
+# key is injected by the deployment env, never a literal default; if empty, calls error out (fail visibly)
 FUSION_CLIENT_KEY = os.environ.get("FUSION_CLIENT_KEY", "")
 
 class FusionMLXModelProvider:
-    """仅对接本地 Fusion-MLX 推理引擎"""
+    """Integrates only with the local Fusion-MLX inference engine"""
 
     def __init__(self):
         self.client = httpx.Client(
@@ -55,8 +55,8 @@ class FusionMLXModelProvider:
         })
         return resp.json()["results"]
 
-# ── settings.py 修改 ──────────────────────────────────────────────────────
-# 将默认模型供应商改为 fusion_mlx
+# ── settings.py changes ───────────────────────────────────────────────────
+# Change the default model provider to fusion_mlx
 # DEFAULT_MODEL_PROVIDER = 'fusion_mlx'
 # DEFAULT_CHAT_MODEL = 'qwen2.5-7b-instruct'
 # DEFAULT_EMBEDDING_MODEL = 'bge-small-en-v1.5'

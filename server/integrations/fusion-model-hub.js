@@ -1,7 +1,7 @@
 // =============================================================================
-// Fusion-Doc — Fusion-Model-Hub 模型管理桥接
-// 查询可用模型列表和状态，用于 AI 功能的模型选择
-// 默认端口: 11444
+// Fusion-Doc — Fusion-Model-Hub model management bridge
+// Queries the available model list and status for model selection in AI features
+// Default port: 11444
 // =============================================================================
 
 const httpFetch = globalThis.fetch;

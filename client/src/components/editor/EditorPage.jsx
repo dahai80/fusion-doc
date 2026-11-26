@@ -17,26 +17,26 @@ import { AIGhostText } from './AIGhostText';
 import AIBubbleMenu from './AIBubbleMenu';
 import { AISlashCommand } from './AISlashCommand';
 import { BiLinkNode, BiLinkExtension } from './BiLinkExtension';
-// F6 修复: WorkflowBadge / OfficePanel 已实现但从未挂载, 是死代码。
-// 接入编辑器: 头部挂工作流状态徽章 + 可折叠 Office 面板抽屉。
+// F6 fix: WorkflowBadge / OfficePanel were implemented but never mounted, i.e. dead code.
+// Wired into the editor: header gets the workflow status badge + a collapsible Office panel drawer.
 import WorkflowBadge from '../workflow/WorkflowBadge';
 import OfficePanel from '../office/OfficePanel';
-// P0-F3 修复: 实时协作 (Yjs) 协议层未实现 (客户端 y-websocket 二进制 vs 服务端 JSON 中继),
-// 原 UI "协作" 按钮切换 collabEnabled 但从不接线 provider, 是死代码 + 功能谎言。
-// 移除误导 UI 与未接线导入, 协作列为未发布特性 (见审计报告 A1/A2 已知限制)。
+// P0-F3 fix: the real-time collaboration (Yjs) protocol layer is not implemented (client y-websocket binary vs server JSON relay);
+// the old UI "collaborate" button toggled collabEnabled but never wired a provider: dead code + a false feature claim.
+// Removed the misleading UI and unwired imports; collaboration is listed as an unreleased feature (see audit report A1/A2 known limitations).
 
 export default function EditorPage() {
     const { id } = useParams();
     const { currentPage, fetchPage, updatePage } = usePageStore();
     const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
     const t = useT();
-    // F6: Office 面板抽屉开关 (默认收起)
+    // F6: Office panel drawer toggle (collapsed by default)
     const [officeOpen, setOfficeOpen] = useState(false);
     const saveTimerRef = useRef(null);
     const lastContentRef = useRef('');
-    // R28 修复: useEditor 的 onUpdate/handleKeyDown 闭包在 editor 创建时冻结,
-    // currentPage 变化后旧闭包仍指向旧 page, 保存写入旧 page。
-    // 用 ref 始终读最新 currentPage, 闭包只读 ref 不捕获 page。
+    // R28 fix: the onUpdate/handleKeyDown closures of useEditor are frozen when the editor is created;
+    // after currentPage changes the old closures still point to the old page, so saves write to the old page.
+    // Use a ref that always reads the latest currentPage; closures only read the ref and never capture page.
     const currentPageRef = useRef(currentPage);
     useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
 
@@ -45,7 +45,7 @@ export default function EditorPage() {
     }, [id]);
 
     const handleContentChange = useCallback((html) => {
-        // R28: 读 ref 而非闭包 currentPage
+        // R28: read the ref instead of the closure's currentPage
         const page = currentPageRef.current;
         if (!page) return;
         lastContentRef.current = html;
@@ -73,7 +73,7 @@ export default function EditorPage() {
             StarterKit.configure({
                 heading: { levels: [1, 2, 3] },
                 codeBlock: { HTMLAttributes: { class: 'rounded-lg' } },
-                // v3 StarterKit 自带 link/underline, 直接在 kit 内配置避免重复注册
+                // v3 StarterKit ships link/underline; configure them inside the kit to avoid duplicate registration
                 link: {
                     openOnClick: false,
                     HTMLAttributes: { class: 'text-brand-400 underline' },
@@ -89,7 +89,7 @@ export default function EditorPage() {
             Typography,
             Image.configure({ inline: false, allowBase64: true }),
             Placeholder.configure({
-                placeholder: t('开始输入，或按 / 触发 AI 命令...', 'Start typing, or press / for AI commands...'),
+                placeholder: t('开始输入，或按 / 触发 AI 命令...', 'Start typing, or press / for AI commands...'), // i18n: user-facing
             }),
             CharacterCount,
             BiLinkNode,
@@ -128,8 +128,8 @@ export default function EditorPage() {
         return () => { window.__fusionDocEditor = null; };
     }, [editor]);
 
-    // R23 修复: 仅在切换页面 (id 变化) 时初始化一次内容, 避免 setContent 与输入抖动循环。
-    // P0-F3: 协作模式已移除 (未实现), 不再有 CRDT 冲突; 仅按 id 变化 setContent。
+    // R23 fix: initialize content only once when switching pages (id changes), avoiding a setContent/typing jitter loop.
+    // P0-F3: collaboration mode removed (not implemented), so no CRDT conflicts; setContent only on id change.
     useEffect(() => {
         if (!editor || !currentPage) return;
         const current = editor.getHTML();
@@ -142,7 +142,7 @@ export default function EditorPage() {
     if (!currentPage) {
         return (
             <div className="flex-1 flex items-center justify-center text-gray-400">
-                {t('选择或创建一个文档开始编辑', 'Select or create a document to start editing')}
+                {t('选择或创建一个文档开始编辑', 'Select or create a document to start editing')}{/* i18n: user-facing */}
             </div>
         );
     }
@@ -154,7 +154,7 @@ export default function EditorPage() {
                     type="text"
                     value={currentPage.title || ''}
                     onChange={(e) => handleTitleChange(e.target.value)}
-                    placeholder={t("文档标题", "Document title")}
+                    placeholder={t("文档标题", "Document title")} // i18n: user-facing
                     className="text-xl font-semibold bg-transparent border-none outline-none flex-1 text-gray-100 placeholder-gray-500"
                 />
                 <button
@@ -184,9 +184,9 @@ export default function EditorPage() {
                 </div>
             )}
             <div className="border-t border-surface-3 px-4 py-1 flex items-center gap-4 text-xs text-gray-500">
-                <span>{t('字符', 'Chars')}: {editor?.storage.characterCount?.characters() ?? 0}</span>
-                <span>{t('词数', 'Words')}: {editor?.storage.characterCount?.words() ?? 0}</span>
-                <span className="ml-auto">{t('Cmd+J AI续写 | / 命令 | [[ 双向链接 | Tab 接受', 'Cmd+J AI complete | / commands | [[ bi-links | Tab accept')}</span>
+                <span>{t('字符', 'Chars')}: {editor?.storage.characterCount?.characters() ?? 0}</span>{/* i18n: user-facing */}
+                <span>{t('词数', 'Words')}: {editor?.storage.characterCount?.words() ?? 0}</span>{/* i18n: user-facing */}
+                <span className="ml-auto">{t('Cmd+J AI续写 | / 命令 | [[ 双向链接 | Tab 接受', 'Cmd+J AI complete | / commands | [[ bi-links | Tab accept')}</span>{/* i18n: user-facing */}
             </div>
         </div>
     );

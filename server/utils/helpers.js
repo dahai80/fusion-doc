@@ -1,16 +1,16 @@
 // =============================================================================
-// Fusion-Doc — 工具函数
+// Fusion-Doc — utility functions
 // =============================================================================
 
 const crypto = require('crypto');
 
-// P3-28: 用 crypto.randomUUID 替代 Date.now()+Math.random() — 防碰撞且不可预测
-// 保留兼容前缀形 id, 仅在随机源不可用时回退 (极少触发)
+// P3-28: use crypto.randomUUID instead of Date.now()+Math.random() — collision-resistant and unpredictable
+// Keeps a compatible prefixed id form, falling back only when the random source is unavailable (very rare)
 function uid() {
   try {
     return crypto.randomUUID();
   } catch (_) {
-    // 极端环境兜底 (非密码学安全, 仅防碰撞)
+    // Last-resort fallback for extreme environments (not cryptographically secure, collision avoidance only)
     return Date.now().toString(36) + crypto.randomBytes(6).toString('hex');
   }
 }
@@ -23,8 +23,8 @@ function slugify(text) {
   return (text || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
-// A6 修复: 列表端点分页解析。从 req.ctx.url.searchParams 读 page/size,
-// 返回 { size, offset, page }。size 上限 200, 默认 50; 防 unbounded 全表拉 OOM。
+// A6 fix: paging parser for list endpoints. Reads page/size from req.ctx.url.searchParams,
+// returns { size, offset, page }. size capped at 200, default 50; prevents an unbounded full-table pull OOM.
 function parsePaging(req) {
   const sizeRaw = parseInt(req.ctx.url.searchParams.get('size'), 10);
   const pageRaw = parseInt(req.ctx.url.searchParams.get('page'), 10);
@@ -33,8 +33,8 @@ function parsePaging(req) {
   return { size, offset: (page - 1) * size, page };
 }
 
-// issue #45: 租户上下文取值。req.user.tid 由 auth 中间件注入 (identity verify 或本地旁路)。
-// 缺失则 'local-tenant' (仅本地旁路兼容; 生产路径 auth 已 401 拦截, 此处不会到)。
+// issue #45: tenant context lookup. req.user.tid is injected by the auth middleware (identity verify or local bypass).
+// Falls back to 'local-tenant' if missing (local bypass compatibility only; on the production path auth already rejects with 401, so this is never reached).
 function tenantId(req) {
   return req.user?.tid || 'local-tenant';
 }

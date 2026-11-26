@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 协作服务
-// Yjs 文档管理 + 持久化
+// Fusion-Doc — collaboration service
+// Yjs document management + persistence
 // =============================================================================
 
 const { getDB } = require('../db');

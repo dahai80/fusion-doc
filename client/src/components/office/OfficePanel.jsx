@@ -1,5 +1,5 @@
 // =============================================================================
-// Office 导入导出面板
+// Office import/export panel
 // =============================================================================
 import { useState, useEffect } from 'react';
 import { api, apiUpload } from '../../lib/api';
@@ -53,8 +53,8 @@ export default function OfficePanel({ pageId, pageTitle }) {
         setImporting(true);
         setErr('');
         try {
-            // F7 修复: 原 /api/office/import 走 JSON parseBody, 客户端发 multipart 契约断裂。
-            // 改用 /api/office/upload-import (服务端 multipart 端点) + apiUpload 助手。
+            // F7 fix: /api/office/import used JSON parseBody while the client sent multipart, breaking the contract.
+            // Switched to /api/office/upload-import (server-side multipart endpoint) + the apiUpload helper.
             const result = await apiUpload('/office/upload-import', file);
             if (result.success || result.page_id) {
                 window.location.href = `/page/${result.page_id}`;
@@ -71,22 +71,22 @@ export default function OfficePanel({ pageId, pageTitle }) {
 
     return (
         <div className="space-y-4 p-4">
-            <h3 className="text-sm font-semibold text-gray-300">{t('Office 文档', 'Office Documents')}</h3>
+            <h3 className="text-sm font-semibold text-gray-300">{t('Office 文档', 'Office Documents')}</h3>{/* i18n: user-facing */}
             {status && !status.available && (
                 <div className="text-xs text-yellow-500 bg-yellow-500/10 rounded p-2">
-                    {t('office-api 服务不可用 — 请启动 fusion-office office-api (:11492)', 'office-api service unavailable — start fusion-office office-api (:11492)')}
+                    {t('office-api 服务不可用 — 请启动 fusion-office office-api (:11492)', 'office-api service unavailable — start fusion-office office-api (:11492)')}{/* i18n: user-facing */}
                 </div>
             )}
             {status?.available && status.capabilities && !status.capabilities.export && (
                 <div className="text-xs text-zinc-400 bg-surface-2 rounded p-2">
-                    {t('当前 office-api 仅支持 xlsx 导入与 docx 模板填充；docx/pptx 转换待上游支持', 'office-api currently supports xlsx import and docx template fill only; docx/pptx conversion awaits upstream support')}
+                    {t('当前 office-api 仅支持 xlsx 导入与 docx 模板填充；docx/pptx 转换待上游支持', 'office-api currently supports xlsx import and docx template fill only; docx/pptx conversion awaits upstream support')}{/* i18n: user-facing */}
                 </div>
             )}
             {err && (
                 <div className="text-xs text-red-400 bg-red-500/10 rounded p-2">{err}</div>
             )}
             <div className="space-y-2">
-                <label className="block text-xs text-gray-400">{t('导出格式', 'Export format')}</label>
+                <label className="block text-xs text-gray-400">{t('导出格式', 'Export format')}</label>{/* i18n: user-facing */}
                 <div className="flex gap-2">
                     {['docx', 'xlsx', 'pptx'].map(f => (
                         <button
@@ -103,10 +103,11 @@ export default function OfficePanel({ pageId, pageTitle }) {
                     disabled={exporting || !pageId || !status?.available}
                     className="w-full py-2 text-xs bg-brand-600 hover:bg-brand-500 rounded-lg disabled:opacity-40"
                 >
-                    {exporting ? t('导出中...', 'Exporting...') : t(`导出为 .${format}`, `Export as .${format}`)}
+                    {exporting ? t('导出中...', 'Exporting...') : t(`导出为 .${format}`, `Export as .${format}`)}{/* i18n: user-facing */}
                 </button>
             </div>
             <div className="border-t border-surface-3 pt-3">
+                {/* i18n: user-facing */}
                 <label className="block text-xs text-gray-400 mb-2">{t('导入文档', 'Import document')}</label>                <input
                     type="file"
                     accept=".docx,.xlsx,.pptx"

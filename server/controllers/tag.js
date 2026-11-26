@@ -1,5 +1,5 @@
 // =============================================================================
-// Fusion-Doc — 标签控制器（Teedy 标签系统）
+// Fusion-Doc — tag controller (Teedy tag system)
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
@@ -10,7 +10,7 @@ function register(app) {
   const { db } = app;
 
   app.registerRoute('GET', '/api/tags', (req, res) => {
-    // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+    // A6 fix: paging cap on the list to prevent an unbounded full-table pull OOM
     const { size, offset } = parsePaging(req);
     const data = db ? db.prepare('SELECT * FROM tags ORDER BY name LIMIT ? OFFSET ?').all(size, offset) : require('../db').listJSON('tags').slice(offset, offset + size);
     list(res, data);

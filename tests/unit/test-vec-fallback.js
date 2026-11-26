@@ -1,35 +1,35 @@
 // =============================================================================
-// 海量 KB 修复: 行为测试 — vec 索引双表映射 + 降级线性扫
-// vec 扩展缺失 → isVecLoaded() false → vectorSearch 走线性扫 (零回归)
-// vec 扩展可用 → _knnVectorSearch KNN + accessiblePageIds 权限过滤
+// Large-KB fix: behavior tests — vec index two-table mapping + linear-scan fallback
+// vec extension missing → isVecLoaded() false → vectorSearch uses a linear scan (zero regression)
+// vec extension available → _knnVectorSearch KNN + accessiblePageIds permission filtering
 // =============================================================================
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 let Database = null;
-try { Database = require('better-sqlite3'); } catch (_) { /* 跳过 DB 用例 */ }
+try { Database = require('better-sqlite3'); } catch (_) { /* skip DB cases */ }
 
-// 不依赖真实 MLX: 仿造 rag-hybrid 内部的线性扫 / KNN 逻辑, 验证降级路径 + 双表映射。
-// 直接 require rag-hybrid 会触发 fusion-mlx 依赖, 故用 require 缓存隔离 + 函数级验证。
+// No real MLX dependency: mimics rag-hybrid's internal linear-scan / KNN logic to verify the fallback path + two-table mapping.
+// Requiring rag-hybrid directly would pull in the fusion-mlx dependency, so we use require-cache isolation + function-level checks.
 
-test('vec 降级: isVecLoaded()=false 时 _vecInsertChunk/_vecDelete 跳过 (零回归)', () => {
-    // 模拟 rag-hybrid 的 vec 辅助函数: vec 未加载时双表不写
+test('vec fallback: _vecInsertChunk/_vecDelete are skipped when isVecLoaded()=false (zero regression)', () => {
+    // Simulate rag-hybrid's vec helpers: neither table is written when vec is not loaded
     const db = Database ? new Database(':memory:') : null;
     if (db) {
         db.exec(`CREATE TABLE rag_chunks (id TEXT PRIMARY KEY, page_id TEXT, vector TEXT);
                  CREATE TABLE rag_vec_map (vec_rowid INTEGER PRIMARY KEY, chunk_id TEXT);`);
     }
-    // 直接 require rag-hybrid 测其内部导出的纯函数不可行 (未导出), 故验证 isVecLoaded 行为
+    // Testing rag-hybrid's internal pure functions directly is not possible (not exported), so verify isVecLoaded behavior
     const { isVecLoaded, loadVecExtension } = require('../../server/db');
-    assert.equal(typeof isVecLoaded, 'function', 'isVecLoaded 可用');
-    // 未初始化 DB 时 loadVecExtension 不应抛致命错误 (尝试 require sqlite-vec, 失败降级)
-    // 单测环境通常无 better-sqlite3 实例传入, 跳过实际加载, 仅断言返回布尔
-    assert.equal(typeof loadVecExtension, 'function', 'loadVecExtension 可用');
+    assert.equal(typeof isVecLoaded, 'function', 'isVecLoaded is available');
+    // With an uninitialized DB, loadVecExtension must not throw fatally (tries to require sqlite-vec, falls back on failure)
+    // Unit test env usually passes no better-sqlite3 instance, so skip actual loading and only assert the type
+    assert.equal(typeof loadVecExtension, 'function', 'loadVecExtension is available');
     if (db) db.close();
 });
 
-test('vec KNN 路径逻辑: 距离→相似度归一 + 权限过滤 + topK 截断 (无 DB 依赖的纯逻辑验证)', () => {
-    // 复刻 _knnVectorSearch 的归一 + 过滤 + 排序逻辑 (rag-hybrid.js:328-364)
+test('vec KNN path logic: distance→similarity normalization + permission filtering + topK cut (pure logic, no DB dependency)', () => {
+    // Replicates _knnVectorSearch normalization + filtering + sorting logic (rag-hybrid.js:328-364)
     const WEIGHTS = { vector: 0.5 };
     const distMap = new Map([[1, 0.1], [2, 0.5], [3, 0.2]]);
     const chunks = [
@@ -37,7 +37,7 @@ test('vec KNN 路径逻辑: 距离→相似度归一 + 权限过滤 + topK 截�
         { vec_rowid: 2, id: 'c2', page_id: 'pB', chunk_text: 'car', heading: null },
         { vec_rowid: 3, id: 'c3', page_id: 'pC', chunk_text: 'dog', heading: null },
     ];
-    const accessiblePageIds = ['pA', 'pC']; // pB 不可见
+    const accessiblePageIds = ['pA', 'pC']; // pB not visible
     const allowed = new Set(accessiblePageIds);
     const filtered = chunks.filter(c => allowed.has(c.page_id));
     const result = filtered
@@ -47,30 +47,30 @@ test('vec KNN 路径逻辑: 距离→相似度归一 + 权限过滤 + topK 截�
         }))
         .sort((a, b) => b.score - a.score)
         .slice(0, 2);
-    // pB 已过滤 (权限); pA dist 0.1 → 1/1.1*0.5≈0.455 最高; pC dist 0.2 → 1/1.2*0.5≈0.417 次之
-    assert.equal(result.length, 2, '权限过滤后 topK=2 取满');
-    assert.equal(result[0].id, 'c1', 'pA 最近邻排首位');
-    assert.equal(result[1].id, 'c3', 'pC 次近邻');
-    assert.ok(result[0].score > result[1].score, '分数降序');
-    assert.ok(!result.find(r => r.page_id === 'pB'), '不可见页 pB 已剔除');
+    // pB filtered (permissions); pA dist 0.1 → 1/1.1*0.5≈0.455 highest; pC dist 0.2 → 1/1.2*0.5≈0.417 next
+    assert.equal(result.length, 2, 'topK=2 filled after permission filtering');
+    assert.equal(result[0].id, 'c1', 'pA nearest neighbor ranks first');
+    assert.equal(result[1].id, 'c3', 'pC second nearest');
+    assert.ok(result[0].score > result[1].score, 'scores descending');
+    assert.ok(!result.find(r => r.page_id === 'pB'), 'invisible page pB removed');
 });
 
-test('vec KNN 过采样: topK×KNN_OVERSAMPLE 保证权限过滤后取满', () => {
+test('vec KNN oversampling: topK×KNN_OVERSAMPLE keeps results full after permission filtering', () => {
     const KNN_OVERSAMPLE = 4;
     const topK = 2;
     const knnK = Math.max(topK * KNN_OVERSAMPLE, topK);
-    assert.equal(knnK, 8, 'KNN 取 8 个近邻 (过采样 4×)');
-    // 8 个近邻中可能含不可见页, 过滤后仍应有 >= topK 个可见
+    assert.equal(knnK, 8, 'KNN fetches 8 neighbors (4× oversampling)');
+    // The 8 neighbors may include invisible pages; >= topK visible should remain after filtering
     const knnRows = Array.from({ length: 8 }, (_, i) => ({ rowid: i + 1, distance: i * 0.1 }));
-    const chunkPages = ['pA', 'pB', 'pA', 'pC', 'pB', 'pA', 'pD', 'pC']; // pA×3 pC×2 可见
+    const chunkPages = ['pA', 'pB', 'pA', 'pC', 'pB', 'pA', 'pD', 'pC']; // pA×3 pC×2 visible
     const accessible = ['pA', 'pC'];
     const allowed = new Set(accessible);
     const visible = knnRows.filter((_, i) => allowed.has(chunkPages[i]));
-    assert.ok(visible.length >= topK, '过采样后可见 chunk 数 >= topK, 无欠取');
+    assert.ok(visible.length >= topK, 'visible chunks after oversampling >= topK, no under-fetch');
 });
 
-test('vec 双表映射: vec_rowid↔chunk_id 一致性 (TEXT 主键 → 整数 rowid 桥接)', { skip: !Database }, () => {
-    // 模拟 rag_chunks (TEXT id) 与 rag_chunks_vec (整数 rowid) + rag_vec_map 桥接
+test('vec two-table mapping: vec_rowid↔chunk_id consistency (TEXT primary key → integer rowid bridge)', { skip: !Database }, () => {
+    // Simulate rag_chunks (TEXT id) and rag_chunks_vec (integer rowid) + rag_vec_map bridge
     const db = new Database(':memory:');
     db.exec(`
         CREATE TABLE rag_chunks (id TEXT PRIMARY KEY, page_id TEXT, vector TEXT);
@@ -79,20 +79,20 @@ test('vec 双表映射: vec_rowid↔chunk_id 一致性 (TEXT 主键 → 整数 r
             chunk_id TEXT NOT NULL UNIQUE
         );
     `);
-    // 模拟 _vecInsertChunk: 写 vec 表拿 rowid (此处用自增序列模拟), 建映射
+    // Simulate _vecInsertChunk: write the vec table to get a rowid (simulated with a sequence here), create the mapping
     const chunkId = 'chunk-txt-1';
     const fakeVecRowid = 100;
     db.prepare('INSERT OR IGNORE INTO rag_vec_map(vec_rowid, chunk_id) VALUES (?, ?)').run(fakeVecRowid, chunkId);
-    // 反查: chunk_id → vec_rowid (删除时用)
+    // Reverse lookup: chunk_id → vec_rowid (used on delete)
     const row = db.prepare('SELECT vec_rowid FROM rag_vec_map WHERE chunk_id = ?').get(chunkId);
-    assert.equal(row.vec_rowid, 100, 'chunk_id 反查 vec_rowid 正确');
-    // 正查: vec_rowid → chunk_id (KNN JOIN 时用)
+    assert.equal(row.vec_rowid, 100, 'chunk_id → vec_rowid lookup correct');
+    // Forward lookup: vec_rowid → chunk_id (used in the KNN JOIN)
     const back = db.prepare('SELECT chunk_id FROM rag_vec_map WHERE vec_rowid = ?').get(fakeVecRowid);
-    assert.equal(back.chunk_id, chunkId, 'vec_rowid 反查 chunk_id 正确');
-    // 删除: 按 chunk_id 找 vec_rowid, 删映射
+    assert.equal(back.chunk_id, chunkId, 'vec_rowid → chunk_id lookup correct');
+    // Delete: find vec_rowid by chunk_id, delete the mapping
     const delRow = db.prepare('SELECT vec_rowid FROM rag_vec_map WHERE chunk_id = ?').get(chunkId);
     db.prepare('DELETE FROM rag_vec_map WHERE vec_rowid = ?').run(delRow.vec_rowid);
     const gone = db.prepare('SELECT COUNT(*) AS c FROM rag_vec_map').get().c;
-    assert.equal(gone, 0, '删除后映射表清空, 双表一致');
+    assert.equal(gone, 0, 'mapping table empty after delete, both tables consistent');
     db.close();
 });

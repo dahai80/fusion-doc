@@ -1,14 +1,14 @@
 // =============================================================================
-// Fusion-Doc — 请求体解析中间件 (商用级: 大小上限 + 超时 + 防内存耗尽)
+// Fusion-Doc — request body parsing middleware (production-grade: size cap + timeout + memory exhaustion protection)
 // =============================================================================
 
-const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB JSON 上限
-const BODY_TIMEOUT_MS = 15000; // 解析超时
-// E9 修复: JSON 嵌套深度上限, 防深度嵌套对象耗尽 V8 栈 / DoS
+const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB JSON cap
+const BODY_TIMEOUT_MS = 15000; // parse timeout
+// E9 fix: JSON nesting depth cap, prevents deeply nested objects from exhausting the V8 stack / DoS
 const MAX_JSON_DEPTH = 64;
 
-// 扫描原始文本的括号深度 (跳过字符串字面量内的括号), 超 MAX_JSON_DEPTH 即拒。
-// 比 reviver 精确 — reviver 自底向上, 无法在解析中途按总深度截断。
+// Scan bracket depth of the raw text (skipping brackets inside string literals), reject when over MAX_JSON_DEPTH.
+// More precise than a reviver — a reviver runs bottom-up and cannot cut off mid-parse by total depth.
 function assertJsonDepth(raw) {
     let depth = 0;
     let inStr = false;
@@ -35,7 +35,7 @@ function parseBody(req) {
     return new Promise((resolve, reject) => {
         if (req.body) return resolve(req.body);
 
-        // Content-Length 预检
+        // Content-Length pre-check
         const declared = parseInt(req.headers['content-length'] || '0', 10);
         if (declared && declared > MAX_BODY_BYTES) {
             const err = new Error('Request body too large');
@@ -76,7 +76,7 @@ function parseBody(req) {
             try {
                 const raw = Buffer.concat(chunks).toString('utf-8');
                 if (raw) {
-                    assertJsonDepth(raw); // E9: 深度守卫先于 JSON.parse
+                    assertJsonDepth(raw); // E9: depth guard runs before JSON.parse
                     req.body = JSON.parse(raw);
                 } else {
                     req.body = {};

@@ -1,7 +1,7 @@
 // =============================================================================
-// Fusion-Doc — 控制器注册中心
-// 自动注册所有领域控制器到应用路由
-// 参考 BookStack MVC + Wiki.js 模块化路由设计
+// Fusion-Doc — controller registry
+// Automatically registers all domain controllers on the app router
+// Modeled on BookStack MVC + Wiki.js modular routing
 // =============================================================================
 
 const path = require('path');

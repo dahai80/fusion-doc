@@ -19,7 +19,7 @@ export default function TemplatePicker({ onSelect, onClose }) {
     const filtered = category === 'all' ? templates : templates.filter(t => t.category === category);
 
     const handleSelect = async (tpl) => {
-        const title = window.prompt(t('文档标题:', 'Document title:'), tpl.name);
+        const title = window.prompt(t('文档标题:', 'Document title:'), tpl.name); // i18n: user-facing
         if (!title) return;
         try {
             const result = await api('POST', `/templates/${tpl.id}/instantiate`, { title });
@@ -33,22 +33,22 @@ export default function TemplatePicker({ onSelect, onClose }) {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
             <div className="bg-surface-1 rounded-xl shadow-2xl w-[640px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
                 <div className="px-6 py-4 border-b border-surface-3 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-gray-200">{t('选择模板', 'Select Template')}</h2>
+                    <h2 className="text-lg font-semibold text-gray-200">{t('选择模板', 'Select Template')}</h2>{/* i18n: user-facing */}
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-200">✕</button>
                 </div>
                 <div className="px-6 py-3 flex gap-2 border-b border-surface-3">
                     {categories.map(c => (
                         <button key={c} onClick={() => setCategory(c)}
                             className={`px-3 py-1 text-xs rounded-full ${category === c ? 'bg-brand-600 text-white' : 'bg-surface-2 text-gray-400'}`}>
-                            {c === 'all' ? t('全部', 'All') : c}
+                            {c === 'all' ? t('全部', 'All') : c}{/* i18n: user-facing */}
                         </button>
                     ))}
                 </div>
                 <div className="p-6 grid grid-cols-2 gap-3 overflow-y-auto max-h-[60vh]">
                     {loading ? (
-                        <div className="col-span-2 text-center text-gray-500 py-8">{t('加载中...', 'Loading...')}</div>
+                        <div className="col-span-2 text-center text-gray-500 py-8">{t('加载中...', 'Loading...')}</div> // i18n: user-facing
                     ) : filtered.length === 0 ? (
-                        <div className="col-span-2 text-center text-gray-500 py-8">{t('暂无模板', 'No templates')}</div>
+                        <div className="col-span-2 text-center text-gray-500 py-8">{t('暂无模板', 'No templates')}</div> // i18n: user-facing
                     ) : filtered.map(tpl => (
                         <button key={tpl.id} onClick={() => handleSelect(tpl)}
                             className="text-left p-4 bg-surface-2 hover:bg-surface-3 rounded-lg border border-surface-3 transition-colors">

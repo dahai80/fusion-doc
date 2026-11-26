@@ -9,12 +9,12 @@ const STATE_COLORS = {
     archived: 'bg-gray-800',
 };
 
-// 语言敏感的状态文案 — 直读 langStore, 不随渲染订阅 (徽标重挂载时刷新)
+// Language-aware status labels — read langStore directly without subscribing on render (refreshed when the badge remounts)
 const stateLabels = () => ({
-    draft: t('草稿', 'Draft'),
-    review: t('审核中', 'In review'),
-    published: t('已发布', 'Published'),
-    archived: t('归档', 'Archived'),
+    draft: t('草稿', 'Draft'), // i18n: user-facing
+    review: t('审核中', 'In review'), // i18n: user-facing
+    published: t('已发布', 'Published'), // i18n: user-facing
+    archived: t('归档', 'Archived'), // i18n: user-facing
 });
 
 export default function WorkflowBadge({ pageId }) {
@@ -23,7 +23,7 @@ export default function WorkflowBadge({ pageId }) {
 
     useEffect(() => {
         if (!pageId) return;
-        // api() 已拼 API_BASE (/api), 这里只传相对路径 — 原先传 /api/workflow/... 双前缀 404
+        // api() already prefixes API_BASE (/api), so pass only the relative path — previously passing /api/workflow/... gave a double-prefix 404
         api('GET', `/workflow/${pageId}`).then(setWorkflow).catch(() => {});
         api('GET', `/workflow/${pageId}/transitions`).then(data => {
             setTransitions(data.transitions || []);

@@ -1,7 +1,7 @@
 // =============================================================================
-// Fusion-Doc — Fusion-KB 知识库桥接
-// 连接 Fusion-KB (fusion-rag) 向量知识库服务
-// 默认端口: 11436
+// Fusion-Doc — Fusion-KB knowledge base bridge
+// Connects to the Fusion-KB (fusion-rag) vector knowledge base service
+// Default port: 11436
 // =============================================================================
 
 const httpFetch = globalThis.fetch;
@@ -16,7 +16,7 @@ async function callFusionKB({ method, path, body, config, retries, timeoutMs }) 
     // fusion-rag auth: X-API-Key when configured (NoAuthBackend otherwise)
     const headers = { 'Content-Type': 'application/json' };
     if (config?.apiKey) headers['X-API-Key'] = config.apiKey;
-    // E19 修复: 兄弟服务瞬时抖动加指数退避重试 (网络错误/5xx), 4xx 立即失败
+    // E19 fix: exponential-backoff retries for transient sibling-service blips (network errors/5xx); 4xx fails immediately
     const resp = await fetchWithRetry(() => {
         const controller = new AbortCtrl();
         const timer = setTimeout(() => controller.abort(), timeoutMs || 30000);
@@ -75,7 +75,7 @@ async function queryKnowledge(config, params) {
 }
 
 async function indexDocument(config, params) {
-    // 写操作不重试, 防止 5xx 后重放致重复索引
+    // Writes are not retried, to avoid duplicate indexing from a replay after a 5xx
     return callFusionKB({
         method: 'POST',
         path: '/api/index',
@@ -86,7 +86,7 @@ async function indexDocument(config, params) {
 }
 
 async function deleteDocument(config, docId) {
-    // 删除不重试, 防止重放
+    // Deletes are not retried, to avoid replays
     return callFusionKB({
         method: 'DELETE',
         path: `/api/documents/${docId}`,

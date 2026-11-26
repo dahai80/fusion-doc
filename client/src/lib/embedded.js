@@ -1,17 +1,17 @@
-// issue #51: Union Web shell 内嵌模式探测 (PRD R-8 ③/④)
-// 嵌入判定: ?embedded=1 或挂载于 /shell/<id>/ 路径 (gateway 同源 iframe)。
-// 内嵌时: 隐藏自有导航 chrome, 鉴权剥离 (网关 /shell/ 代理注入服务凭证, 客户端零 token)。
+// issue #51: Union Web shell embedded-mode detection (PRD R-8 ③/④)
+// Embedded when: ?embedded=1 or mounted under the /shell/<id>/ path (gateway same-origin iframe).
+// When embedded: hide our own navigation chrome, auth is stripped (gateway /shell/ proxy injects the service credential, zero tokens on the client).
 function detectEmbedded() {
     try {
         const params = new URLSearchParams(window.location.search);
         if (params.get('embedded') === '1') return true;
-    } catch { /* SSR/测试环境兜底走路径判定 */ }
+    } catch { /* SSR/test environment fallback: decide by path */ }
     return typeof window !== 'undefined' && window.location.pathname.startsWith('/shell/');
 }
 
 export const isEmbedded = detectEmbedded();
 
-// shell 挂载基路径: /shell/fusion-doc/(index.html)? → /shell/fusion-doc; 独立模式返回 ''
+// shell mount base path: /shell/fusion-doc/(index.html)? → /shell/fusion-doc; returns '' in standalone mode
 export function shellBasePath() {
     if (typeof window === 'undefined') return '';
     const m = window.location.pathname.match(/^(\/shell\/[^/]+)/);

@@ -91,11 +91,11 @@ export default function SearchModal({ open, onClose }) {
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={t("搜索文档... (Cmd+K)", "Search docs... (Cmd+K)")}
+                        placeholder={t("搜索文档... (Cmd+K)", "Search docs... (Cmd+K)") /* i18n: user-facing */}
                         className="flex-1 py-3 bg-transparent text-sm focus:outline-none"
                         style={{ color: 'var(--text-primary)' }}
                     />
-                    {loading && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('搜索中...', 'Searching...')}</span>}
+                    {loading && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('搜索中...', 'Searching...')}</span>}{/* i18n: user-facing */}
                     <kbd className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>ESC</kbd>
                 </div>
 
@@ -114,7 +114,7 @@ export default function SearchModal({ open, onClose }) {
                             >
                                 <span>📄</span>
                                 <div className="flex-1 min-w-0">
-                                    <div className="truncate font-medium">{page.title || t('未命名', 'Untitled')}</div>
+                                    <div className="truncate font-medium">{page.title || t('未命名', 'Untitled')}</div>{/* i18n: user-facing */}
                                     {page.excerpt && (
                                         <div className="text-xs truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
                                             {page.excerpt}
@@ -129,13 +129,13 @@ export default function SearchModal({ open, onClose }) {
 
                 {query && !loading && results.length === 0 && (
                     <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                        {t('未找到匹配文档', 'No matching documents')}
+                        {t('未找到匹配文档', 'No matching documents')}{/* i18n: user-facing */}
                     </div>
                 )}
 
                 {!query && (
                     <div className="py-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                        {t('输入关键词搜索文档', 'Type keywords to search documents')}
+                        {t('输入关键词搜索文档', 'Type keywords to search documents')}{/* i18n: user-facing */}
                     </div>
                 )}
             </div>

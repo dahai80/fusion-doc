@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 知识图谱控制器（增强版）
-// 双向链接图谱 + 语义搜索 + RAG 增强
+// Fusion-Doc — knowledge graph controller (enhanced)
+// Bidirectional link graph + semantic search + RAG enhancement
 // =============================================================================
 
 const { json, error } = require('../utils/response');
@@ -9,13 +9,13 @@ const { search: ragSearch } = require('../services/rag');
 function register(app) {
     const { db } = app;
 
-    // A4/P3 修复: 计算当前用户可见 page_id 集合 (admin 无限制), 图谱只暴露可见页节点/边。
-    // 同时为 /api/graph 提供分页上限, 避免万页级库一次拉全部内容 OOM。
+    // A4/P3 fix: compute the set of page_ids visible to the current user (admin unrestricted); the graph only exposes visible page nodes/edges.
+    // Also caps /api/graph page size so libraries with 10k+ pages don't load all content at once and OOM.
     function accessiblePageFilter(req) {
         const { tenantId } = require('../utils/helpers');
         const tid = tenantId(req);
         const isAdmin = req.user?.role === 'admin' || req.user?.role === 'tenant_admin';
-        // issue #45: admin 在本租户内无限制; 普通用户仅已发布 OR 自建页
+        // issue #45: admin unrestricted within the tenant; regular users see only published OR self-created pages
         if (isAdmin) return db.prepare('SELECT id FROM pages WHERE tenant_id = ?').all(tid).map(r => r.id);
         const owner = req.user?.id || 'local';
         return db.prepare('SELECT id FROM pages WHERE tenant_id = ? AND (is_published = 1 OR created_by = ?)').all(tid, owner).map(r => r.id);
@@ -27,16 +27,16 @@ function register(app) {
         return { clause: ` AND id IN (${ids.map(() => '?').join(',')})`, params: ids };
     }
 
-    // ── 图谱数据 ────────────────────────────────────────────────────────
+    // ── Graph data ────────────────────────────────────────────────────────
     app.registerRoute('GET', '/api/graph', (req, res) => {
         if (!db) return json(res, { nodes: [], edges: [] });
-        // A4/P3: 分页上限 (默认 500, 最大 2000), 防万页库全量拉内容 OOM
+        // A4/P3: page size cap (default 500, max 2000) so 10k+ page libraries don't load all content and OOM
         const limit = Math.min(Math.max(parseInt(req.ctx.url.searchParams.get('limit'), 10) || 500, 1), 2000);
         const visible = accessiblePageFilter(req);
         const pf = pageIdInClause(visible);
         if (visible !== null && visible.length === 0) return json(res, { nodes: [], edges: [] });
 
-        // A4: 节点仅取 id/title, 不拉全文; 边按可见页过滤
+        // A4: nodes fetch only id/title, not full text; edges filtered by visible pages
         const nodes = db.prepare(`SELECT id, title FROM pages WHERE 1=1${pf.clause} ORDER BY updated_at DESC LIMIT ?`).all(...pf.params, limit)
             .map(p => ({ id: p.id, title: p.title, type: 'page' }));
         const nodeIds = nodes.map(n => n.id);
@@ -44,8 +44,8 @@ function register(app) {
         const idPh = nodeIds.map(() => '?').join(',');
         const edges = db.prepare(`SELECT id, source_page_id as source, target_page_id as target, link_type as label FROM page_links WHERE source_page_id IN (${idPh}) OR target_page_id IN (${idPh})`).all(...nodeIds, ...nodeIds);
 
-        // E17 修复: title->node Map + "src|tgt" 去重 Set, O(1) 查。
-        // A4: 仅对已加载的 node 取 content 提取 wiki link (已 LIMIT), 不再全表扫 content。
+        // E17 fix: title->node Map + "src|tgt" dedup Set for O(1) lookups.
+        // A4: extract wiki links only from loaded nodes' content (already LIMITed), no more full-table content scan.
         const nodeByTitle = new Map(nodes.map(n => [n.title, n]));
         const nodeById = new Set(nodeIds);
         const edgeSeen = new Set(edges.map(e => `${e.source}|${e.target}`));
@@ -64,14 +64,14 @@ function register(app) {
         json(res, { nodes, edges });
     });
 
-    // ── 语义搜索图谱节点 ────────────────────────────────────────────────
+    // ── Semantic search over graph nodes ────────────────────────────────────────────────
     app.registerRoute('GET', '/api/graph/search', async (req, res) => {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const query = url.searchParams.get('q');
         if (!query) return error(res, 'q parameter required', 400);
 
         try {
-            // S1: 语义搜索按可见 page_id 过滤, 不泄露私有页
+            // S1: filter semantic search by visible page_id so private pages don't leak
             const accessiblePageIds = accessiblePageFilter(req);
             const results = await ragSearch(app, query, 10, accessiblePageIds);
             const pageIds = [...new Set(results.map(r => r.page_id))];
@@ -90,7 +90,7 @@ function register(app) {
         }
     });
 
-    // ── 节点详情（含关联节点）─────────────────────────────────────────────
+    // ── Node detail (with related nodes) ─────────────────────────────────────────────
     app.registerRoute('GET', '/api/graph/node/:id', (req, res) => {
         const { id } = req.params;
         if (!db) return json(res, { node: null, neighbors: [] });
@@ -98,14 +98,14 @@ function register(app) {
 
         const node = db.prepare('SELECT * FROM pages WHERE id = ?').get(id);
         if (!node) return error(res, 'Node not found', 404);
-        // S 延伸: 节点详情读页归属校验, 不暴露私有页给非 owner
+        // S follow-up: node detail checks page read ownership so private pages aren't exposed to non-owners
         if (!canReadPage(req, res, node)) return;
 
         const outEdges = db.prepare('SELECT target_page_id as target, link_type as label FROM page_links WHERE source_page_id = ?').all(id);
         const inEdges = db.prepare('SELECT source_page_id as source, link_type as label FROM page_links WHERE target_page_id = ?').all(id);
 
         const neighborIds = [...new Set([...outEdges.map(e => e.target), ...inEdges.map(e => e.source)])];
-        // 邻居也按可见页过滤, 避免经图谱边泄露私有页标题
+        // Neighbors are also filtered by visibility so graph edges don't leak private page titles
         const visible = accessiblePageFilter(req);
         const visibleSet = visible === null ? null : new Set(visible);
         const allowedNeighborIds = visibleSet === null ? neighborIds : neighborIds.filter(nid => visibleSet.has(nid));

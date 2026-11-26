@@ -1,10 +1,10 @@
 // =============================================================================
-// Fusion-Doc — 模型注册中心
-// 所有模型统一注册，方便控制器引用
-// 参考 DocMost Prisma Schema 设计
+// Fusion-Doc — model registry
+// All models registered in one place for controllers to reference
+// Modeled on the DocMost Prisma schema design
 //
-// ⚠️ P3-27 维护性: 当前未被任何控制器/启动流程引用 (控制器直连 app.db)。
-//    本文件与 ./base.js 为孤儿层, 留待未来统一模型层时接入, 勿再基于此扩展。
+// ⚠️ P3-27 maintainability: currently not referenced by any controller/startup flow (controllers use app.db directly).
+//    This file and ./base.js are an orphan layer, left for a future unified model layer; do not build on it further.
 // =============================================================================
 
 const Model = require('./base');

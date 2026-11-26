@@ -1,8 +1,8 @@
 // =============================================================================
-// AI Ghost Text — 内联续写 (Cmd+J)
-// R22 修复: ghostText/ghostFrom/ghostTimeout 原为模块级全局变量, 多 editor 实例
-// (StrictMode 双挂载/同时开两页) 共享同一状态 → A 编辑器续写渲染进 B 编辑器,
-// Tab 插入错位。改为存于 editor.storage (per-editor 作用域), 各实例隔离。
+// AI Ghost Text — inline continuation (Cmd+J)
+// R22 fix: ghostText/ghostFrom/ghostTimeout used to be module-level globals, so multiple editor instances
+// (StrictMode double mount / two pages open at once) shared the same state → editor A's continuation rendered into editor B,
+// and Tab inserted at the wrong place. Now stored in editor.storage (per-editor scope), isolating each instance.
 // =============================================================================
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -61,8 +61,8 @@ export const AIGhostText = Extension.create({
 
     addCommands() {
         return {
-            // R22 修复: accept 用 ghostFrom (续写起始位) 而非 tr.selection.from,
-            // 光标移动后不致在错误位置插入。
+            // R22 fix: accept uses ghostFrom (the continuation start position) rather than tr.selection.from,
+            // so it doesn't insert at the wrong position after the cursor moves.
             acceptGhostText: () => ({ tr, dispatch }) => {
                 const gs = getGhostState(this.editor);
                 if (!gs.text) return false;

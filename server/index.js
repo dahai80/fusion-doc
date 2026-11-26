@@ -1,61 +1,61 @@
 // =============================================================================
-// Fusion-Doc — 核心入口 (版本见 package.json)
+// Fusion-Doc — core entry point (version in package.json)
 // =============================================================================
-// 架构: 模块化 MVC（Model-View-Controller）
-// 理念: 整合 7 大开源优势 + Fusion 生态，打造 Apple Silicon 原生离线智能文档知识库
+// Architecture: modular MVC (Model-View-Controller)
+// Vision: combine the strengths of 7 open-source projects + the Fusion ecosystem into a native, offline, intelligent document knowledge base for Apple Silicon
 // =============================================================================
 //
-// 架构概览:
+// Architecture overview:
 //   server/
-//   ├── index.js              ← 轻量入口
-//   ├── app.js                ← 应用核心（生命周期、中间件、插件）
-//   ├── config.js             ← 配置管理
-//   ├── db.js                 ← 数据库层（SQLite + JSON 降级）
-//   ├── middleware/           ← 中间件栈（CORS/日志/认证/错误处理）
-//   ├── controllers/          ← 控制器层（路由分发）
-//   ├── services/             ← 服务层（业务逻辑）
-//   ├── models/              ← 模型层（数据封装）
-//   ├── integrations/        ← 集成层（Fusion-MLX / Fusion-Coder / LibreOffice）
-//   ├── plugins/             ← 插件系统
-//   └── utils/               ← 工具函数
+//   ├── index.js              ← lightweight entry point
+//   ├── app.js                ← app core (lifecycle, middleware, plugins)
+//   ├── config.js             ← configuration
+//   ├── db.js                 ← database layer (SQLite + JSON fallback)
+//   ├── middleware/           ← middleware stack (CORS/logging/auth/error handling)
+//   ├── controllers/          ← controller layer (route dispatch)
+//   ├── services/             ← service layer (business logic)
+//   ├── models/              ← model layer (data wrappers)
+//   ├── integrations/        ← integration layer (Fusion-MLX / Fusion-Coder / LibreOffice)
+//   ├── plugins/             ← plugin system
+//   └── utils/               ← utilities
 //
-// 生态集成:
-//   - Fusion-MLX  → 本地 LLM 推理（聊天/嵌入/重排序/RAG）
-//   - Fusion-Coder → AI 编码辅助
-//   - Fusion-KB   → 知识库管理
-//   - LibreOffice  → Office 文档格式转换
+// Ecosystem integrations:
+//   - Fusion-MLX  → local LLM inference (chat/embeddings/rerank/RAG)
+//   - Fusion-Coder → AI coding assistance
+//   - Fusion-KB   → knowledge base management
+//   - LibreOffice  → Office document format conversion
 // =============================================================================
 
-// ── 进程标题 (issue #64): ps 中显示 fusion-doc 而非 node ──
-// start.sh 按 pidfile 管理 (无 pkill 按名匹配), 改名不影响 stop/status/restart。
+// ── Process title (issue #64): show fusion-doc instead of node in ps ──
+// start.sh manages by pidfile (no pkill name matching), so renaming does not affect stop/status/restart.
 process.title = 'fusion-doc';
 
 const FusionDocApp = require('./app');
 
-// ── 启动应用 ──────────────────────────────────────────────────────────────
+// ── Start the app ──────────────────────────────────────────────────────────────
 const app = new FusionDocApp();
 
 app.start().catch((err) => {
-  console.error(`[Fusion-Doc] 启动失败: ${err.message}`);
+  console.error(`[Fusion-Doc] Startup failed: ${err.message}`);
   process.exit(1);
 });
 
-// ── 优雅关闭 ──────────────────────────────────────────────────────────────
-// E14 修复: SIGINT/SIGTERM 共用 _shuttingDown 重入闸, 连按 Ctrl+C 不并发 shutdown。
-// A9 修复: shutdown 加外层 10s 硬超时, 防 shutdown 卡死 (DB close/WS drain 挂) 成僵尸。
+// ── Graceful shutdown ──────────────────────────────────────────────────────────────
+// E14 fix: SIGINT/SIGTERM share the _shuttingDown reentrancy guard so repeated Ctrl+C doesn't run concurrent shutdowns.
+// A9 fix: wrap shutdown in a 10s hard timeout so a stuck shutdown (hung DB close/WS drain) can't leave a zombie.
 let _shuttingDown = false;
 async function _gracefulShutdown(sig) {
-  if (_shuttingDown) { console.warn(`[Fusion-Doc] 已在关闭中, 忽略重复 ${sig}`); return; }
+  if (_shuttingDown) { console.warn(`[Fusion-Doc] Already shutting down, ignoring repeated ${sig}`); return; }
   _shuttingDown = true;
-  console.log(`[Fusion-Doc] 收到 ${sig}, 开始优雅关闭...`);
+  console.log(`[Fusion-Doc] Received ${sig}, starting graceful shutdown...`);
   const forceTimer = setTimeout(() => {
-    console.error('[Fusion-Doc] shutdown 超过 10s, 强制退出');
+    console.error('[Fusion-Doc] shutdown exceeded 10s, forcing exit');
     process.exit(1);
   }, 10000);
   try {
     await app.shutdown();
   } catch (e) {
-    console.error(`[Fusion-Doc] shutdown 异常: ${e.message}`);
+    console.error(`[Fusion-Doc] shutdown error: ${e.message}`);
   } finally {
     clearTimeout(forceTimer);
     process.exit(0);
@@ -63,8 +63,8 @@ async function _gracefulShutdown(sig) {
 }
 process.on('SIGINT', () => _gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => _gracefulShutdown('SIGTERM'));
-// R4 修复: uncaughtException/unhandledRejection 后进程状态不可预测, 必须退出交守护重启。
-// 原设计仅记录不退出, 进程带伤持续接客, 返回脏数据/写半截 DB/WS 丢稿。
+// R4 fix: process state is unpredictable after uncaughtException/unhandledRejection, so exit and let the supervisor restart.
+// The old design only logged and kept serving in a damaged state, returning dirty data / half-written DB / lost WS drafts.
 async function _fatalExit(reason, err) {
   console.error(`[Fusion-Doc] ${reason}: ${err && err.message || err}`);
   console.error((err && err.stack) || '');
@@ -73,5 +73,5 @@ async function _fatalExit(reason, err) {
   try { await app.shutdown(); } catch (_) { /* noop */ }
   process.exit(1);
 }
-process.on('uncaughtException', (err) => _fatalExit('未捕获异常', err));
-process.on('unhandledRejection', (err) => _fatalExit('未处理的 Promise 拒绝', err));
+process.on('uncaughtException', (err) => _fatalExit('Uncaught exception', err));
+process.on('unhandledRejection', (err) => _fatalExit('Unhandled promise rejection', err));

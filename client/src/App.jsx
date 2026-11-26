@@ -10,7 +10,7 @@ import EditorPage from './components/editor/EditorPage';
 import GraphPage from './components/graph/GraphPage';
 import HomePage from './components/common/HomePage';
 import AuthPage from './components/common/AuthPage';
-// F8 修复: SPA 仅 3 路由缺设置/管理页, 接入。
+// F8 fix: the SPA had only 3 routes and no settings/admin pages; wire them in.
 import SettingsPage from './components/common/SettingsPage';
 import AdminPage from './components/common/AdminPage';
 
@@ -21,7 +21,7 @@ export default function App() {
     const [booted, setBooted] = useState(false);
     const [needsSetup, setNeedsSetup] = useState(false);
 
-    // P0-F1: 启动 bootstrap 探测安装状态 + 校验已有 token
+    // P0-F1: bootstrap at startup probes install state + validates any existing token
     useEffect(() => {
         let active = true;
         bootstrap().then((r) => {
@@ -29,18 +29,18 @@ export default function App() {
             setNeedsSetup(!!r?.needsSetup);
             setBooted(true);
         });
-        // api.js 401 时派发 fusion-doc-logout, 同步清 store
+        // api.js dispatches fusion-doc-logout on 401; clear the store in sync
         const onLogout = () => logout();
         window.addEventListener('fusion-doc-logout', onLogout);
         return () => { active = false; window.removeEventListener('fusion-doc-logout', onLogout); };
     }, []);
 
     if (!booted) {
-        return <div className="h-screen flex items-center justify-center bg-surface-0 text-surface-fg">{t('加载中…', 'Loading…')}</div>;
+        return <div className="h-screen flex items-center justify-center bg-surface-0 text-surface-fg">{t('加载中…', 'Loading…')}</div>; // i18n: user-facing
     }
 
-    // P0-F1: 未安装 → 安装页; 已安装但未登录 → 登录页
-    // issue #51: shell 内嵌模式跳过本地登录/安装门 (会话由宿主管, 网关注入服务凭证)
+    // P0-F1: not installed → install page; installed but not logged in → login page
+    // issue #51: shell-embedded mode skips the local login/install gates (host manages the session, gateway injects the service credential)
     if (!isEmbedded && needsSetup) return <AuthPage mode="setup" />;
     if (!isEmbedded && (!token || !user)) return <AuthPage mode="login" />;
 

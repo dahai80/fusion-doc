@@ -1,5 +1,5 @@
 // =============================================================================
-// Fusion-Doc — 书架控制器（BookStack 三层结构）
+// Fusion-Doc — bookshelf controller (BookStack three-level structure)
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
@@ -15,9 +15,9 @@ function register(app) {
 
   app.registerRoute('GET', '/api/books', (req, res) => {
     const wsId = req.ctx.url.searchParams.get('workspaceId');
-    // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+    // A6 fix: cap list pagination to prevent unbounded full-table reads causing OOM
     const { size, offset } = parsePaging(req);
-    const tid = tenantId(req); // issue #45: 租户隔离
+    const tid = tenantId(req); // issue #45: tenant isolation
     let data;
     if (db) {
       data = wsId ? db.prepare('SELECT * FROM books WHERE tenant_id = ? AND workspace_id = ? ORDER BY sort_order LIMIT ? OFFSET ?').all(tid, wsId, size, offset) : db.prepare('SELECT * FROM books WHERE tenant_id = ? ORDER BY sort_order LIMIT ? OFFSET ?').all(tid, size, offset);
@@ -30,7 +30,7 @@ function register(app) {
   app.registerRoute('POST', '/api/books', async (req, res) => {
     const body = await parseBody(req);
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME) : '';
-    if (!name) return error(res, 'name 不能为空', 400);
+    if (!name) return error(res, 'name must not be empty', 400);
     const book = {
       id: uid(), tenant_id: tenantId(req), workspace_id: body.workspace_id || null, name,
       slug: slugify(name),
@@ -43,13 +43,13 @@ function register(app) {
         db.prepare('INSERT INTO books (id, tenant_id, workspace_id, name, slug, description, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(book.id, book.tenant_id, book.workspace_id, book.name, book.slug, book.description, book.sort_order, book.created_at, book.updated_at);
       } else { require('../db').writeJSON('books', book.id, book); }
     } catch (e) {
-      if (String(e.message).includes('FOREIGN KEY')) return error(res, 'workspace 不存在', 400);
+      if (String(e.message).includes('FOREIGN KEY')) return error(res, 'workspace does not exist', 400);
       throw e;
     }
     created(res, book);
   });
 
-  // issue #45: 跨租户访问一律 404 (不泄露存在性)
+  // issue #45: cross-tenant access always gets 404 (does not leak existence)
   function _bookTenantOk(req, res, book) {
     if (!book) { notFound(res, 'Book not found'); return false; }
     const tid = req.user?.tid;
@@ -64,7 +64,7 @@ function register(app) {
     json(res, book);
   });
 
-  // ── 改/删书架: admin 闸 (结构级操作, 非单用户内容) ─────────────────
+  // ── Update/delete book: admin gate (structural operation, not single-user content) ─────────────────
   app.registerRoute('PUT', '/api/books/:id', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { id } = req.params;
@@ -83,8 +83,8 @@ function register(app) {
     const { id } = req.params;
     const book = db ? db.prepare('SELECT * FROM books WHERE id = ?').get(id) : require('../db').readJSON('books', id);
     if (!_bookTenantOk(req, res, book)) return;
-    // E4 修复: 原直接 DELETE books 触发 FK constraint failed (chapters/pages 引用未级联)。
-    // 单事务内先收集该书全部 page_id, 级联删 page 子表 + pages + chapters + books, 失败回滚。
+    // E4 fix: a direct DELETE on books used to hit FK constraint failed (chapters/pages references were not cascaded).
+    // In one transaction, collect all page_ids of the book, then cascade-delete page child tables + pages + chapters + books; roll back on failure.
     if (db) {
       const tx = db.transaction(() => {
         const pageIds = db.prepare('SELECT id FROM pages WHERE book_id = ?').all(id).map(r => r.id);
@@ -108,8 +108,8 @@ function register(app) {
       });
       try { tx(); }
       catch (e) {
-        console.error(`[Book] DELETE 级联失败 ${id}: ${e.message}`);
-        return error(res, `删除失败: ${e.message}`, 500);
+        console.error(`[Book] DELETE cascade failed ${id}: ${e.message}`);
+        return error(res, `Delete failed: ${e.message}`, 500);
       }
     } else { require('../db').deleteJSON('books', id); }
     json(res, { deleted: true });

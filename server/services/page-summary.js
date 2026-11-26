@@ -1,26 +1,26 @@
 // =============================================================================
-// Fusion-Doc — 页面滚动摘要服务 (issue #69 P3)
-// 长文档保存达阈值 → 异步生成 ≤400字摘要存 pages.summary (fire-and-forget,
-// 绝不阻塞保存); copilot buildContext 对长文档改用 摘要+目录+开头片段。
-// 过期判定: 原文 plain 长度相对 summary_source_len 漂移 > STALE_RATIO 即重生成。
-// 仅 SQLite 路径生效 (JSON fallback 部署无列, 直接跳过)。
+// Fusion-Doc — rolling page summary service (issue #69 P3)
+// When a long doc save crosses the threshold → asynchronously generate a ≤400-char summary into pages.summary (fire-and-forget,
+// never blocks the save); copilot buildContext uses summary + TOC + leading excerpt for long docs.
+// Staleness: regenerate when the plain-text length drifts from summary_source_len by more than STALE_RATIO.
+// Only applies on the SQLite path (JSON fallback deployments lack the column and are skipped).
 // =============================================================================
 
 const { chat } = require('../integrations/fusion-mlx');
 const { stripHtml, truncateAtBoundary } = require('./ai-copilot');
 
-const SUMMARY_MIN_CHARS = 6000;   // plain 长度触发阈值 (≈ CJK 6k token 原文)
-const SUMMARY_MAX_CHARS = 400;    // 摘要存储上限
-const SOURCE_HEAD_CHARS = 8000;   // 送 LLM 的原文开头预算 (≈ CJK 8k token)
-const STALE_RATIO = 0.2;          // 长度漂移 >20% 视为摘要过期
-const inflight = new Set();       // 页级去重, 防连击保存重复请求 LLM
+const SUMMARY_MIN_CHARS = 6000;   // plain-length trigger threshold (≈ 6k CJK tokens of source)
+const SUMMARY_MAX_CHARS = 400;    // Max stored summary length
+const SOURCE_HEAD_CHARS = 8000;   // Budget for the leading source text sent to the LLM (≈ 8k CJK tokens)
+const STALE_RATIO = 0.2;          // Length drift >20% means the summary is stale
+const inflight = new Set();       // Per-page dedup, so rapid repeated saves do not trigger duplicate LLM requests
 
 function isStale(plainLen, sourceLen) {
     if (!sourceLen) return true;
     return Math.abs(plainLen - sourceLen) / sourceLen > STALE_RATIO;
 }
 
-// fire-and-forget 入口。page 须含 { id, title, content, summary, summary_source_len }。
+// fire-and-forget entry point. page must contain { id, title, content, summary, summary_source_len }.
 async function maybeGeneratePageSummary(app, page) {
     try {
         if (!app?.db || !page?.id || !page.content) return;
@@ -32,8 +32,8 @@ async function maybeGeneratePageSummary(app, page) {
 
         const config = app.config.fusionMlx;
         const messages = [
-            { role: 'system', content: '你是文档摘要助手。对给定长文档生成精炼摘要，用中文输出，不超过300字，保留核心论点与关键结论，不要解释。' },
-            { role: 'user', content: `文档「${page.title}」:\n${truncateAtBoundary(plain, SOURCE_HEAD_CHARS)}` },
+            { role: 'system', content: '你是文档摘要助手。对给定长文档生成精炼摘要，用中文输出，不超过300字，保留核心论点与关键结论，不要解释。' }, // i18n: user-facing
+            { role: 'user', content: `文档「${page.title}」:\n${truncateAtBoundary(plain, SOURCE_HEAD_CHARS)}` }, // i18n: user-facing
         ];
         const data = await chat({ model: config.chatModel, messages, config });
         const summary = String(data?.choices?.[0]?.message?.content || '').trim().slice(0, SUMMARY_MAX_CHARS);
@@ -44,7 +44,7 @@ async function maybeGeneratePageSummary(app, page) {
         app.db.prepare('UPDATE pages SET summary = ?, summary_source_len = ? WHERE id = ?').run(summary, plain.length, page.id);
         console.log(`[Page Summary] generated for ${page.id} (source ${plain.length} chars, summary ${summary.length} chars)`);
     } catch (e) {
-        // 商用级 fail visibly: 记日志不吞, 但摘要失败不影响保存主流程
+        // Production-grade fail visibly: log instead of swallowing, but a summary failure does not affect the main save flow
         console.error('[Page Summary] generate failed:', e.message);
     } finally {
         if (page?.id) inflight.delete(page.id);

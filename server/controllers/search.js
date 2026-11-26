@@ -1,18 +1,18 @@
 // =============================================================================
-// Fusion-Doc — 搜索控制器（Wiki.js + SQLite FTS5 全文搜索）
+// Fusion-Doc — search controller (Wiki.js + SQLite FTS5 full-text search)
 // =============================================================================
 
 const { list, json } = require('../utils/response');
 const { errorResponse } = require('../middleware/error-handler');
 
-// ORDER BY 标识符白名单 (杜绝 SQL 注入)
+// ORDER BY identifier allowlist (prevents SQL injection)
 const ALLOWED_SORT = new Set(['updated_at', 'created_at', 'title', 'sort_order']);
 const ALLOWED_ORDER = new Set(['ASC', 'DESC']);
 
 function register(app) {
   const { db } = app;
 
-  // ── 基本搜索 ──────────────────────────────────────────────────────────
+  // ── Basic search ──────────────────────────────────────────────────────────
   app.registerRoute('GET', '/api/search', (req, res) => {
     const q = (req.ctx.url.searchParams.get('q') || '').trim();
     if (!q) { list(res, []); return; }
@@ -27,7 +27,7 @@ function register(app) {
     list(res, results);
   });
 
-  // ── 高级搜索（多维度） ────────────────────────────────────────────────
+  // ── Advanced search (multi-dimensional) ────────────────────────────────────────────────
   app.registerRoute('GET', '/api/search/advanced', (req, res) => {
     const q = (req.ctx.url.searchParams.get('q') || '').trim();
     const tag = req.ctx.url.searchParams.get('tag');
@@ -35,9 +35,9 @@ function register(app) {
     const sort = (req.ctx.url.searchParams.get('sort') || 'updated_at');
     const order = (req.ctx.url.searchParams.get('order') || 'DESC').toUpperCase();
 
-    // 标识符白名单校验, 拒绝注入
+    // Identifier allowlist check, rejects injection
     if (!ALLOWED_SORT.has(sort) || !ALLOWED_ORDER.has(order)) {
-      return errorResponse(res, 400, '非法的排序参数', 'INVALID_SORT');
+      return errorResponse(res, 400, 'Invalid sort parameter', 'INVALID_SORT');
     }
 
     if (!q && !tag) { list(res, []); return; }

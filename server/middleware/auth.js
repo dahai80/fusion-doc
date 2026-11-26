@@ -1,15 +1,15 @@
 // =============================================================================
-// Fusion-Doc — 认证中间件 (issue #45: 消费 fusion-identity, 不再自签)
-// 唯一 JWT 签发方 = fusion-identity; 本中间件调 verify 校验 + 注入租户上下文。
-// 三条红线: (1) fail-closed (无默认租户降级), (2) 跨租户拒绝 (tid↔X-Tenant-Id),
-//           (3) 数据隔离分层 (medium: tenant_id 列 + 守卫, 见 authz.js/各控制器)。
-// 本地旁路 FUSION_DOC_LOCAL_AUTH=1: 保留原 HS256 自签 + users 表 (单用户开发; 生产禁)。
+// Fusion-Doc — auth middleware (issue #45: consumes fusion-identity, no more self-signing)
+// The only JWT issuer = fusion-identity; this middleware calls verify + injects tenant context.
+// Three red lines: (1) fail-closed (no default-tenant fallback), (2) cross-tenant rejection (tid↔X-Tenant-Id),
+//           (3) layered data isolation (medium: tenant_id column + guards, see authz.js/controllers).
+// Local bypass FUSION_DOC_LOCAL_AUTH=1: keeps the old HS256 self-signing + users table (single-user dev; forbidden in production).
 // =============================================================================
 
 const crypto = require('crypto');
 const identity = require('../integrations/fusion-identity');
 
-// ── 本地旁路用 HS256 (仅 FUSION_DOC_LOCAL_AUTH=1; 保留向后兼容) ──────────
+// ── HS256 for the local bypass (FUSION_DOC_LOCAL_AUTH=1 only; kept for backward compatibility) ──
 function createToken(payload, secret, expiry = 86400) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
@@ -35,7 +35,7 @@ function verifyToken(token, secret) {
   } catch (_) { return null; }
 }
 
-// 公开路径 (无需认证): 默认所有方法公开; METHOD:PATH 仅指定方法公开
+// Public paths (no auth): public for all methods by default; METHOD:PATH is public only for that method
 const PUBLIC_PATHS = [
   '/api/health',
   '/api/health/live',
@@ -53,17 +53,17 @@ function isPublicPath(method, pathname) {
   );
 }
 
-// ── 本地旁路: 从 users 表回查权威 role (保留 R3 修复) ────────────────────
+// ── Local bypass: look up the authoritative role in the users table (keeps the R3 fix) ──────
 function _localVerify(token, req, res) {
   const secret = req.ctx?.config?.auth?.jwtSecret;
   if (!secret) {
     console.error('[Auth] JWT secret not configured — rejecting all token auth');
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Server misconfiguration: JWT secret not set', code: 'AUTH_CONFIG_ERROR' }));
-    return null; // null = 未处理 (调用方续判); 但此处已响应 → 返回 sentinel
+    return null; // null = not handled (caller keeps deciding); but a response was already sent here → return sentinel
   }
   const payload = verifyToken(token, secret);
-  if (!payload) return false; // false = 校验失败
+  if (!payload) return false; // false = verification failed
   const db = req.ctx?.db;
   let verified = payload;
   if (db && payload.id) {
@@ -76,23 +76,23 @@ function _localVerify(token, req, res) {
       }
       verified = { ...payload, role: row.role };
     } catch (e) {
-      console.warn(`[Auth] 用户回查失败, 降级用 token role: ${e.message}`);
+      console.warn(`[Auth] user lookup failed, falling back to token role: ${e.message}`);
     }
   }
-  // 本地旁路无真实租户; 用 workspace id 作伪 tid 兼容旧单用户场景
+  // Local bypass has no real tenant; use the workspace id as a pseudo tid for legacy single-user setups
   verified.tid = verified.tid || verified.workspace_id || 'local-tenant';
   return verified;
 }
 
-// ── role 映射: 4 统一角色; 兼容 legacy admin/user ─────────────────────────
+// ── Role mapping: 4 unified roles; compatible with legacy admin/user ──────
 function _normalizeRole(role) {
   if (!role) return 'member';
   if (role === 'admin') return 'tenant_admin';
   if (role === 'user') return 'member';
-  return role; // tenant_admin/operator/member/viewer 原样
+  return role; // tenant_admin/operator/member/viewer unchanged
 }
 
-// ── 主认证 ────────────────────────────────────────────────────────────────
+// ── Main auth ─────────────────────────────────────────────────────────────
 async function auth(req, res, pipeline) {
   const method = req.method;
   const pathname = req.url.split('?')[0];
@@ -101,13 +101,13 @@ async function auth(req, res, pipeline) {
   if (isPublicPath(method, pathname)) return false;
   if (!pathname.startsWith('/api/')) return false;
 
-  // ── 提取 Bearer token ──
+  // ── Extract Bearer token ──
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
-  // ── Shell 服务凭证 (issue #51: gateway /shell/ 代理注入, 免自管登录) ──
-  // 网关剥离调用方 session 后注入模块 api_key; 此处常量时间比对放行。
-  // 主体为服务级 shell 会话 (tenant/role 可配, 默认 operator, admin 端点仍拒)。
+  // ── Shell service credential (issue #51: injected by the gateway /shell/ proxy, no self-managed login) ──
+  // The gateway strips the caller session and injects the module api_key; allowed here via constant-time comparison.
+  // The principal is a service-level shell session (tenant/role configurable, default operator; admin endpoints still reject).
   const shellKey = cfg?.shellGateway?.apiKey || '';
   if (shellKey && token) {
     const a = Buffer.from(shellKey);
@@ -123,17 +123,17 @@ async function auth(req, res, pipeline) {
     }
   }
 
-  // ── 本地认证旁路 (FUSION_DOC_LOCAL_AUTH=1) ──
+  // ── Local auth bypass (FUSION_DOC_LOCAL_AUTH=1) ──
   if (cfg?.localAuth) {
     if (token) {
       const r = _localVerify(token, req, res);
-      if (r === null) return true; // 已响应 (配置错误/用户不存在)
+      if (r === null) return true; // already responded (config error/user not found)
       if (r) {
         req.user = { id: r.id, tid: r.tid, role: _normalizeRole(r.role), scopes: r.scope || [] };
         return false;
       }
     }
-    // 本地旁路的 dev X-User-Id 兜底 (仅 dev + loopback)
+    // Dev X-User-Id fallback for the local bypass (dev + loopback only)
     if (process.env.NODE_ENV === 'development' && req.headers['x-user-id']) {
       const remote = req.socket?.remoteAddress || '';
       const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
@@ -148,14 +148,14 @@ async function auth(req, res, pipeline) {
     return true;
   }
 
-  // ── 生产/默认: fusion-identity verify (fail-closed) ──
+  // ── Production/default: fusion-identity verify (fail-closed) ──
   if (!token) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized: token required', code: 'AUTH_REQUIRED' }));
     return true;
   }
 
-  // X-Tenant-Id 必填 (红线1: fail-closed, 无默认租户降级)
+  // X-Tenant-Id required (red line 1: fail-closed, no default-tenant fallback)
   const xTenantId = req.headers['x-tenant-id'] || '';
   if (!xTenantId) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -167,21 +167,21 @@ async function auth(req, res, pipeline) {
   try {
     claims = await identity.verify({ token, config: cfg.fusionIdentity });
   } catch (e) {
-    console.warn(`[Auth] identity verify 拒绝: ${e.message}`);
+    console.warn(`[Auth] identity verify rejected: ${e.message}`);
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized: token invalid', code: 'AUTH_TOKEN_INVALID' }));
     return true;
   }
 
-  // 红线2: 跨租户拒绝 — JWT tid 必须匹配 X-Tenant-Id
+  // Red line 2: cross-tenant rejection — JWT tid must match X-Tenant-Id
   if (claims.tid !== xTenantId) {
-    console.warn(`[Auth] 跨租户拒绝: token tid=${claims.tid} ≠ X-Tenant-Id=${xTenantId}`);
+    console.warn(`[Auth] cross-tenant rejected: token tid=${claims.tid} ≠ X-Tenant-Id=${xTenantId}`);
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized: tenant mismatch', code: 'AUTH_TENANT_MISMATCH' }));
     return true;
   }
 
-  // 注入租户上下文 (role 来自 identity 权威回查, 非 token 自报)
+  // Inject tenant context (role comes from the authoritative identity lookup, not self-reported by the token)
   req.user = {
     id: claims.sub || claims.tid,
     tid: claims.tid,

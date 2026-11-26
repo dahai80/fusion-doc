@@ -1,21 +1,21 @@
 // =============================================================================
-// AI BubbleMenu — 选中文本的 AI 操作浮窗
+// AI BubbleMenu — floating AI actions for selected text
 // =============================================================================
 import { BubbleMenu } from '@tiptap/react/menus';
 import { useState } from 'react';
 import { t } from '../../stores/langStore';
 
-// 语言敏感操作表 — 每次渲染现取, 切换语言后即时生效
+// Language-sensitive action table — rebuilt on every render so language switches take effect immediately
 const actions = () => ([
-    { key: 'rewrite', label: t('改写', 'Rewrite'), icon: '✏️' },
-    { key: 'translate', label: t('翻译', 'Translate'), icon: '🌐' },
-    { key: 'summarize', label: t('摘要', 'Summarize'), icon: '📋' },
-    { key: 'expand', label: t('展开', 'Expand'), icon: '↔️' },
+    { key: 'rewrite', label: t('改写', 'Rewrite'), icon: '✏️' }, // i18n: user-facing
+    { key: 'translate', label: t('翻译', 'Translate'), icon: '🌐' }, // i18n: user-facing
+    { key: 'summarize', label: t('摘要', 'Summarize'), icon: '📋' }, // i18n: user-facing
+    { key: 'expand', label: t('展开', 'Expand'), icon: '↔️' }, // i18n: user-facing
 ]);
 
 export default function AIBubbleMenu({ editor, pageId }) {
     const [loading, setLoading] = useState(false);
-    // issue #69: 服务端拒绝 (选区超限 413 等) 直接可见, 不再只进 console
+    // issue #69: server rejections (selection over limit 413, etc.) are shown directly, not just logged to the console
     const [err, setErr] = useState('');
 
     if (!editor) return null;
@@ -37,7 +37,7 @@ export default function AIBubbleMenu({ editor, pageId }) {
                 text_before: textBefore,
                 selected_text: selectedText,
                 text_after: textAfter,
-                language: action === 'translate' ? (extra || '英文') : undefined,
+                language: action === 'translate' ? (extra || '英文') : undefined, // i18n: user-facing
                 instruction: action === 'rewrite' ? extra : undefined,
             }, (chunk) => {
                 if (chunk.choices?.[0]?.delta?.content) {
@@ -49,7 +49,7 @@ export default function AIBubbleMenu({ editor, pageId }) {
             }
         } catch (e) {
             console.error('[AIBubbleMenu] Error:', e);
-            setErr(e.message || 'AI 请求失败');
+            setErr(e.message || 'AI 请求失败'); // i18n: user-facing
             setTimeout(() => setErr(''), 5000);
         } finally {
             setLoading(false);

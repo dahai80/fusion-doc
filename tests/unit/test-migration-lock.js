@@ -1,18 +1,18 @@
 // =============================================================================
-// 多实例修复: 行为测试 — 迁移锁串行化 (BEGIN IMMEDIATE + busy_retry)
-// 多进程并发启动 → 抢写锁, 仅一个跑迁移, 其余 BUSY 排队。
-// 用内存 SQLite 无法模拟跨进程锁; 改验证:
-//   1. 迁移记录幂等 (重复跑不重复应用)
-//   2. busy_retry 逻辑: SQLITE_BUSY → 重试而非立即失败 (Atomics.wait 模拟)
-//   3. 单迁移失败 SAVEPOINT 回滚, 不留半套 schema
+// Multi-instance fix: behavior tests — migration lock serialization (BEGIN IMMEDIATE + busy_retry)
+// Concurrent multi-process startup → contend for the write lock; only one runs migrations, the rest queue on BUSY.
+// In-memory SQLite cannot simulate cross-process locks; instead we verify:
+//   1. Migration records are idempotent (re-runs do not re-apply)
+//   2. busy_retry logic: SQLITE_BUSY → retry instead of failing immediately (Atomics.wait simulated)
+//   3. A failing migration rolls back via SAVEPOINT, leaving no half-applied schema
 // =============================================================================
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 let Database = null;
-try { Database = require('better-sqlite3'); } catch (_) { /* 跳过 DB 用例 */ }
+try { Database = require('better-sqlite3'); } catch (_) { /* skip DB cases */ }
 
-test('迁移幂等: _migrations 记录已应用的不再重跑', { skip: !Database }, () => {
+test('migration idempotency: migrations recorded in _migrations are not re-run', { skip: !Database }, () => {
     const db = new Database(':memory:');
     db.exec(`CREATE TABLE _migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,98 +22,98 @@ test('迁移幂等: _migrations 记录已应用的不再重跑', { skip: !Databa
     db.exec('CREATE TABLE IF NOT EXISTS demo (x INTEGER);');
     db.prepare('INSERT INTO _migrations (name) VALUES (?)').run('demo_001');
 
-    // 复刻 runMigrations 的 applied 集合逻辑 (db.js:80-82)
+    // Replicates runMigrations' applied-set logic (db.js:80-82)
     const applied = new Set(db.prepare('SELECT name FROM _migrations').all().map(r => r.name));
-    assert.equal(applied.has('demo_001'), true, '已应用迁移在集合中');
-    // 模拟 for-loop 跳过已应用
+    assert.equal(applied.has('demo_001'), true, 'applied migration is in the set');
+    // Simulate the for-loop skipping applied migrations
     const migrations = [{ name: 'demo_001', sql: 'CREATE TABLE demo_dup(x);' }];
     let ran = 0;
     for (const m of migrations) {
         if (applied.has(m.name)) continue;
         ran++;
     }
-    assert.equal(ran, 0, '已应用迁移被跳过 (幂等)');
+    assert.equal(ran, 0, 'applied migration is skipped (idempotent)');
     db.close();
 });
 
-test('迁移 SAVEPOINT 回滚: 单迁移 DDL 中途失败 → 回退本迁移已执行部分', { skip: !Database }, () => {
+test('migration SAVEPOINT rollback: DDL failing mid-migration → roll back the parts already executed', { skip: !Database }, () => {
     const db = new Database(':memory:');
     db.exec(`CREATE TABLE _migrations (name TEXT UNIQUE NOT NULL);`);
-    // 模拟一条迁移: 先建成功表 A, 再建非法表 B (语法错) → 整迁移回滚
+    // Simulate a migration: create valid table A, then invalid table B (syntax error) → whole migration rolls back
     db.exec('BEGIN');
     db.exec('SAVEPOINT fd_migration');
     try {
         db.exec('CREATE TABLE ok_table (a INTEGER);');
-        db.exec('CREATE TABLE fail_table (BAD SYNTAX!!!);'); // 故意语法错, 必抛
+        db.exec('CREATE TABLE fail_table (BAD SYNTAX!!!);'); // deliberate syntax error, must throw
         db.prepare('INSERT INTO _migrations (name) VALUES (?)').run('fail_001');
         db.exec('RELEASE fd_migration');
-        assert.fail('应抛语法错');
+        assert.fail('expected a syntax error');
     } catch (e) {
         db.exec('ROLLBACK TO fd_migration');
         db.exec('RELEASE fd_migration');
-        // 回滚后 ok_table 应不存在 (SAVEPOINT 回退其建表)
+        // After rollback ok_table must not exist (SAVEPOINT undid its creation)
         const exists = db.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE name='ok_table'").get().c;
-        assert.equal(exists, 0, '部分 DDL 已回滚, 不留半套 schema');
+        assert.equal(exists, 0, 'partial DDL rolled back, no half-applied schema');
         const mig = db.prepare('SELECT COUNT(*) AS c FROM _migrations').get().c;
-        assert.equal(mig, 0, '失败迁移未记入 _migrations (一致性)');
+        assert.equal(mig, 0, 'failed migration not recorded in _migrations (consistency)');
     } finally {
         try { db.exec('COMMIT'); } catch (_) { /* noop */ }
         db.close();
     }
 });
 
-test('busy_retry 逻辑: SQLITE_BUSY 时重试计数而非立即抛', () => {
-    // 复刻 _acquireMigrateLock 的重试循环 (db.js:44-61), 验证遇 BUSY 计数+重试
-    // 不真实加锁 (单进程无并发锁), 只验证错误分类逻辑
+test('busy_retry logic: on SQLITE_BUSY count and retry instead of throwing immediately', () => {
+    // Replicates _acquireMigrateLock's retry loop (db.js:44-61); verifies BUSY is counted + retried
+    // No real locking (single process has no concurrent locks); only the error classification logic is verified
     const maxRetry = 60;
     let attempts = 0;
     let acquired = false;
     for (let i = 0; i < maxRetry; i++) {
         attempts++;
-        // 模拟前 5 次 BUSY, 第 6 次成功
+        // Simulate BUSY for the first 5 attempts, success on the 6th
         const err = i < 5
             ? { code: 'SQLITE_BUSY', message: 'database is locked' }
             : null;
         if (!err) { acquired = true; break; }
         if (err.code === 'SQLITE_BUSY' || /database is locked/.test(err.message)) {
-            // 真实代码此处 Atomics.wait 200ms; 测试中跳过等待直接 continue
+            // Real code does Atomics.wait 200ms here; the test skips the wait and continues
             continue;
         }
         throw err;
     }
-    assert.equal(acquired, true, 'BUSY 重试后第 6 次拿到锁');
-    assert.equal(attempts, 6, '重试 6 次 (5 BUSY + 1 成功), 未耗尽 60 次上限');
+    assert.equal(acquired, true, 'lock acquired on the 6th attempt after BUSY retries');
+    assert.equal(attempts, 6, '6 attempts (5 BUSY + 1 success), 60-attempt cap not exhausted');
 });
 
-test('busy_retry 超时: 持续 BUSY 到 maxRetry → 返回 false (fail visibly)', () => {
-    const maxRetry = 3; // 用小上限加速测试
+test('busy_retry timeout: BUSY until maxRetry → returns false (fail visibly)', () => {
+    const maxRetry = 3; // small cap to speed up the test
     let attempts = 0;
     let acquired = false;
     for (let i = 0; i < maxRetry; i++) {
         attempts++;
-        const err = { code: 'SQLITE_BUSY', message: 'database is locked' }; // 恒 BUSY
+        const err = { code: 'SQLITE_BUSY', message: 'database is locked' }; // always BUSY
         if (err.code === 'SQLITE_BUSY' || /database is locked/.test(err.message)) {
             continue;
         }
         acquired = true;
         break;
     }
-    assert.equal(acquired, false, '持续 BUSY 到上限未拿到锁 → 返回 false');
-    assert.equal(attempts, maxRetry, `重试耗尽 ${maxRetry} 次`);
+    assert.equal(acquired, false, 'BUSY until the cap without acquiring the lock → returns false');
+    assert.equal(attempts, maxRetry, `retries exhausted after ${maxRetry} attempts`);
 });
 
-test('角色门控: FUSION_DOC_ROLE=replica 时不跑单实例职责 (E8 清扫/备份)', () => {
-    // 复刻 app.js init() 的角色判断逻辑 (app.js:53-91)
-    // primary 跑 E8 清扫 + 自动备份; replica 跳过 (防多进程重复执行/惊群)
+test('role gating: FUSION_DOC_ROLE=replica skips single-instance duties (E8 sweep/backup)', () => {
+    // Replicates app.js init() role check logic (app.js:53-91)
+    // primary runs the E8 sweep + auto backup; replica skips them (prevents duplicate multi-process runs / thundering herd)
     const runE8Sweep = (role) => role === 'primary';
     const runAutoBackup = (role, hours) => role === 'primary' && hours > 0;
-    assert.equal(runE8Sweep('primary'), true, 'primary 跑 E8 清扫');
-    assert.equal(runE8Sweep('replica'), false, 'replica 跳过 E8 清扫');
-    assert.equal(runAutoBackup('primary', 24), true, 'primary 跑自动备份');
-    assert.equal(runAutoBackup('replica', 24), false, 'replica 跳过自动备份');
-    assert.equal(runAutoBackup('primary', 0), false, 'AUTO_BACKUP_HOURS=0 关闭备份');
-    assert.equal(runAutoBackup('replica', 0), false, 'replica + 关闭 → 双重跳过');
-    // 默认角色 (未设 env) 应为 primary
+    assert.equal(runE8Sweep('primary'), true, 'primary runs the E8 sweep');
+    assert.equal(runE8Sweep('replica'), false, 'replica skips the E8 sweep');
+    assert.equal(runAutoBackup('primary', 24), true, 'primary runs auto backup');
+    assert.equal(runAutoBackup('replica', 24), false, 'replica skips auto backup');
+    assert.equal(runAutoBackup('primary', 0), false, 'AUTO_BACKUP_HOURS=0 disables backup');
+    assert.equal(runAutoBackup('replica', 0), false, 'replica + disabled → skipped twice over');
+    // Default role (env unset) should be primary
     const role = (process.env.FUSION_DOC_ROLE || 'primary').toLowerCase();
-    assert.equal(role, 'primary', '默认角色 primary (单实例向后兼容)');
+    assert.equal(role, 'primary', 'default role is primary (single-instance backward compatible)');
 });

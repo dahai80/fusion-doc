@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 导出控制器（BookStack 导出能力）
-// 支持 Markdown / HTML / PDF / Office 格式
+// Fusion-Doc — export controller (BookStack export capabilities)
+// Supports Markdown / HTML / PDF / Office formats
 // =============================================================================
 
 const path = require('path');
@@ -9,10 +9,10 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
 const { notFound } = require('../utils/response');
-// P1-P5 修复: 流式下载替代 readFileSync, 避免大 PDF/DOCX 整文件入内存 OOM
+// P1-P5 fix: stream downloads instead of readFileSync, avoiding OOM from loading large PDF/DOCX files fully into memory
 const { createReadStream, mkdirSync, writeFileSync, existsSync, statSync, unlinkSync } = require('fs');
 
-// 流式发送已生成文件, 发完清理 temp; 流错不杀进程
+// Stream an already-generated file, clean up temp when done; stream errors do not kill the process
 function streamFile(res, filePath, contentType, filename, cleanupPaths) {
     const stat = statSync(filePath);
     res.writeHead(200, {
@@ -37,7 +37,7 @@ function register(app) {
   app.registerRoute('GET', '/api/export/:format/:id', async (req, res) => {
     const { format, id } = req.params;
     let page = db ? db.prepare('SELECT * FROM pages WHERE id = ?').get(id) : require('../db').readJSON('pages', id);
-    if (!page) return notFound(res, '页面不存在');
+    if (!page) return notFound(res, 'Page not found');
 
     const markdown = `# ${page.title}\n\n${page.markdown || page.content || ''}`;
 

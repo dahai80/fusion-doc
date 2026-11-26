@@ -1,8 +1,8 @@
 // =============================================================================
-// Fusion-Doc — issue #51 Union Web shell 注册 单元测试
-// 零外部依赖 (node:test + node:assert)。覆盖: 服务凭证生成/回写/复读,
-// 注册体组装 (version 覆写 + upstream + api_key), auth 中件 shell 服务凭证
-// 分支 (timingSafeEqual 放行 / 错凭证走原路径)。
+// Fusion-Doc — issue #51 Union Web shell registration unit tests
+// Zero external dependencies (node:test + node:assert). Covers: service key generation/write-back/re-read,
+// registration body assembly (version override + upstream + api_key), auth middleware shell service key
+// branch (timingSafeEqual pass / wrong key falls through to the original path).
 // =============================================================================
 
 const test = require('node:test');
@@ -13,7 +13,7 @@ const path = require('path');
 const shellRegister = require('../../server/services/shell-register');
 const { auth } = require('../../server/middleware/auth');
 
-// ── 测试夹具: 伪 req/res/ctx (对齐 test-identity-tenant.js) ──────────────
+// ── Test fixtures: fake req/res/ctx (aligned with test-identity-tenant.js) ──────────────
 function makeReq({ method = 'GET', url = '/api/pages', headers = {}, cfg = {} } = {}) {
     const h = {};
     for (const k of Object.keys(headers)) h[k.toLowerCase()] = headers[k];
@@ -29,50 +29,50 @@ function makeRes() {
     };
 }
 
-// ── loadServiceKey: env 优先 / 自动生成 + 回写 config / 复读稳定 ─────────
-test('issue#51: loadServiceKey env 优先 (不触发生成/复读)', () => {
+// ── loadServiceKey: env first / auto-generate + write back to config / stable re-read ─────────
+test('issue#51: loadServiceKey env takes priority (no generation/re-read)', () => {
     const cfg = { shellGateway: { apiKey: 'fdshell-env-key' } };
     const key = shellRegister.loadServiceKey(cfg);
     assert.strictEqual(key, 'fdshell-env-key');
     assert.strictEqual(cfg.shellGateway.apiKey, 'fdshell-env-key');
 });
 
-test('issue#51: loadServiceKey 缺 env 时生成 fdshell- 前缀凭证并回写 config', () => {
-    // 生成路径写真实 data/shell-api-key.json (gitignored, 运行时合法位置)
+test('issue#51: loadServiceKey without env generates an fdshell- prefixed key and writes it back to config', () => {
+    // Generation path writes the real data/shell-api-key.json (gitignored, valid runtime location)
     const cfg = { shellGateway: { apiKey: '' } };
     const key = shellRegister.loadServiceKey(cfg);
-    assert.ok(key.startsWith('fdshell-'), '凭证应带 fdshell- 前缀');
-    assert.strictEqual(cfg.shellGateway.apiKey, key, '凭证须回写 config (auth 中件依赖)');
-    // 复读稳定 (持久化生效)
+    assert.ok(key.startsWith('fdshell-'), 'key should have the fdshell- prefix');
+    assert.strictEqual(cfg.shellGateway.apiKey, key, 'key must be written back to config (auth middleware depends on it)');
+    // Stable re-read (persistence works)
     const cfg2 = { shellGateway: { apiKey: '' } };
-    assert.strictEqual(shellRegister.loadServiceKey(cfg2), key, '复读应稳定');
+    assert.strictEqual(shellRegister.loadServiceKey(cfg2), key, 're-read should be stable');
 });
 
-// ── buildRegistrationBody: version 覆写 + upstream + api_key ─────────────
-test('issue#51: buildRegistrationBody — package.json version 权威 + upstream + api_key', () => {
+// ── buildRegistrationBody: version override + upstream + api_key ─────────────
+test('issue#51: buildRegistrationBody — package.json version is authoritative + upstream + api_key', () => {
     const { version } = require('../../package.json');
     const cfg = { port: 11449, shellGateway: { apiKey: 'fdshell-x' } };
     const body = shellRegister.buildRegistrationBody(cfg, 'fdshell-x');
     assert.strictEqual(body.id, 'fusion-doc');
     assert.strictEqual(body.category, 'infra');
-    assert.strictEqual(body.version, version, 'version 由 package.json 覆写');
+    assert.strictEqual(body.version, version, 'version overridden from package.json');
     assert.strictEqual(body.upstream, 'http://127.0.0.1:11449');
     assert.strictEqual(body.api_key, 'fdshell-x');
     assert.ok(Array.isArray(body.devices) && body.devices.includes('desktop'));
     assert.strictEqual(body.entry, '/shell/fusion-doc/');
 });
 
-test('issue#51: manifest.json 本体不含密钥 (api_key 仅运行时注入)', () => {
+test('issue#51: manifest.json itself has no secret (api_key injected only at runtime)', () => {
     const manifest = JSON.parse(fs.readFileSync(shellRegister.MANIFEST_PATH, 'utf8'));
     assert.strictEqual(manifest.api_key, undefined);
     assert.strictEqual(manifest.upstream, undefined);
-    // §5.1 必填字段齐备
+    // §5.1 required fields present
     for (const f of ['id', 'title', 'path', 'entry', 'devices', 'category']) {
-        assert.ok(manifest[f], `manifest 缺必填字段 ${f}`);
+        assert.ok(manifest[f], `manifest missing required field ${f}`);
     }
 });
 
-// ── auth 中件 shell 服务凭证分支 ─────────────────────────────────────────
+// ── auth middleware shell service key branch ─────────────────────────────────────────
 function shellCfg(apiKey, extra = {}) {
     return {
         shellGateway: { apiKey, tenant: 'shell', role: 'operator', ...extra },
@@ -81,7 +81,7 @@ function shellCfg(apiKey, extra = {}) {
     };
 }
 
-test('issue#51: 网关注入服务凭证 → 放行, 注入 shell 会话主体', async () => {
+test('issue#51: gateway-injected service key → allowed, shell session principal injected', async () => {
     const req = makeReq({ headers: { Authorization: 'Bearer fdshell-correct' }, cfg: shellCfg('fdshell-correct') });
     const res = makeRes();
     const blocked = await auth(req, res, {});
@@ -91,25 +91,25 @@ test('issue#51: 网关注入服务凭证 → 放行, 注入 shell 会话主体',
     assert.strictEqual(req.user.role, 'operator');
 });
 
-test('issue#51: 错误服务凭证 → 不放行 (落入 identity 路径 fail-closed)', async () => {
+test('issue#51: wrong service key → rejected (falls into the identity path, fail-closed)', async () => {
     const req = makeReq({ headers: { Authorization: 'Bearer fdshell-wrong' }, cfg: shellCfg('fdshell-correct') });
     const res = makeRes();
     const blocked = await auth(req, res, {});
     assert.strictEqual(blocked, true);
     assert.strictEqual(res.state.statusCode, 401);
-    // 无 X-Tenant-Id → AUTH_TENANT_REQUIRED (证明未走 shell 分支)
+    // No X-Tenant-Id → AUTH_TENANT_REQUIRED (proves the shell branch was not taken)
     const code = JSON.parse(res.state.body).code;
     assert.strictEqual(code, 'AUTH_TENANT_REQUIRED');
 });
 
-test('issue#51: 服务凭证长度不同 → 不 Equal 不抛错 (timingSafeEqual 长度前置判)', async () => {
+test('issue#51: service key length mismatch → not equal, no throw (length checked before timingSafeEqual)', async () => {
     const req = makeReq({ headers: { Authorization: 'Bearer short' }, cfg: shellCfg('fdshell-correct') });
     const res = makeRes();
     const blocked = await auth(req, res, {});
     assert.strictEqual(blocked, true);
 });
 
-test('issue#51: localAuth 模式下服务凭证同样放行 (网关代理不分模式)', async () => {
+test('issue#51: service key also allowed in localAuth mode (gateway proxy is mode-agnostic)', async () => {
     const cfg = shellCfg('fdshell-correct', {});
     cfg.localAuth = true;
     const req = makeReq({ headers: { Authorization: 'Bearer fdshell-correct' }, cfg });
@@ -119,19 +119,19 @@ test('issue#51: localAuth 模式下服务凭证同样放行 (网关代理不分�
     assert.strictEqual(req.user.id, 'shell-session');
 });
 
-test('issue#51: 未配置 shellGateway.apiKey → 分支不激活 (存量行为不变)', async () => {
+test('issue#51: shellGateway.apiKey not configured → branch inactive (existing behavior unchanged)', async () => {
     const req = makeReq({ headers: { Authorization: 'Bearer whatever' }, cfg: shellCfg('') });
     const res = makeRes();
     const blocked = await auth(req, res, {});
     assert.strictEqual(blocked, true);
 });
 
-// ── teardown: 清理生成的凭证文件 (只留最终输出件和日志) ──────────────────
-test('teardown: 清理测试生成的服务凭证文件', () => {
-    // 若测试前不存在则删除 (避免污染真实运行时状态)
+// ── teardown: clean up generated key files (keep only final outputs and logs) ──────────────────
+test('teardown: clean up service key files generated by tests', () => {
+    // Delete if it did not exist before the tests (avoid polluting real runtime state)
     const keyFile = shellRegister.SERVICE_KEY_FILE;
     if (fs.existsSync(keyFile)) {
         fs.unlinkSync(keyFile);
-        console.log(`  [teardown] 已清理 ${keyFile}`);
+        console.log(`  [teardown] cleaned up ${keyFile}`);
     }
 });

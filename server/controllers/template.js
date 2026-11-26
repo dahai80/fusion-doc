@@ -1,6 +1,6 @@
 // =============================================================================
-// Fusion-Doc — 模板控制器
-// 文档模板 CRUD + 从模板创建文档
+// Fusion-Doc — template controller
+// Document template CRUD + create documents from templates
 // =============================================================================
 
 const { parseBody } = require('../middleware/body-parser');
@@ -11,16 +11,16 @@ const { extractVariables, fillVariables, createFromTemplate } = require('../serv
 function register(app) {
     const { db } = app;
 
-    // ── 模板列表 ────────────────────────────────────────────────────────
+    // ── Template list ───────────────────────────────────────────────────
     app.registerRoute('GET', '/api/templates', (req, res) => {
         if (!db) return json(res, []);
-        // A6 修复: 列表分页上限, 防 unbounded 全表拉 OOM
+        // A6 fix: paging cap on the list to prevent an unbounded full-table pull OOM
         const { size, offset } = parsePaging(req);
         const rows = db.prepare('SELECT * FROM templates ORDER BY category, name LIMIT ? OFFSET ?').all(size, offset);
         json(res, rows);
     });
 
-    // ── 模板详情 ────────────────────────────────────────────────────────
+    // ── Template detail ─────────────────────────────────────────────────
     app.registerRoute('GET', '/api/templates/:id', (req, res) => {
         if (!db) return error(res, 'DB not available', 500);
         const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
@@ -28,7 +28,7 @@ function register(app) {
         json(res, row);
     });
 
-    // ── 创建模板 ────────────────────────────────────────────────────────
+    // ── Create template ─────────────────────────────────────────────────
     app.registerRoute('POST', '/api/templates', async (req, res) => {
         if (!db) return error(res, 'DB not available', 500);
         const body = await parseBody(req);
@@ -46,7 +46,7 @@ function register(app) {
         json(res, { id, name });
     });
 
-    // ── 更新模板 ────────────────────────────────────────────────────────
+    // ── Update template ─────────────────────────────────────────────────
     app.registerRoute('PUT', '/api/templates/:id', async (req, res) => {
         if (!db) return error(res, 'DB not available', 500);
         const body = await parseBody(req);
@@ -62,14 +62,14 @@ function register(app) {
         json(res, { updated: true });
     });
 
-    // ── 删除模板 ────────────────────────────────────────────────────────
+    // ── Delete template ─────────────────────────────────────────────────
     app.registerRoute('DELETE', '/api/templates/:id', (req, res) => {
         if (!db) return error(res, 'DB not available', 500);
         db.prepare('DELETE FROM templates WHERE id = ?').run(req.params.id);
         json(res, { deleted: true });
     });
 
-    // ── 从模板创建页面 ──────────────────────────────────────────────────
+    // ── Create page from template ───────────────────────────────────────
     app.registerRoute('POST', '/api/templates/:id/instantiate', async (req, res) => {
         if (!db) return error(res, 'DB not available', 500);
         const body = await parseBody(req);
@@ -82,7 +82,7 @@ function register(app) {
         }
     });
 
-    // ── 提取模板变量 ──────────────────────────────────────────────────────
+    // ── Extract template variables ────────────────────────────────────────
     app.registerRoute('GET', '/api/templates/:id/variables', (req, res) => {
         if (!db) return error(res, 'DB not available', 500);
         const tpl = db.prepare('SELECT content FROM templates WHERE id = ?').get(req.params.id);
