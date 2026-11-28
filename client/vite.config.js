@@ -18,6 +18,12 @@ export default defineConfig({
                 target: 'ws://localhost:11449',
                 ws: true,
             },
+            // issue #90: office ai-client dev relay — same convention as the office apps,
+            // so browser AI calls reach fusion-gateway :11432 without CORS setup in dev
+            '/__fusion_gateway': {
+                target: 'http://127.0.0.1:11432',
+                changeOrigin: true,
+            },
         },
     },
     build: {

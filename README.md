@@ -38,7 +38,7 @@ Fusion-Doc Server (:11449) — AI-First Document Operating System
 ├── Client (React 18 + Vite + TipTap 2.x)
 │   ├── Editor (TipTap + AI Ghost Text + BubbleMenu + Slash Commands)
 │   ├── Knowledge Graph (D3.js Force-Directed Layout)
-│   ├── AI Chat Panel (SSE Streaming)
+│   ├── AI Chat Panel (office ai-client → fusion-gateway streaming)
 │   ├── Office Import/Export
 │   ├── Template System
 │   ├── Workflow
@@ -79,7 +79,7 @@ NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash star
 | **AI Ghost Text** | Inline completion suggestion | `Cmd+J` trigger, `Tab` accept, `Esc` reject |
 | **AI BubbleMenu** | Rewrite/translate/summarize/expand selection | Select text → floating toolbar |
 | **AI Slash Command** | Command palette with AI actions | Type `/` in editor |
-| **AI Chat Panel** | Side panel with streaming AI chat | 🤖 AI button |
+| **AI Chat Panel** | Side panel with streaming AI chat (office ai-client transport) | 🤖 AI button |
 | **Global Search** | Full-text search modal with FTS5 | `Cmd+K` |
 | **RAG Enhancement** | In-document QA via fusion-rag (`FUSION_RAG_KB_ID`) | `/api/rag/query` |
 
@@ -94,7 +94,7 @@ NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash star
 | **Zettlr** | Bidirectional links + knowledge graph | `/api/graph`, `/api/graph/search` | ✅ |
 | **D3.js** | Force-directed graph visualization | `/graph` page | ✅ |
 | **fusion-office office-api** | xlsx import + docx template fill (`:11492`) | `/api/office/import`, `/api/office/merge` | ✅ |
-| **Fusion-MLX** | Local AI chat (SSE streaming) | `/api/ai/chat` | ✅ |
+| **fusion-office ai-client** | Chat panel transport (browser → fusion-gateway `:11432`) + rollout-tap outcomes | vendored `client/src/vendor/ai-client` | ✅ |
 | **Fusion-MLX** | Local Embedding + RAG | `/api/ai/embeddings`, `/api/rag/query` | ✅ |
 | **AI Copilot** | Inline AI (complete/rewrite/translate) | `/api/copilot/*` | ✅ |
 | **Template** | Document templates + instantiation | `/api/templates` | ✅ |
@@ -172,7 +172,6 @@ fusion-doc/
 | GET | `/api/graph` | Knowledge graph data |
 | GET | `/api/graph/search?q=` | Semantic graph search |
 | GET | `/api/graph/node/:id` | Node detail + neighbors |
-| POST | `/api/ai/chat` | AI chat (SSE streaming) |
 | POST | `/api/copilot/complete` | AI inline completion |
 | POST | `/api/copilot/rewrite` | AI rewrite selection |
 | POST | `/api/copilot/translate` | AI translate selection |

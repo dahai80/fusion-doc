@@ -94,6 +94,21 @@ else
   echo "  [✓] .env 已存在"
 fi
 
+# ── 4b. client/.env — browser-side ai-client build env (issue #90) ───────
+# The AI chat panel streams via @fusion-office/ai-client straight to
+# fusion-gateway from the browser; Vite bakes these values at build time.
+GW_KEY=$(grep -E '^FUSION_CLIENT_KEY=' .env | cut -d= -f2- || true)
+GW_URL=$(grep -E '^FUSION_GATEWAY_URL=' .env | cut -d= -f2- || true)
+GW_URL=${GW_URL:-http://127.0.0.1:11432}
+cat > client/.env << CNVEOF
+# Browser-side AI transport (issue #90): @fusion-office/ai-client calls
+# fusion-gateway directly from the browser. Static key in the bundle is the
+# same trade-off the office apps make; keep the gateway on a trusted network.
+VITE_FUSION_GATEWAY_URL=${GW_URL}
+VITE_FUSION_GATEWAY_KEY=${GW_KEY}
+CNVEOF
+echo "  [✓] client/.env 已生成 (gateway: ${GW_URL})"
+
 # ── 5. 验证 ──────────────────────────────────────────────────────────────
 echo ""
 echo "[5/6] 验证..."
