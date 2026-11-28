@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useUIStore } from '../../stores/uiStore';
 import { usePageStore } from '../../stores/pageStore';
-import { apiStream } from '../../lib/api';
+import { chatStreamEvents, createOutcomeReporter } from '../../vendor/ai-client/index.js';
 import { useT } from '../../stores/langStore';
 
 // Convert assistant markdown output to editor-insertable HTML.
@@ -76,6 +76,14 @@ export default function AIChatPanel() {
     const currentPage = usePageStore((s) => s.currentPage);
     const t = useT();
 
+    // issue #90 (RFC office#64 H3): chat transport is the shared office ai-client
+    // (browser -> fusion-gateway :11432). Outcomes reporting is fire-and-forget
+    // tap data; a failed emit is a log line, never a user-visible error.
+    const outcomeRef = useRef(null);
+    if (!outcomeRef.current) {
+        outcomeRef.current = createOutcomeReporter({ app: 'fusion-doc' });
+    }
+
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
@@ -96,7 +104,8 @@ export default function AIChatPanel() {
                 content: m.content,
             }));
             // F5 fix: RAG mode is no longer cosmetic — it actually calls /ai/rag/query for knowledge-base retrieval-augmented answers.
-            // /rag/query returns { answer, sources } non-streaming; chat mode still streams via /ai/chat.
+            // /rag/query returns { answer, sources } non-streaming; chat mode streams via the shared
+            // office ai-client directly against fusion-gateway (issue #90, RFC office#64 H3).
             const rawInput = userMsg.content;
             const ragQuestion = aiPanelMode === 'rag'
                 ? rawInput.replace(/^\?\s*/, '')
@@ -115,26 +124,25 @@ export default function AIChatPanel() {
                 });
                 setStreaming(false);
             } else {
-                await apiStream(
-                    '/ai/chat',
-                    { messages: chatMessages, stream: true },
-                    (chunk) => {
-                        const text = chunk.choices?.[0]?.delta?.content || chunk.text || '';
-                        if (text) {
-                            setMessages((prev) => {
-                                const updated = [...prev];
-                                updated[updated.length - 1] = {
-                                    ...updated[updated.length - 1],
-                                    content: updated[updated.length - 1].content + text,
-                                };
-                                return updated;
-                            });
-                        }
-                    },
-                    () => setStreaming(false)
-                );
+                for await (const ev of chatStreamEvents({ messages: chatMessages })) {
+                    if (ev.type === 'text' && ev.text) {
+                        setMessages((prev) => {
+                            const updated = [...prev];
+                            updated[updated.length - 1] = {
+                                ...updated[updated.length - 1],
+                                content: updated[updated.length - 1].content + ev.text,
+                            };
+                            return updated;
+                        });
+                    }
+                }
+                // Rollout-tap outcome (schema v1): the chat turn finished without error.
+                outcomeRef.current.report({ signal: 'task_success', detail: 'chat turn completed' });
+                setStreaming(false);
             }
         } catch (e) {
+            // Rollout-tap outcome: the chat turn failed.
+            try { outcomeRef.current.report({ signal: 'error', detail: `chat turn failed: ${e.message}` }); } catch (_) { /* never surface */ }
             setMessages((prev) => {
                 const updated = [...prev];
                 updated[updated.length - 1] = {

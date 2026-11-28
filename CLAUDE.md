@@ -61,7 +61,7 @@ Two-process model behind one port (11449):
 controllers/  → route registration + req handling (call services, return via utils/response)
 services/     → business logic (rag, office, workflow-engine, template-engine, seed-templates)
 models/       → data access (base.js SQLite/JSON dual-mode; index.js registry)
-integrations/ → external clients (fusion-identity, fusion-mlx, office-api, libreoffice, fusion-kb/cowork/model-hub/studio/trainer/coder, http-retry)
+integrations/ → external clients (fusion-identity, fusion-mlx, office-api, fusion-kb/cowork/model-hub/studio/trainer/coder, http-retry)
 middleware/   → cors, logger, body-parser, rate-limit, auth, authz, require-admin, error-handler, pipeline
 plugins/      → loader.js + registry.js (drop-in extensions, loaded at init)
 utils/        → response (json/success/error/notFound/created/list), static, helpers
@@ -81,7 +81,7 @@ Three-tier: env var > `.env` > hardcoded default. `.env` parser is hand-rolled (
 
 ## Fusion-MLX integration (the AI layer)
 
-All AI features call sibling `fusion-mlx` over HTTP (OpenAI-compatible API): `/v1/chat/completions` (incl. SSE streaming), `/v1/embeddings`, `/v1/rerank`, `/v1/models`. Client is `server/integrations/fusion-mlx.js`.
+All AI features call sibling `fusion-mlx` over HTTP (OpenAI-compatible API): `/v1/chat/completions` (incl. SSE streaming), `/v1/embeddings`, `/v1/rerank`, `/v1/models`. Server-side client is `server/integrations/fusion-mlx.js` (copilot/embeddings/RAG). The AI Chat Panel streams browser-side via the vendored `@fusion-office/ai-client` (`client/src/vendor/ai-client`, issue #90) straight to fusion-gateway `:11432` — swap to a published package dependency when fusion-office#65 ships it; do not edit vendored files.
 
 **Hard rule:** `FUSION_CLIENT_KEY` must be set in env (canonical config-conventions name, issue #67; no legacy alias chain in this repo) — the integration **fails visibly** (throws) when the key is missing. Never hardcode the key as a literal. To run AI features locally, start the engine with `~/claude-home/fusion-mlx/start.sh start` and set the key.
 

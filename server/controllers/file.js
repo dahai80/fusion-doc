@@ -1,12 +1,10 @@
 // =============================================================================
-// Fusion-Doc — file controller (Teedy document management + LibreOffice conversion)
+// Fusion-Doc — file controller (Teedy document management; issue #90:
+// office-format parsing delegated to office-api, local conversion removed)
 // =============================================================================
 
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
-const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
 const { parseBody } = require('../middleware/body-parser');
 const { uid, now, parsePaging } = require('../utils/helpers');
 const { json, list, notFound, error } = require('../utils/response');
@@ -110,25 +108,9 @@ function register(app) {
       db.prepare('INSERT INTO files (id, name, path, mime, size, page_id, encrypted, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(file.id, file.name, file.path, file.mime, file.size, file.page_id, file.encrypted, file.created_by, file.created_at);
     } else { require('../db').writeJSON('files', file.id, file); }
 
-    // Try to extract text content from Office documents
-    const officeExts = ['.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp'];
-    if (officeExts.includes(ext)) {
-      try {
-        const txtPath = path.join(storageDir, fileId + '.txt');
-        const srcPath = path.join(storageDir, fileName);
-        try {
-          await execFileAsync('pandoc', [srcPath, '-t', 'plain', '-o', txtPath], { timeout: 30000 });
-        } catch {
-          try {
-            await execFileAsync('libreoffice', ['--headless', '--convert-to', 'txt', '--outdir', storageDir, srcPath], { timeout: 30000 });
-          } catch { /* libreoffice not available */ }
-        }
-        if (fs.existsSync(txtPath)) {
-          file.extracted_text = fs.readFileSync(txtPath, 'utf-8').slice(0, 50000);
-          fs.unlinkSync(txtPath);
-        }
-      } catch (e) { /* Office conversion unavailable */ }
-    }
+    // issue #90 (RFC office#64 H2): office-format parsing outside office-api is deleted.
+    // The legacy pandoc/libreoffice text extraction is gone; attachment text extraction
+    // returns when office-api ships the docx/pptx parse legs (tracked fusion-office#65/#32).
 
     json(res, file, 201);
   });

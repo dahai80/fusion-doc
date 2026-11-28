@@ -82,8 +82,8 @@ NODE_ENV=development FUSION_DOC_HOST=127.0.0.1 FUSION_DOC_LOCAL_AUTH=1 bash star
 | **Teedy** | 文档分类 + 元数据 | 标签 + `/api/metadata` | ✅ |
 | **Zettlr** | 双向链接 + 知识图谱 | `/api/pages/:id/links`, `/api/graph` | ✅ |
 | **MacDown** | macOS 原生体验优化 | 主题 + 暗黑模式 | ✅ |
-| **LibreOffice** | Office 格式转换 | 导出接口 + Pandoc | ✅ |
-| **Fusion-MLX** | 本地 AI 聊天（流式） | `/api/ai/chat` | ✅ |
+| **office-api (fusion-office)** | Office 格式引擎（xlsx 导入 + docx 模板填充） | `/api/office/import`, `/api/office/merge` | ✅ |
+| **ai-client (fusion-office)** | AI 聊天传输层（浏览器 → fusion-gateway :11432）+ rollout-tap outcomes | `client/src/vendor/ai-client` | ✅ |
 | **Fusion-MLX** | 本地 Embedding | `/api/ai/embeddings` | ✅ |
 | **Fusion-MLX** | RAG（检索增强生成） | `/api/rag/index`, `/api/rag/query` | ✅ |
 | **Fusion-Coder** | AI 代码生成与审查 | 集成桥接 | ✅ |
@@ -143,7 +143,6 @@ fusion-doc/
 │   │   ├── fusion-mlx.js       ← Fusion-MLX AI 引擎
 │   │   ├── fusion-coder.js     ← Fusion-Coder 桥接
 │   │   ├── ocr.js              ← OCR（Tesseract + MLX Vision）
-│   │   └── libreoffice.js      ← LibreOffice 转换
 │   ├── plugins/                ← 插件系统
 │   │   ├── loader.js           ← 插件加载器
 │   │   └── registry.js         ← 插件注册表
@@ -184,11 +183,10 @@ fusion-doc/
 | GET | `/api/search?q=` | 全文搜索 |
 | GET | `/api/search/advanced` | 高级搜索 |
 | GET | `/api/graph` | 知识图谱 |
-| POST | `/api/ai/chat` | AI 聊天（支持流式） |
 | POST | `/api/ai/embeddings` | 向量嵌入 |
 | POST | `/api/rag/index` | RAG 文档索引 |
 | POST | `/api/rag/query` | RAG 问答 |
-| GET | `/api/export/:format/:id` | 文档导出（md/html/pdf/docx） |
+| GET | `/api/export/:format/:id` | 文档导出（md/html/pdf；docx → 422 待 office-api 写入端点） |
 | GET/POST/DELETE | `/api/favorites` | 收藏管理 |
 | GET/POST/DELETE | `/api/files` | 文件管理 |
 | GET/POST/DELETE | `/api/comments` | 评论 |

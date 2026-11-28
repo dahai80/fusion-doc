@@ -1,12 +1,14 @@
 // =============================================================================
 // Fusion-Doc — AI controller (deep Fusion-MLX integration)
-// Supports chat, embeddings, RAG, streaming
-// Production-grade: SSE client disconnect aborts the upstream stream; RAG retrieval is capped to prevent OOM
+// Supports embeddings and RAG endpoints. AI chat moved client-side (issue #90):
+// the chat panel streams via the shared office ai-client straight to
+// fusion-gateway :11432, so the /api/ai/chat proxy route was deleted.
+// Production-grade: RAG retrieval is capped to prevent OOM
 // =============================================================================
 /* global AbortController */
 
 const { parseBody } = require('../middleware/body-parser');
-const { callFusionMLX, callFusionMLXStream } = require('../integrations/fusion-mlx');
+const { callFusionMLX } = require('../integrations/fusion-mlx');
 const { askKb } = require('../integrations/fusion-kb');
 const { json, error, notFound } = require('../utils/response');
 // A8 fix: RAG unified onto the single rag-hybrid store (rag_chunks); no more inline writes to the rag_index table.
@@ -40,64 +42,6 @@ const MAX_QUERY_LEN = 2000;
 
 function register(app) {
   const { db } = app;
-
-  // ── AI chat ──────────────────────────────────────────────────────────
-  app.registerRoute('POST', '/api/ai/chat', async (req, res) => {
-    const body = await parseBody(req);
-    const stream = body.stream === true;
-
-    if (stream) {
-      // SSE streaming response
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      });
-      // Abort the upstream stream when the client disconnects, preventing KV/connection leaks (P2-22 + R7 fix: really abort upstream)
-      // E23 fix: listen for res close (a client disconnect on a streaming response fires res close first), consistent with ai-copilot.js
-      let aborted = false;
-      let lastUsage = null;
-      const abortController = new AbortController();
-      const onClose = () => { aborted = true; abortController.abort(); };
-      res.on('close', onClose);
-      try {
-        const streamIter = callFusionMLXStream({
-          model: body.model || app.config.fusionMlx.chatModel,
-          messages: body.messages || [],
-          abortSignal: abortController.signal,
-        });
-        for await (const chunk of streamIter) {
-          if (aborted) break;
-          if (chunk?.usage) lastUsage = chunk.usage;
-          res.write('data: ' + JSON.stringify(chunk) + '\n\n');
-        }
-        if (!aborted) res.write('data: [DONE]\n\n');
-        res.end();
-        _reportUsage(req, app, lastUsage);
-      } catch (e) {
-        if (!aborted) {
-          res.write('data: ' + JSON.stringify({ error: e.message }) + '\n\n');
-        }
-        res.end();
-      } finally {
-        res.off('close', onClose);
-      }
-    } else {
-      // Non-streaming response
-      try {
-        const data = await callFusionMLX({
-          method: 'POST',
-          path: '/chat/completions',
-          body: { model: body.model || app.config.fusionMlx.chatModel, messages: body.messages || [], stream: false },
-          config: app.config.fusionMlx,
-        });
-        _reportUsage(req, app, data?.usage);
-        json(res, { choices: [{ message: { content: data.choices?.[0]?.message?.content || '' } }] });
-      } catch (e) {
-        error(res, `AI chat failed: ${e.message}`, 500);
-      }
-    }
-  });
 
   // ── AI embeddings ──────────────────────────────────────────────────────────
   app.registerRoute('POST', '/api/ai/embeddings', async (req, res) => {

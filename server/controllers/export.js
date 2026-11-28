@@ -8,7 +8,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
-const { notFound } = require('../utils/response');
+const { notFound, error } = require('../utils/response');
 // P1-P5 fix: stream downloads instead of readFileSync, avoiding OOM from loading large PDF/DOCX files fully into memory
 const { createReadStream, mkdirSync, writeFileSync, existsSync, statSync, unlinkSync } = require('fs');
 
@@ -86,30 +86,11 @@ function register(app) {
         break;
 
       case 'docx':
-        try {
-          const tmpDir = path.join(app.config.dataDir, 'exports');
-          mkdirSync(tmpDir, { recursive: true });
-          const mdPath = path.join(tmpDir, `${id}.md`);
-          const docxPath = path.join(tmpDir, `${id}.docx`);
-          writeFileSync(mdPath, markdown, 'utf-8');
-          try {
-            await execFileAsync('pandoc', [mdPath, '-o', docxPath], { timeout: 30000 });
-          } catch {
-            try {
-              await execFileAsync('libreoffice', ['--headless', '--convert-to', 'docx', '--outdir', tmpDir, mdPath], { timeout: 30000 });
-            } catch { /* libreoffice not available */ }
-          }
-          if (existsSync(docxPath)) {
-            streamFile(res, docxPath, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', `${page.slug || 'page'}.docx`, [mdPath, docxPath]);
-          } else {
-            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(markdown);
-            try { unlinkSync(mdPath); } catch (_) { /* cleanup optional */ }
-          }
-        } catch {
-          res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-          res.end(markdown);
-        }
+        // issue #90 (RFC office#64 H2): the legacy pandoc/libreoffice docx serialization
+        // is deleted — office-api is the only office-format engine. Keep the same
+        // visible fail-fast as services/office.js until office-api ships the write leg.
+        console.warn(`[Export] docx export rejected for page ${id}: office-api has no document write endpoint yet`);
+        error(res, 'docx export is not available: fusion-office office-api has no document write (html->docx) endpoint yet (tracked in fusion-office upstream); markdown/html/pdf export and docx template fill are functional', 422);
         break;
 
       default:
