@@ -23,7 +23,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versio
 ## [1.0.23] — 2026-11-28
 
 ### Changed — office consolidation P1: ai-client chat transport + office-api-only format engine (issue #90, RFC office#64 H3/H2)
-- AI Chat Panel transport migrated to the shared `@fusion-office/ai-client` (vendored at `client/src/vendor/ai-client`, pinned to fusion-office `4c42484d`, v0.1.0 MIT — package is still unpublished, swap to a real dependency when fusion-office#65 ships it): browser streams straight to fusion-gateway `:11432` via `chatStreamEvents`; dev rides the Vite `/__fusion_gateway` proxy, gateway `/shell/` mounts use same-origin automatically
+- AI Chat Panel transport migrated to the shared `@fusion-office/ai-client` (vendored at `client/src/vendor/ai-client`, pinned to fusion-office `4c42484d`, v0.1.0 MIT, unmodified + PROVENANCE.txt) — package is still unpublished, swap to a real dependency when fusion-office#65 ships it): browser streams straight to fusion-gateway `:11432` via `chatStreamEvents`; dev rides the Vite `/__fusion_gateway` proxy, gateway `/shell/` mounts use same-origin automatically
 - Build env for the browser transport is derived by `scripts/setup.sh` into `client/.env` (`VITE_FUSION_GATEWAY_URL` / `VITE_FUSION_GATEWAY_KEY` from `FUSION_GATEWAY_URL` / `FUSION_CLIENT_KEY`)
 - Rollout-tap outcomes adopted: every chat turn reports a schema-v1 outcome (`task_success` / `error`) to office-api `/v1/outcomes` — fusion-doc agentic steps land in the same tap jsonl as the office apps
 - `/api/ai/chat` proxy route deleted (sole consumer was the chat panel); identity usage reporting no longer sees chat tokens (embeddings/RAG still report; gateway metrics + tap outcomes replace the chat leg)
