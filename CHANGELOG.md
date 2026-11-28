@@ -7,8 +7,8 @@ doc_type: changelog
 title: {zh: Fusion-Doc 变更日志, en: Fusion-Doc Changelog}
 audience: engineer
 status: draft
-version: 1.0.22
-updated: 2026-11-25
+version: 1.0.23
+updated: 2026-11-28
 owner: "@dahai"
 source_of_truth:
   - CHANGELOG.md
